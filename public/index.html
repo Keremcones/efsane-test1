@@ -1716,8 +1716,8 @@
         const originalFetch = window.fetch;
         window.fetch = function(url, options) {
             if (USE_CORS_PROXY && typeof url === 'string' && url.includes('api.binance.com')) {
-                // cors-anywhere format: CORS_PROXY + original_url
-                const proxyUrl = CORS_PROXY + url;
+                // allorigins.win format: CORS_PROXY + encoded_url
+                const proxyUrl = CORS_PROXY + encodeURIComponent(url);
                 console.log(`🔄 Proxy: ${url.substring(0, 60)}...`);
                 return originalFetch(proxyUrl, options);
             }
