@@ -1,0 +1,1432 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profil Ayarları - Crypto Sentinel Signal</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="config.js"></script>
+    <!-- Auth Guard -->
+    <script>
+        // Hemen kontrol et - sayfa yüklemeden önce
+        (async () => {
+            const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            
+            if (!session) {
+                // Login olmamışsa login sayfasına yönlendir
+                window.location.replace('login.html');
+            }
+        })();
+    </script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #0da8e8;
+            --secondary: #0d6bb3;
+            --surface-dark: #1a2332;
+            --bg-surface: #0f1419;
+            --border-color: rgba(13, 168, 232, 0.3);
+            --text-primary: #ffffff;
+            --text-secondary: #b0b8c1;
+            --success: #4CAF50;
+            --error: #f44336;
+            --warning: #FF9800;
+        }
+
+        body {
+            background: linear-gradient(135deg, var(--bg-surface) 0%, var(--surface-dark) 100%);
+            color: var(--text-primary);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+            padding: 0;
+            margin: 0;
+        }
+
+        .navbar {
+            background: rgba(0, 0, 0, 0.3);
+            border-bottom: 1px solid var(--border-color);
+            padding: 16px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            backdrop-filter: blur(10px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .navbar-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .back-btn {
+            background: none;
+            border: none;
+            color: var(--primary);
+            font-size: 24px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            padding: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .back-btn:hover {
+            transform: translateX(-4px);
+            color: var(--secondary);
+        }
+
+        .logo {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--primary);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .user-email-header {
+            margin-left: auto;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        /* Dil Seçim Butonları */
+        .language-selector {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .language-btn {
+            background: rgba(100, 200, 255, 0.1);
+            border: 1px solid rgba(100, 200, 255, 0.3);
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .language-btn:hover {
+            background: rgba(100, 200, 255, 0.2);
+            border-color: var(--primary);
+            transform: scale(1.05);
+        }
+
+        .language-btn.active {
+            background: linear-gradient(135deg, rgba(100, 200, 255, 0.3), rgba(100, 200, 255, 0.2));
+            border-color: var(--primary);
+            color: var(--primary);
+            box-shadow: 0 0 12px rgba(100, 200, 255, 0.2);
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        .profile-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .profile-header h1 {
+            font-size: 28px;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .profile-header p {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .profile-section {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .profile-section:hover {
+            border-color: var(--primary);
+            box-shadow: 0 4px 20px rgba(13, 168, 232, 0.15);
+        }
+
+        .section-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            color: var(--primary);
+            font-size: 16px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .form-input {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            font-family: inherit;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 12px rgba(13, 168, 232, 0.2);
+            background: rgba(13, 168, 232, 0.05);
+        }
+
+        .form-input:read-only {
+            background: rgba(0, 0, 0, 0.5);
+            color: var(--text-secondary);
+            cursor: not-allowed;
+        }
+
+        .toggle-group {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .toggle-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 56px;
+            height: 28px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.1);
+            transition: 0.3s;
+            border-radius: 28px;
+            border: 1px solid var(--border-color);
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 22px;
+            width: 22px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+
+        .toggle-switch input:checked + .toggle-slider {
+            background-color: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(28px);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 40px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 14px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(13, 168, 232, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(13, 168, 232, 0.1);
+            border-color: var(--primary);
+        }
+
+        .notification {
+            position: fixed;
+            right: 20px;
+            padding: 16px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            z-index: 1000;
+            animation: slideInRight 0.3s ease;
+            max-width: 400px;
+            min-width: 300px;
+            transition: top 0.3s ease;
+        }
+
+        .notification.success {
+            background: rgba(76, 175, 80, 0.2);
+            border: 1px solid var(--success);
+            color: var(--success);
+        }
+
+        .notification.error {
+            background: rgba(244, 67, 54, 0.2);
+            border: 1px solid var(--error);
+            color: var(--error);
+        }
+
+        .notification.warning {
+            background: rgba(255, 152, 0, 0.2);
+            border: 1px solid var(--warning);
+            color: var(--warning);
+        }
+
+        @keyframes slideInRight {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes slideOutRight {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+        }
+
+        .info-box {
+            background: rgba(13, 168, 232, 0.1);
+            border-left: 4px solid var(--primary);
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        .info-box strong {
+            color: var(--primary);
+        }
+
+        .logout-btn {
+            width: 100%;
+            padding: 12px;
+            background: rgba(244, 67, 54, 0.1);
+            border: 1px solid var(--error);
+            color: var(--error);
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 20px;
+        }
+
+        .logout-btn:hover {
+            background: rgba(244, 67, 54, 0.2);
+        }
+
+        /* Tema Seçimi */
+        nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 24px;
+            background: var(--bg-surface);
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 24px;
+            border-radius: 8px;
+            gap: 20px;
+        }
+
+        /* Dil Seçici */
+        .btn-test {
+            width: 100%;
+            padding: 12px 16px;
+            background: linear-gradient(135deg, rgba(76, 175, 80, 0.2), rgba(76, 175, 80, 0.1));
+            border: 2px solid var(--success);
+            color: var(--success);
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 12px;
+            font-size: 14px;
+        }
+
+        .btn-test:hover {
+            background: linear-gradient(135deg, rgba(76, 175, 80, 0.3), rgba(76, 175, 80, 0.2));
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+        }
+
+        .btn-test:active {
+            transform: translateY(0);
+        }
+
+        .btn-test:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Membership Card Styles */
+        .membership-card {
+            background: linear-gradient(135deg, rgba(13, 168, 232, 0.15) 0%, rgba(13, 107, 179, 0.1) 100%);
+            border: 2px solid var(--primary);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .membership-card:hover {
+            border-color: var(--secondary);
+            box-shadow: 0 6px 20px rgba(13, 168, 232, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .membership-info h3 {
+            color: var(--primary);
+            font-size: 16px;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+
+        .membership-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+        }
+
+        .membership-badge.standard {
+            background: linear-gradient(135deg, #9E9E9E, #616161);
+        }
+
+        .membership-badge.premium {
+            background: linear-gradient(135deg, #FFD700, #FFA500);
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.4);
+        }
+
+        .membership-info p {
+            color: var(--text-secondary);
+            font-size: 13px;
+            margin-bottom: 8px;
+            line-height: 1.5;
+        }
+
+        .membership-action {
+            text-align: right;
+        }
+
+        .btn-premium {
+            background: linear-gradient(135deg, #FFD700, #FFA500);
+            color: #000;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-premium:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 215, 0, 0.4);
+        }
+
+        /* Password Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        .modal-content {
+            background: var(--surface-dark);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 32px;
+            max-width: 400px;
+            width: 90%;
+            animation: slideDown 0.3s ease;
+        }
+
+        @keyframes slideDown {
+            from {
+                transform: translateY(-30px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .modal-header h2 {
+            color: var(--primary);
+            font-size: 18px;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 24px;
+            cursor: pointer;
+            transition: color 0.3s ease;
+        }
+
+        .modal-close:hover {
+            color: var(--text-primary);
+        }
+
+        .modal-body {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .password-field {
+            position: relative;
+        }
+
+        .password-field input {
+            width: 100%;
+            padding: 12px 16px 12px 16px;
+        }
+
+        .password-toggle {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 16px;
+            transition: color 0.3s ease;
+        }
+
+        .password-toggle:hover {
+            color: var(--primary);
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        .modal-actions button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-modal-cancel {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-modal-cancel:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .btn-modal-submit {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+        }
+
+        .btn-modal-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(13, 168, 232, 0.3);
+        }
+
+        .btn-modal-submit:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px 16px;
+            }
+
+            .profile-header h1 {
+                font-size: 24px;
+            }
+
+            .button-group {
+                flex-direction: column;
+            }
+
+            .user-email-header {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="navbar-left">
+            <button class="back-btn" onclick="window.goBack()">←</button>
+            <a href="dashboard.html" class="logo">⚡ CRYPTO LAB PRO</a>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <div class="user-email-header" id="userEmailHeader">Loading...</div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="profile-header">
+            <h1>👤 Profil Ayarları</h1>
+            <p>Hesap bilgilerini ve tercihlerini yönet</p>
+        </div>
+
+        <!-- Üyelik Planı Bölümü -->
+        <div class="membership-card">
+            <div class="membership-info">
+                <div class="membership-badge" id="membershipBadge">🏢 Standard Plan</div>
+                <h3>Üyelik Planınız</h3>
+                <p id="membershipDescription">Standart özelliklerle kripto analizi yapın</p>
+                <p style="font-size: 12px; color: #888; margin-top: 8px;" id="membershipExpiry"></p>
+            </div>
+            <div class="membership-action">
+                <button class="btn-premium" id="upgradePremiumBtn" onclick="window.openPremiumModal()">📈 Premium'a Yükselt</button>
+            </div>
+        </div>
+
+        <!-- Email Bölümü -->
+        <div class="profile-section">
+            <div class="section-title">
+                📧 Hesap Bilgileri
+            </div>
+            <div class="form-group">
+                <label class="form-label">Email Adresi</label>
+                <input type="email" id="profileEmail" class="form-input" readonly />
+            </div>
+            <div class="info-box"></div>
+        </div>
+
+        <!-- Güvenlik Bölümü -->
+        <div class="profile-section">
+            <div class="section-title">
+                🔐 Güvenlik
+            </div>
+
+            <div class="info-box">
+                Hesabınızın güvenliğini sağlamak için şifrenizi düzenli olarak değiştiriniz.
+            </div>
+
+            <div class="form-group">
+                <button class="btn" style="width: 100%; background: linear-gradient(135deg, rgba(244, 67, 54, 0.2), rgba(244, 67, 54, 0.1)); border: 1px solid var(--error); color: var(--error); padding: 14px 24px;" onclick="window.openChangePasswordModal()">
+                    🔑 Şifre Değiştir
+                </button>
+                <p style="color: var(--text-secondary); font-size: 12px; margin-top: 12px; text-align: center;">
+                    Son şifre değiştirme: <span id="lastPasswordChange">Bilgi yükleniyor...</span>
+                </p>
+            </div>
+
+            <div style="background: rgba(255, 152, 0, 0.08); border: 1px solid rgba(255, 152, 0, 0.2); border-radius: 8px; padding: 12px; margin-top: 16px;">
+                <p style="color: var(--warning); font-size: 12px;">
+                    ⚠️ Güçlü bir şifre kullanın: En az 8 karakter, büyük harf, küçük harf ve rakam içermelidir.
+                </p>
+            </div>
+        </div>
+
+        <!-- Telegram Bölümü -->
+        <div class="profile-section">
+            <div class="section-title">
+                💬 Telegram Bildirimleri
+            </div>
+
+            <div class="info-box">
+                <p>Telegram üzerinden alarm bildirimlerini almak için Telegram kullanıcı adınızı girin.</p>
+                <p style="margin-top: 8px;"><strong>Bot:</strong> <span>@Cryptosentinelsignalsbot</span></p>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Telegram Chat ID</label>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <input 
+                        type="text" 
+                        id="telegramUsername" 
+                        class="form-input" 
+                        placeholder="Chat ID'ni gir (sadece rakam)"
+                        autocomplete="off"
+                        style="flex: 1;"
+                    />
+                    <button id="clearTelegramBtn" class="btn btn-secondary" style="padding: 12px 16px; min-width: auto; display: none;" onclick="window.clearTelegramId()">🗑️ Sil</button>
+                </div>
+                
+                <!-- Chat ID Bulma Rehberi -->
+                <div style="background: rgba(13, 168, 232, 0.08); border: 1px solid rgba(13, 168, 232, 0.2); border-radius: 8px; padding: 16px; margin-top: 12px;">
+                    <div style="display: flex; align-items: flex-start; gap: 12px;">
+                        <div style="font-size: 20px; flex-shrink: 0;">🔐</div>
+                        <div style="flex: 1;">
+                            <p style="font-weight: 600; color: var(--text-primary); margin-bottom: 10px; font-size: 14px;">
+                                Chat ID'nizi 30 Saniyede Bulun
+                            </p>
+                            <ol style="color: var(--text-secondary); font-size: 13px; line-height: 1.8; margin-left: 20px; list-style-type: decimal;">
+                                <li>Telegram uygulamasını açın</li>
+                                <li><strong style="color: var(--primary);">@userinfobot</strong> adını arayın</li>
+                                <li><strong style="color: var(--primary);">/start</strong> komutunu yazıp gönderin</li>
+                                <li>Bot tarafından gönderilen <strong style="color: var(--primary);">User ID'yi</strong> kopyalayın</li>
+                            </ol>
+                            <p style="color: var(--text-secondary); font-size: 12px; margin-top: 10px; font-style: italic;"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="toggle-group">
+                <label class="toggle-label">
+                    🔔 Telegram Bildirimlerini Aç
+                </label>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="notificationsToggle" />
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+            <button class="btn-test" id="testNotificationBtn" onclick="window.handleTestNotification()">
+                📨 Test Bildirimi Gönder
+            </button>
+        </div>
+
+        <!-- Butonlar -->
+        <div class="button-group">
+            <button class="btn btn-secondary" onclick="window.goBack()">← Geri Dön</button>
+            <button class="btn btn-primary" onclick="window.saveProfileSettings()">💾 Kaydet</button>
+        </div>
+
+        <!-- Çıkış Butonu -->
+        <button type="button" class="logout-btn" onclick="window.logout()">🚪 Çıkış Yap</button>
+    </div>
+
+    <!-- Şifre Değiştir Modal -->
+    <div id="passwordModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>🔐 Şifre Değiştir</h2>
+                <button class="modal-close" onclick="window.closeChangePasswordModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div style="color: var(--text-secondary); font-size: 13px; line-height: 1.6; margin-bottom: 16px;">
+                    Yeni bir şifre belirleyin. Güçlü bir şifre için en az 8 karakter, büyük harf, küçük harf ve rakam kullanınız.
+                </div>
+                
+                <div class="password-field">
+                    <label class="form-label">Mevcut Şifreniz</label>
+                    <input type="password" id="currentPassword" class="form-input" placeholder="Mevcut şifrenizi girin" />
+                </div>
+
+                <div class="password-field">
+                    <label class="form-label">Yeni Şifre</label>
+                    <input type="password" id="newPassword" class="form-input" placeholder="Yeni şifrenizi girin" />
+                    <button class="password-toggle" onclick="window.togglePasswordVisibility('newPassword')">👁️</button>
+                </div>
+
+                <div class="password-field">
+                    <label class="form-label">Yeni Şifre (Tekrar)</label>
+                    <input type="password" id="confirmPassword" class="form-input" placeholder="Yeni şifrenizi tekrar girin" />
+                    <button class="password-toggle" onclick="window.togglePasswordVisibility('confirmPassword')">👁️</button>
+                </div>
+
+                <div style="background: rgba(76, 175, 80, 0.08); border: 1px solid rgba(76, 175, 80, 0.2); border-radius: 8px; padding: 12px; margin-top: 16px;">
+                    <p style="color: var(--success); font-size: 12px; line-height: 1.6;">
+                        ✓ <strong>Şifre Güvenliği İpuçları:</strong><br/>
+                        • En az 8 karakter<br/>
+                        • En az 1 büyük harf<br/>
+                        • En az 1 küçük harf<br/>
+                        • En az 1 rakam
+                    </p>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-modal-cancel" onclick="window.closeChangePasswordModal()">İptal</button>
+                <button class="btn-modal-submit" id="submitPasswordBtn" onclick="window.submitChangePassword()">Şifre Değiştir</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Premium Modal -->
+    <div id="premiumModal" class="modal">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h2>⭐ Premium Planına Yükselt</h2>
+                <button class="modal-close" onclick="window.closePremiumModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div style="background: rgba(255, 215, 0, 0.08); border: 1px solid rgba(255, 215, 0, 0.3); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+                    <h3 style="color: #FFD700; margin-bottom: 12px; font-weight: 700;">⭐ Premium Özellikleri</h3>
+                    <ul style="list-style: none; color: var(--text-secondary); font-size: 13px; line-height: 2;">
+                        <li>✓ Sınırsız analiz</li>
+                        <li>✓ Gelişmiş indikatörler</li>
+                        <li>✓ Önceilikli destek</li>
+                        <li>✓ Ekstra sinyaller</li>
+                        <li>✓ Telegram bildirimler (unlimited)</li>
+                        <li>✓ API erişimi</li>
+                    </ul>
+                </div>
+
+                <div style="background: rgba(13, 168, 232, 0.08); border: 1px solid rgba(13, 168, 232, 0.2); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+                    <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 8px;">
+                        <strong>Fiyatlandırma:</strong>
+                    </p>
+                    <p style="color: #FFD700; font-size: 18px; font-weight: 700;">
+                        ₺299 / Ay
+                    </p>
+                    <p style="color: var(--text-secondary); font-size: 12px; margin-top: 8px;">
+                        7 gün ücretsiz deneme sürümü sunuyoruz
+                    </p>
+                </div>
+
+                <div style="color: var(--text-secondary); font-size: 12px; text-align: center; padding: 12px; background: rgba(0, 0, 0, 0.2); border-radius: 8px;">
+                    💳 Ödeme işlemi secure olarak yapılacaktır
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-modal-cancel" onclick="window.closePremiumModal()">Kapat</button>
+                <button class="btn-modal-submit" style="background: linear-gradient(135deg, #FFD700, #FFA500); color: #000;" onclick="window.handlePremiumUpgrade()">
+                    🛒 Şimdi Satın Al
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="config.js"></script>
+    <script>
+        let supabaseClient = null;
+        let currentUser = null;
+        let notificationCount = 0;
+
+        // Profil Ayarlarını Yükle
+        async function loadProfileSettings() {
+            if (!currentUser) return;
+
+            try {
+                document.getElementById('profileEmail').value = currentUser.email;
+
+                // Üyelik bilgisini yükle
+                const { data: userProfile, error: profileError } = await supabaseClient
+                    .from('user_profiles')
+                    .select('membership_type, membership_expires_at')
+                    .eq('id', currentUser.id)
+                    .single();
+
+                // Membership badge'ini güncelle
+                if (userProfile) {
+                    updateMembershipBadge(userProfile.membership_type || 'standard', userProfile.membership_expires_at);
+                } else {
+                    updateMembershipBadge('standard', null);
+                }
+
+                // Son şifre değiştirme tarihini yükle
+                const lastPasswordChangeDate = localStorage.getItem(`pwd_change_${currentUser.id}`) || 'Hiç değiştirilmedi';
+                document.getElementById('lastPasswordChange').textContent = lastPasswordChangeDate;
+
+                // Supabase'den kullanıcı ayarlarını yükle
+                const { data: userSettings, error } = await supabaseClient
+                    .from('user_settings')
+                    .select('*')
+                    .eq('user_id', currentUser.id)
+                    .single();
+
+                if (userSettings) {
+                    document.getElementById('telegramUsername').value = userSettings.telegram_username || '';
+                    document.getElementById('notificationsToggle').checked = userSettings.notifications_enabled !== false;
+                } else {
+                    document.getElementById('notificationsToggle').checked = true;
+                }
+            } catch (error) {
+                console.log('Kullanıcı ayarları yükleniyor...', error.message);
+                document.getElementById('notificationsToggle').checked = true;
+                updateMembershipBadge('standard', null);
+                document.getElementById('lastPasswordChange').textContent = 'Bilgi alınamadı';
+            }
+        }
+
+        // Üyelik badge'ini güncelle
+        function updateMembershipBadge(type, expiryDate) {
+            const badge = document.getElementById('membershipBadge');
+            const description = document.getElementById('membershipDescription');
+            const expiry = document.getElementById('membershipExpiry');
+
+            if (type === 'premium') {
+                badge.textContent = '⭐ Premium Plan';
+                badge.className = 'membership-badge premium';
+                description.textContent = 'Tüm premium özelliklere erişiminiz bulunmaktadır';
+                
+                if (expiryDate) {
+                    const date = new Date(expiryDate);
+                    expiry.textContent = `Premium üyelik ' ${date.toLocaleDateString('tr-TR')} tarihinde sona erecek`;
+                }
+            } else {
+                badge.textContent = '🏢 Standard Plan';
+                badge.className = 'membership-badge standard';
+                description.textContent = 'Standart özelliklerle kripto analizi yapın';
+                expiry.textContent = '';
+            }
+        }
+
+        // Profil Ayarlarını Kaydet
+        window.saveProfileSettings = async function() {
+            if (!currentUser) {
+                showNotification('❌ Lütfen giriş yapınız!', 'error');
+                return;
+            }
+
+            const telegramChatId = document.getElementById('telegramUsername').value.trim();
+            const notificationsEnabled = document.getElementById('notificationsToggle').checked;
+
+            // Telegram Chat ID doğrulaması
+            if (telegramChatId && isNaN(telegramChatId)) {
+                showNotification('❌ Chat ID sadece rakam olmalı!', 'error');
+                return;
+            }
+
+            try {
+                // Mevcut kayıt kontrol et
+                const { data: existing } = await supabaseClient
+                    .from('user_settings')
+                    .select('user_id')
+                    .eq('user_id', currentUser.id)
+                    .single();
+
+                let result;
+                if (existing) {
+                    // Güncelle
+                    result = await supabaseClient
+                        .from('user_settings')
+                        .update({
+                            telegram_username: telegramChatId || null,
+                            notifications_enabled: notificationsEnabled,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('user_id', currentUser.id);
+                } else {
+                    // Yeni oluştur
+                    result = await supabaseClient
+                        .from('user_settings')
+                        .insert({
+                            user_id: currentUser.id,
+                            telegram_username: telegramChatId || null,
+                            notifications_enabled: notificationsEnabled,
+                            created_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString()
+                        });
+                }
+
+                if (result.error) throw result.error;
+
+                showNotification('✅ Profil ayarları başarıyla kaydedildi!', 'success');
+                window.makeTelegramIdReadonly();
+            } catch (error) {
+                console.error('Profil kaydetme hatası:', error);
+                showNotification('❌ Kaydetme başarısız: ' + error.message, 'error');
+            }
+        }
+
+        // Geri Git
+        window.goBack = function() {
+            window.history.back();
+        };
+
+        // Test Bildirimi Gönder - Wrapper
+        window.handleTestNotification = function() {
+            sendTestNotification();
+        };
+
+        // Telegram ID'yi temizle
+        window.clearTelegramId = function() {
+            const input = document.getElementById('telegramUsername');
+            const btn = document.getElementById('clearTelegramBtn');
+            input.value = '';
+            input.readOnly = false;
+            btn.style.display = 'none';
+            input.focus();
+        }
+
+        // Telegram ID girdikten sonra readonly yap
+        window.makeTelegramIdReadonly = function() {
+            const input = document.getElementById('telegramUsername');
+            const btn = document.getElementById('clearTelegramBtn');
+            
+            if (input.value.trim() && !isNaN(input.value.trim())) {
+                input.readOnly = true;
+                btn.style.display = 'block';
+            }
+        };
+
+        // Test Bildirimi Gönder
+        async function sendTestNotification() {
+            const chatId = document.getElementById('telegramUsername').value.trim();
+            const notificationEnabled = document.getElementById('notificationsToggle').checked;
+
+            if (!chatId) {
+                showNotification('❌ Telegram Chat ID\'ni gir!', 'error');
+                return;
+            }
+
+            if (isNaN(chatId)) {
+                showNotification('❌ Chat ID sadece rakam olmalı!', 'error');
+                return;
+            }
+
+            if (!notificationEnabled) {
+                showNotification('❌ Telegram bildirimlerini açınız!', 'error');
+                return;
+            }
+
+            const testBtn = document.getElementById('testNotificationBtn');
+            testBtn.disabled = true;
+            const originalText = testBtn.textContent;
+            testBtn.textContent = '⏳ Kaydediliyor...';
+
+            const botToken = TELEGRAM_BOT_TOKEN;
+
+            try {
+                showNotification('💾 Ayarlar kaydediliyor...', 'warning');
+                await saveProfileSettings();
+                
+                testBtn.textContent = '⏳ Telegram\'a gönderiliyor...';
+
+                const { data: { session } } = await supabaseClient.auth.getSession();
+                
+                const headers = { 'Content-Type': 'application/json' };
+                if (session && session.access_token) {
+                    headers['Authorization'] = 'Bearer ' + session.access_token;
+                }
+                
+                const response = await fetch(TELEGRAM_FUNCTION_URL, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({
+                        telegramUsername: chatId,
+                        botToken: botToken
+                    })
+                });
+
+                const result = await response.json();
+                console.log('Edge Function Cevabı:', result);
+
+                if (result.ok) {
+                    showNotification('✅ Test bildirimi başarıyla gönderildi! Telegram\'ınızı kontrol edin.', 'success');
+                } else if (result.error_code === 400 && result.description && result.description.includes('chat not found')) {
+                    showNotification('⚠️ Chat ID yanlış veya bot sizin Telegram\'ınızı tanımıyor. @userinfobot\'tan ID\'nizi kontrol edin.', 'warning');
+                } else if (result.error) {
+                    console.error('Edge Function Hatası:', result.error);
+                    showNotification('⚠️ Hata: ' + result.error, 'warning');
+                } else {
+                    console.error('Telegram API Hatası:', result);
+                    showNotification('⚠️ Hata: ' + (result.description || 'Bilinmeyen hata'), 'warning');
+                }
+            } catch (error) {
+                console.error('Hata:', error);
+                showNotification('❌ ' + error.message, 'error');
+            } finally {
+                testBtn.disabled = false;
+                testBtn.textContent = originalText;
+            }
+        }
+
+        // Modal Fonksiyonları
+        window.openChangePasswordModal = function() {
+            document.getElementById('passwordModal').classList.add('active');
+            document.getElementById('currentPassword').value = '';
+            document.getElementById('newPassword').value = '';
+            document.getElementById('confirmPassword').value = '';
+        };
+
+        window.closeChangePasswordModal = function() {
+            document.getElementById('passwordModal').classList.remove('active');
+        };
+
+        window.openPremiumModal = function() {
+            document.getElementById('premiumModal').classList.add('active');
+        };
+
+        window.closePremiumModal = function() {
+            document.getElementById('premiumModal').classList.remove('active');
+        };
+
+        // Şifre görünürlüğünü değiştir
+        window.togglePasswordVisibility = function(fieldId) {
+            const field = document.getElementById(fieldId);
+            if (field.type === 'password') {
+                field.type = 'text';
+            } else {
+                field.type = 'password';
+            }
+        };
+
+        // Şifre değiştirmeyi gönder
+        window.submitChangePassword = async function() {
+            const currentPassword = document.getElementById('currentPassword').value;
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+
+            // Validasyonlar
+            if (!currentPassword || !newPassword || !confirmPassword) {
+                showNotification('❌ Tüm alanları doldurunuz!', 'error');
+                return;
+            }
+
+            if (newPassword !== confirmPassword) {
+                showNotification('❌ Yeni şifreler eşleşmemektedir!', 'error');
+                return;
+            }
+
+            if (newPassword.length < 8) {
+                showNotification('❌ Şifre en az 8 karakter olmalıdır!', 'error');
+                return;
+            }
+
+            // Şifre güç kontrolü
+            const hasUpper = /[A-Z]/.test(newPassword);
+            const hasLower = /[a-z]/.test(newPassword);
+            const hasNumber = /[0-9]/.test(newPassword);
+
+            if (!hasUpper || !hasLower || !hasNumber) {
+                showNotification('❌ Şifre büyük harf, küçük harf ve rakam içermelidir!', 'error');
+                return;
+            }
+
+            const submitBtn = document.getElementById('submitPasswordBtn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = '⏳ İşleniyor...';
+
+            try {
+                // Supabase ile şifre değiştirme
+                const { error } = await supabaseClient.auth.updateUser({
+                    password: newPassword
+                });
+
+                if (error) {
+                    throw error;
+                }
+                
+                showNotification('✅ Şifreniz başarıyla değiştirildi!', 'success');
+                
+                // Son değiştirme tarihini kaydet
+                const today = new Date().toLocaleDateString('tr-TR');
+                localStorage.setItem(`pwd_change_${currentUser.id}`, today);
+                document.getElementById('lastPasswordChange').textContent = today;
+                
+                window.closeChangePasswordModal();
+            } catch (error) {
+                console.error('Şifre değiştirme hatası:', error);
+                showNotification('❌ Hata: ' + (error.message || 'Şifre değiştirilemedi'), 'error');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Şifre Değiştir';
+            }
+        }
+
+        // Premium'a yükselt
+        window.handlePremiumUpgrade = function() {
+            showNotification('💳 Premium ödeme sistemi şu anda kurulum aşamasındadır...', 'warning');
+            // Ödeme işlemi here yapılacak (Stripe, PayPal vs.)
+            setTimeout(() => {
+                window.closePremiumModal();
+            }, 2000);
+        }
+
+        // Modal dışında tıklayarak kapatma
+        document.addEventListener('click', function(e) {
+            const passwordModal = document.getElementById('passwordModal');
+            const premiumModal = document.getElementById('premiumModal');
+            
+            if (e.target === passwordModal) {
+                window.closeChangePasswordModal();
+            }
+            if (e.target === premiumModal) {
+                window.closePremiumModal();
+            }
+        });
+
+        // Çıkış Yap
+        window.logout = async function() {
+            console.log('logout function called');
+            
+            try {
+                if (supabaseClient && supabaseClient.auth) {
+                    console.log('Signing out from Supabase...');
+                    const { error } = await supabaseClient.auth.signOut();
+                    
+                    if (error) {
+                        console.error('Logout error:', error);
+                    } else {
+                        console.log('Signed out successfully');
+                    }
+                    
+                    // Local storage ve session storage'ı temizle
+                    localStorage.clear();
+                    sessionStorage.clear();
+                    
+                    // Biraz bekle ve yönlendir
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+            } catch (error) {
+                console.error('Logout error:', error);
+                localStorage.clear();
+                sessionStorage.clear();
+            }
+            
+            // Her halükarda yönlendir
+            console.log('Redirecting to index.html');
+            window.location.href = 'index.html';
+        };
+
+        // Bildirim Göster
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.textContent = message;
+            notification.dataset.index = notificationCount;
+            notificationCount++;
+            
+            document.body.appendChild(notification);
+            
+            // Her bildirim için dinamik top değeri (100px gap)
+            const topPosition = 20 + (notification.dataset.index * 110);
+            notification.style.top = topPosition + 'px';
+
+            setTimeout(() => {
+                notification.style.animation = 'slideOutRight 0.3s ease';
+                setTimeout(() => {
+                    notification.remove();
+                    // Kalan bildirimleri yukarı kaydır
+                    updateNotificationPositions();
+                }, 300);
+            }, 4000);
+        }
+        
+        // Bildirimlerin pozisyonunu güncelle
+        function updateNotificationPositions() {
+            const notifications = document.querySelectorAll('.notification');
+            notifications.forEach((notif, index) => {
+                const topPosition = 20 + (index * 110);
+                notif.style.top = topPosition + 'px';
+            });
+        }
+
+        // Sayfa yüklendiğinde
+        window.addEventListener('DOMContentLoaded', async () => {
+            const { createClient } = window.supabase;
+            supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+            // Kullanıcı oturumunu kontrol et
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            
+            if (!session) {
+                window.location.href = 'index.html';
+                return;
+            }
+
+            currentUser = session.user;
+            document.getElementById('userEmailHeader').textContent = currentUser.email;
+            
+            // Profil ayarlarını yükle
+            await loadProfileSettings();
+
+            // Telegram input'a event listener ekle
+            const telegramInput = document.getElementById('telegramUsername');
+            if (telegramInput) {
+                telegramInput.addEventListener('blur', window.makeTelegramIdReadonly);
+            }
+
+            // DEBUG: Telegram ayarlarını kontrol et
+            window.debugTelegramSettings = async function() {
+                if (!currentUser) {
+                    console.log('❌ Kullanıcı giriş yapmamış');
+                    return;
+                }
+                
+                console.log('\n🔍 ===== PROFILE TELEGRAM DEBUG =====');
+                console.log('👤 User:', currentUser.email, 'ID:', currentUser.id);
+                console.log('📱 Form Chat ID:', document.getElementById('telegramUsername').value);
+                console.log('🔔 Notifications Enabled:', document.getElementById('notificationsToggle').checked);
+                
+                const { data, error } = await supabaseClient
+                    .from('user_settings')
+                    .select('*')
+                    .eq('user_id', currentUser.id)
+                    .single();
+                
+                if (error) {
+                    console.error('❌ Supabase Hata:', error);
+                } else {
+                    console.log('✅ Supabase Veri:', data);
+                }
+                console.log('===== DEBUG BİTTİ =====\n');
+            };
+            
+            console.log('💡 Test: debugTelegramSettings() yazıp Enter tuşuna bas');
+        });
+
+        // Çıkış Yap Fonksiyonu
+        async function logout() {
+            try {
+                const { error } = await supabaseClient.auth.signOut();
+                if (error) throw error;
+                window.location.replace('login.html');
+            } catch (error) {
+                console.error('Çıkış hatası:', error.message);
+                // Hata olsa bile localStorage'ı temizle ve login sayfasına yönlendir
+                localStorage.clear();
+                window.location.replace('login.html');
+            }
+        }
+    </script>
+</body>
+</html>

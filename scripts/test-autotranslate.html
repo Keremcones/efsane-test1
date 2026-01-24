@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoTranslate Entegrasyon Testi</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        
+        .subtitle {
+            color: #666;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .language-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 40px;
+            justify-content: center;
+        }
+        
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        
+        .lang-btn-tr {
+            background: #667eea;
+            color: white;
+        }
+        
+        .lang-btn-tr:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+        
+        .lang-btn-en {
+            background: #764ba2;
+            color: white;
+        }
+        
+        .lang-btn-en:hover {
+            background: #6a3f8e;
+            transform: translateY(-2px);
+        }
+        
+        .test-section {
+            margin-bottom: 30px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        
+        .test-section h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        
+        .test-item {
+            margin-bottom: 15px;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .test-item label {
+            display: block;
+            color: #666;
+            font-size: 12px;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+        
+        .test-item .value {
+            color: #333;
+            font-weight: bold;
+            font-size: 16px;
+        }
+        
+        .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-left: 10px;
+            font-weight: bold;
+        }
+        
+        .status.success {
+            background: #4caf50;
+            color: white;
+        }
+        
+        .status.error {
+            background: #f44336;
+            color: white;
+        }
+        
+        .status.info {
+            background: #2196f3;
+            color: white;
+        }
+        
+        .log {
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        
+        .log-item {
+            margin-bottom: 5px;
+        }
+        
+        .log-item.success {
+            color: #4caf50;
+        }
+        
+        .log-item.error {
+            color: #f44336;
+        }
+        
+        .log-item.info {
+            color: #2196f3;
+        }
+        
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            color: #666;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🌍 AutoTranslate Entegrasyon Testi</h1>
+        <p class="subtitle">i18n.js + autoTranslate.js Sistem Kontrolü</p>
+        
+        <div class="language-buttons">
+            <button class="lang-btn-tr" onclick="selectLanguage('tr')">🇹🇷 Türkçe</button>
+            <button class="lang-btn-en" onclick="selectLanguage('en')">🇬🇧 English</button>
+        </div>
+        
+        <!-- Test Section 1: i18n.js Tests -->
+        <div class="test-section">
+            <h2>📝 i18n.js Çevirisi (Statik Metinler)</h2>
+            
+            <div class="test-item">
+                <label>Anahtar: "dashboard"</label>
+                <div class="value">
+                    <span id="i18n-dashboard">-</span>
+                    <span id="i18n-dashboard-status" class="status"></span>
+                </div>
+            </div>
+            
+            <div class="test-item">
+                <label>Anahtar: "logout"</label>
+                <div class="value">
+                    <span id="i18n-logout">-</span>
+                    <span id="i18n-logout-status" class="status"></span>
+                </div>
+            </div>
+            
+            <div class="test-item">
+                <label>Anahtar: "profile"</label>
+                <div class="value">
+                    <span id="i18n-profile">-</span>
+                    <span id="i18n-profile-status" class="status"></span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Test Section 2: autoTranslate.js Tests -->
+        <div class="test-section">
+            <h2>🔄 autoTranslate.js Çevirisi (Dinamik Metinler)</h2>
+            
+            <div class="test-item">
+                <label>Metni: "Yükleniyor..."</label>
+                <div class="value">
+                    <span id="auto-loading">-</span>
+                    <span id="auto-loading-status" class="status"></span>
+                </div>
+            </div>
+            
+            <div class="test-item">
+                <label>Metni: "Lütfen bir coin seçin"</label>
+                <div class="value">
+                    <span id="auto-select-coin">-</span>
+                    <span id="auto-select-coin-status" class="status"></span>
+                </div>
+            </div>
+            
+            <div class="test-item">
+                <label>Metni: "💰 Volume (Yüksek)"</label>
+                <div class="value">
+                    <span id="auto-volume">-</span>
+                    <span id="auto-volume-status" class="status"></span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Test Section 3: Senkronizasyon -->
+        <div class="test-section">
+            <h2>🔗 Senkronizasyon Kontrolleri</h2>
+            
+            <div class="test-item">
+                <label>i18n.currentLanguage</label>
+                <div class="value">
+                    <span id="i18n-lang">-</span>
+                    <span id="i18n-lang-status" class="status"></span>
+                </div>
+            </div>
+            
+            <div class="test-item">
+                <label>autoTranslate.currentLanguage</label>
+                <div class="value">
+                    <span id="auto-lang">-</span>
+                    <span id="auto-lang-status" class="status"></span>
+                </div>
+            </div>
+            
+            <div class="test-item">
+                <label>localStorage['language']</label>
+                <div class="value">
+                    <span id="storage-lang">-</span>
+                    <span id="storage-lang-status" class="status"></span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Test Section 4: HTML Attribute Tests -->
+        <div class="test-section">
+            <h2>📄 HTML Attribute Testleri</h2>
+            
+            <div class="test-item">
+                <label>data-i18n="dashboard"</label>
+                <div class="value" data-i18n="dashboard">🚀 Dashboard</div>
+            </div>
+            
+            <div class="test-item">
+                <label>data-i18n="logout"</label>
+                <div class="value" data-i18n="logout">🚪 Çıkış Yap</div>
+            </div>
+            
+            <div class="test-item">
+                <label>data-auto-translate</label>
+                <div class="value" data-auto-translate>Yükleniyor...</div>
+            </div>
+            
+            <div class="test-item">
+                <label>Placeholder input (data-auto-translate-placeholder)</label>
+                <input type="text" placeholder="Coin ara..." data-auto-translate-placeholder="Coin ara..." 
+                       style="padding: 10px; border: 1px solid #ddd; border-radius: 4px; width: 100%; font-family: inherit;">
+            </div>
+        </div>
+        
+        <!-- Console Log -->
+        <div class="test-section">
+            <h2>📊 Sistem Durumu Günlüğü</h2>
+            <div class="log" id="testLog"></div>
+        </div>
+        
+        <footer>
+            <p>🔧 AutoTranslate Modülü Entegrasyon Testi - Tüm Fonksiyonaliteler Test Edilebilir</p>
+            <p style="margin-top: 10px; color: #999;">Dil düğmelerine tıklayın ve tüm metinlerin güncellendiğini gözlemleyin</p>
+        </footer>
+    </div>
+    
+    <!-- Load i18n first, then autoTranslate -->
+    <script src="i18n.js"></script>
+    <script src="autoTranslate.js"></script>
+    
+    <script>
+        const log = [];
+        
+        function addLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString('tr-TR');
+            log.push({ message, type, timestamp });
+            updateLog();
+        }
+        
+        function updateLog() {
+            const logEl = document.getElementById('testLog');
+            logEl.innerHTML = log.map(item => 
+                `<div class="log-item ${item.type}">[${item.timestamp}] ${item.message}</div>`
+            ).join('');
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+        
+        function selectLanguage(lang) {
+            addLog(`🌍 Dil değiştiriliyor: "${lang === 'tr' ? 'Türkçe' : 'English'}"`, 'info');
+            window.changeLanguage(lang);
+            setTimeout(runTests, 100);
+        }
+        
+        function runTests() {
+            addLog('🧪 Testler başlatılıyor...', 'info');
+            
+            // Test i18n translations
+            testI18nTranslations();
+            
+            // Test autoTranslate
+            testAutoTranslate();
+            
+            // Test synchronization
+            testSynchronization();
+            
+            addLog('✅ Tüm testler tamamlandı', 'success');
+        }
+        
+        function testI18nTranslations() {
+            const keys = ['dashboard', 'logout', 'profile'];
+            
+            keys.forEach(key => {
+                const translation = i18n.t(key);
+                const el = document.getElementById(`i18n-${key}`);
+                const statusEl = document.getElementById(`i18n-${key}-status`);
+                
+                if (translation && translation !== key) {
+                    el.textContent = translation;
+                    statusEl.className = 'status success';
+                    statusEl.textContent = '✓ OK';
+                    addLog(`✓ i18n.t('${key}') = "${translation}"`, 'success');
+                } else {
+                    statusEl.className = 'status error';
+                    statusEl.textContent = '✗ FAIL';
+                    addLog(`✗ i18n.t('${key}') başarısız`, 'error');
+                }
+            });
+        }
+        
+        function testAutoTranslate() {
+            const texts = [
+                'Yükleniyor...',
+                'Lütfen bir coin seçin',
+                '💰 Volume (Yüksek)'
+            ];
+            const ids = [
+                'auto-loading',
+                'auto-select-coin',
+                'auto-volume'
+            ];
+            
+            texts.forEach((text, index) => {
+                const translation = autoTranslate.translate(text);
+                const el = document.getElementById(ids[index]);
+                const statusEl = document.getElementById(ids[index] + '-status');
+                
+                if (translation) {
+                    el.textContent = translation;
+                    statusEl.className = 'status success';
+                    statusEl.textContent = '✓ OK';
+                    addLog(`✓ autoTranslate.translate('${text}') = "${translation}"`, 'success');
+                } else {
+                    statusEl.className = 'status error';
+                    statusEl.textContent = '✗ FAIL';
+                    addLog(`✗ autoTranslate.translate('${text}') başarısız`, 'error');
+                }
+            });
+        }
+        
+        function testSynchronization() {
+            const i18nLang = document.getElementById('i18n-lang');
+            const autoLang = document.getElementById('auto-lang');
+            const storageLang = document.getElementById('storage-lang');
+            
+            const i18nLangStatus = document.getElementById('i18n-lang-status');
+            const autoLangStatus = document.getElementById('auto-lang-status');
+            const storageLangStatus = document.getElementById('storage-lang-status');
+            
+            const currentLang = i18n.currentLanguage;
+            const storedLang = localStorage.getItem('language');
+            
+            i18nLang.textContent = currentLang;
+            autoLang.textContent = autoTranslate.currentLanguage;
+            storageLang.textContent = storedLang;
+            
+            // Check if all are synchronized
+            const allSynced = (currentLang === autoTranslate.currentLanguage && currentLang === storedLang);
+            
+            if (allSynced) {
+                i18nLangStatus.className = 'status success';
+                i18nLangStatus.textContent = '✓ SYNC';
+                autoLangStatus.className = 'status success';
+                autoLangStatus.textContent = '✓ SYNC';
+                storageLangStatus.className = 'status success';
+                storageLangStatus.textContent = '✓ SYNC';
+                addLog('✓ Tüm dil ayarları senkronize', 'success');
+            } else {
+                i18nLangStatus.className = 'status error';
+                i18nLangStatus.textContent = '✗ DESYNC';
+                autoLangStatus.className = 'status error';
+                autoLangStatus.textContent = '✗ DESYNC';
+                storageLangStatus.className = 'status error';
+                storageLangStatus.textContent = '✗ DESYNC';
+                addLog('✗ Dil ayarları desenkronize!', 'error');
+            }
+        }
+        
+        // Run tests on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            addLog('📄 Sayfa yüklendi', 'info');
+            addLog(`📦 i18n.js: ${typeof i18n !== 'undefined' ? '✓ Yüklü' : '✗ Yüklenmedi'}`, 
+                   typeof i18n !== 'undefined' ? 'success' : 'error');
+            addLog(`📦 autoTranslate.js: ${typeof autoTranslate !== 'undefined' ? '✓ Yüklü' : '✗ Yüklenmedi'}`, 
+                   typeof autoTranslate !== 'undefined' ? 'success' : 'error');
+            
+            setTimeout(runTests, 500);
+        });
+    </script>
+</body>
+</html>

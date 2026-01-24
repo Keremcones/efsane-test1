@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Giriş Yap - Kripto Analiz Pro</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #151937 100%);
+            color: #ffffff;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 50%, rgba(0, 255, 136, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(59, 130, 246, 0.1) 0%, transparent 50%);
+            pointer-events: none;
+        }
+
+        .login-container {
+            position: relative;
+            z-index: 1;
+            max-width: 450px;
+            width: 100%;
+            padding: 24px;
+        }
+
+        .login-card {
+            background: rgba(21, 25, 55, 0.8);
+            border: 1px solid rgba(45, 55, 72, 0.5);
+            border-radius: 16px;
+            padding: 48px 32px;
+            backdrop-filter: blur(10px);
+        }
+
+        .login-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .login-logo {
+            font-size: 2rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #00ff88, #3b82f6);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 12px;
+        }
+
+        .login-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .login-subtitle {
+            font-size: 0.9rem;
+            color: #a0aec0;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 0.95rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #ffffff;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(10, 14, 39, 0.6);
+            border: 1px solid rgba(45, 55, 72, 0.8);
+            border-radius: 8px;
+            color: #ffffff;
+            font-size: 1rem;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.3s ease;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #00ff88;
+            background: rgba(10, 14, 39, 0.9);
+            box-shadow: 0 0 12px rgba(0, 255, 136, 0.2);
+        }
+
+        .form-input::placeholder {
+            color: #718096;
+        }
+
+        .login-btn {
+            width: 100%;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #00ff88, #3b82f6);
+            border: none;
+            border-radius: 8px;
+            color: #0a0e27;
+            font-weight: 700;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 8px;
+            min-height: 48px;
+        }
+
+        .login-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0, 255, 136, 0.3);
+        }
+
+        .login-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .auth-tabs {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 32px;
+            border-bottom: 1px solid rgba(45, 55, 72, 0.5);
+        }
+
+        .auth-tab {
+            flex: 1;
+            padding: 12px;
+            background: none;
+            border: none;
+            color: #a0aec0;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .auth-tab.active {
+            color: #00ff88;
+            border-bottom-color: #00ff88;
+        }
+
+        .auth-content {
+            display: none;
+        }
+
+        .auth-content.active {
+            display: block;
+        }
+
+        .error-message {
+            background: rgba(255, 71, 87, 0.1);
+            border: 1px solid #ff4757;
+            color: #ff9999;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 0.9rem;
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
+        }
+
+        .success-message {
+            background: rgba(76, 175, 80, 0.1);
+            border: 1px solid #4CAF50;
+            color: #81c784;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 0.9rem;
+            display: none;
+        }
+
+        .success-message.show {
+            display: block;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #ffffff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .divider {
+            text-align: center;
+            margin: 24px 0;
+            color: #a0aec0;
+            position: relative;
+        }
+
+        .divider::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 50%;
+            width: 100%;
+            height: 1px;
+            background: rgba(45, 55, 72, 0.5);
+            z-index: 0;
+        }
+
+        .divider-text {
+            position: relative;
+            background: rgba(21, 25, 55, 0.8);
+            padding: 0 12px;
+            z-index: 1;
+        }
+
+        @media (max-width: 600px) {
+            .login-card {
+                padding: 32px 20px;
+            }
+
+            .login-logo {
+                font-size: 1.5rem;
+            }
+
+            .login-title {
+                font-size: 1.2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <div class="login-logo">🚀 Crypto Sentinel</div>
+                <div class="login-title">Giriş Yap</div>
+                <div class="login-subtitle">Kripto Analiz Pro'ya hoş geldin</div>
+            </div>
+
+            <div class="auth-tabs">
+                <button class="auth-tab active" onclick="switchTab('login')">Giriş Yap</button>
+                <button class="auth-tab" onclick="switchTab('signup')">Kayıt Ol</button>
+            </div>
+
+            <!-- Login Tab -->
+            <div id="login-content" class="auth-content active">
+                <div id="loginError" class="error-message"></div>
+                <form id="loginForm" onsubmit="handleLogin(event)">
+                    <div class="form-group">
+                        <label class="form-label">E-posta</label>
+                        <input type="email" id="loginEmail" class="form-input" placeholder="ornek@email.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Şifre</label>
+                        <input type="password" id="loginPassword" class="form-input" placeholder="Şifreni gir" required>
+                    </div>
+                    <button type="submit" class="login-btn" id="loginBtn">
+                        <span>Giriş Yap</span>
+                    </button>
+                </form>
+            </div>
+
+            <!-- Signup Tab -->
+            <div id="signup-content" class="auth-content">
+                <div id="signupError" class="error-message"></div>
+                <div id="signupSuccess" class="success-message"></div>
+                <form id="signupForm" onsubmit="handleSignup(event)">
+                    <div class="form-group">
+                        <label class="form-label">E-posta</label>
+                        <input type="email" id="signupEmail" class="form-input" placeholder="ornek@email.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Şifre</label>
+                        <input type="password" id="signupPassword" class="form-input" placeholder="En az 6 karakter" required minlength="6">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Şifreyi Onayla</label>
+                        <input type="password" id="signupConfirmPassword" class="form-input" placeholder="Şifreyi tekrar gir" required minlength="6">
+                    </div>
+                    <button type="submit" class="login-btn" id="signupBtn">
+                        <span>Kayıt Ol</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script>
+        let supabaseClient;
+
+        // Supabase'i başlat
+        async function initSupabase() {
+            supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            
+            // Zaten login'se dashboard'a yönlendir
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (session) {
+                window.location.href = 'index.html';
+            }
+        }
+
+        // Tab'lar arasında geçiş
+        function switchTab(tab) {
+            document.querySelectorAll('.auth-tab').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.auth-content').forEach(el => el.classList.remove('active'));
+            
+            document.querySelector(`[onclick="switchTab('${tab}')"]`).classList.add('active');
+            document.getElementById(`${tab}-content`).classList.add('active');
+            
+            clearMessages();
+        }
+
+        // Hata mesajını göster (Supabase hataları için çeviri)
+        function getErrorMessage(error) {
+            const message = error.message || error.toString();
+            
+            // Supabase hata mesajlarını Türkçeye çevir
+            if (message.includes('Invalid login credentials')) {
+                return 'E-posta adresiniz veya şifreniz hatalı. Lütfen kontrol edip tekrar deneyin.';
+            }
+            if (message.includes('User not found')) {
+                return 'Bu e-posta adresi kayıtlı değil. Lütfen kayıt olun.';
+            }
+            if (message.includes('Email not confirmed')) {
+                return 'E-posta adresiniz henüz doğrulanmadı. Lütfen e-postanızı kontrol edin.';
+            }
+            if (message.includes('User already registered')) {
+                return 'Bu e-posta adresi zaten kayıtlı. Lütfen giriş yapın.';
+            }
+            if (message.includes('Password should be at least 6 characters')) {
+                return 'Şifre en az 6 karakter olmalı.';
+            }
+            if (message.includes('Invalid email')) {
+                return 'Geçerli bir e-posta adresi girin.';
+            }
+            if (message.includes('over_email_send_rate_limit')) {
+                return 'Çok fazla doğrulama e-postası gönderildi. Lütfen 1 dakika bekleyin.';
+            }
+            
+            // Orijinal mesajı dön (İngilizce)
+            return message;
+        }
+
+        function showError(tabId, message) {
+            const errorEl = document.getElementById(`${tabId}Error`);
+            errorEl.textContent = '❌ ' + message;
+            errorEl.classList.add('show');
+        }
+
+        // Başarı mesajını göster
+        function showSuccess(tabId, message) {
+            const successEl = document.getElementById(`${tabId}Success`);
+            successEl.textContent = '✅ ' + message;
+            successEl.classList.add('show');
+        }
+
+        // Mesajları temizle
+        function clearMessages() {
+            document.querySelectorAll('.error-message, .success-message').forEach(el => {
+                el.classList.remove('show');
+            });
+        }
+
+        // Giriş Yap
+        async function handleLogin(event) {
+            event.preventDefault();
+            clearMessages();
+            
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            const loginBtn = document.getElementById('loginBtn');
+            
+            // Boş alan kontrolü
+            if (!email.trim()) {
+                showError('login', 'Lütfen e-posta adresinizi girin.');
+                return;
+            }
+            
+            if (!password.trim()) {
+                showError('login', 'Lütfen şifrenizi girin.');
+                return;
+            }
+            
+            // Buton durumunu değiştir
+            loginBtn.disabled = true;
+            loginBtn.innerHTML = '<span class="loading-spinner"></span><span>Giriş yapılıyor...</span>';
+            
+            try {
+                const { data, error } = await supabaseClient.auth.signInWithPassword({
+                    email,
+                    password
+                });
+                
+                if (error) throw error;
+                
+                // Giriş başarılı - dashboard'a yönlendir
+                window.location.href = 'index.html';
+            } catch (error) {
+                const userFriendlyMessage = getErrorMessage(error);
+                showError('login', userFriendlyMessage);
+                loginBtn.disabled = false;
+                loginBtn.innerHTML = '<span>Giriş Yap</span>';
+                console.error('Login hatası:', error);
+            }
+        }
+
+        // Kayıt Ol
+        async function handleSignup(event) {
+            event.preventDefault();
+            clearMessages();
+            
+            const email = document.getElementById('signupEmail').value;
+            const password = document.getElementById('signupPassword').value;
+            const confirmPassword = document.getElementById('signupConfirmPassword').value;
+            const signupBtn = document.getElementById('signupBtn');
+            
+            // Boş alan kontrolü
+            if (!email.trim()) {
+                showError('signup', 'Lütfen e-posta adresinizi girin.');
+                return;
+            }
+            
+            // Şifreyi kontrol et
+            if (password !== confirmPassword) {
+                showError('signup', 'Şifreler eşleşmiyor. Lütfen aynı şifreyi yazın.');
+                return;
+            }
+            
+            if (password.length < 6) {
+                showError('signup', 'Şifre en az 6 karakter olmalı');
+                return;
+            }
+            
+            // Buton durumunu değiştir
+            signupBtn.disabled = true;
+            signupBtn.innerHTML = '<span class="loading-spinner"></span><span>Kayıt yapılıyor...</span>';
+            
+            try {
+                const { data, error } = await supabaseClient.auth.signUp({
+                    email,
+                    password
+                });
+                
+                if (error) throw error;
+                
+                showSuccess('signup', 'Kayıt başarılı! Lütfen e-postanızı doğrulayın.');
+                
+                // Formu temizle
+                document.getElementById('signupForm').reset();
+                
+                // 2 saniye sonra giriş sekmesine git
+                setTimeout(() => {
+                    switchTab('login');
+                }, 2000);
+            } catch (error) {
+                const userFriendlyMessage = getErrorMessage(error);
+                showError('signup', userFriendlyMessage);
+                signupBtn.disabled = false;
+                signupBtn.innerHTML = '<span>Kayıt Ol</span>';
+                console.error('Kayıt hatası:', error);
+            }
+        }
+
+        // Sayfayı yükle
+        window.addEventListener('load', initSupabase);
+    </script>
+</body>
+</html>
