@@ -1719,7 +1719,32 @@
                 // allorigins.win format: CORS_PROXY + encoded_url
                 const proxyUrl = CORS_PROXY + encodeURIComponent(url);
                 console.log(`🔄 Proxy: ${url.substring(0, 60)}...`);
-                return originalFetch(proxyUrl, options);
+                
+                // allorigins.win wraps response, need to unwrap
+                return originalFetch(proxyUrl, options)
+                    .then(response => {
+                        // Create a new response with modified json() method
+                        const clonedResponse = response.clone();
+                        return {
+                            ok: response.ok,
+                            status: response.status,
+                            statusText: response.statusText,
+                            headers: response.headers,
+                            json: async () => {
+                                const text = await clonedResponse.text();
+                                try {
+                                    const wrapped = JSON.parse(text);
+                                    // If allorigins wrapped it, unwrap
+                                    if (wrapped.contents) {
+                                        return JSON.parse(wrapped.contents);
+                                    }
+                                    return wrapped;
+                                } catch (e) {
+                                    return JSON.parse(text);
+                                }
+                            }
+                        };
+                    });
             }
             return originalFetch.apply(window, arguments);
         };
