@@ -19,9 +19,7 @@ const CRYPTO_NEWS_BASE = 'https://cryptopanic.com/api/v1';
 const FEAR_GREED_API = 'https://api.alternative.me/fng';
 
 // CORS Proxy - Binance API isteklerini proxy üzerinden yapma
-const USE_CORS_PROXY = true; // Binance CORS bloğunu aşmak için
-const CORS_PROXY = 'https://api.allorigins.win/raw?url='; // Alternative CORS proxy
-const FALLBACK_DIRECT_URL = true; // Proxy başarısız olursa doğrudan API'yi dene
+const USE_CORS_PROXY = false; // Proxy devre dışı - doğrudan API çağır
 
 // App Configuration
 const APP_CONFIG = {
