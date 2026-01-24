@@ -20,7 +20,7 @@ const FEAR_GREED_API = 'https://api.alternative.me/fng';
 
 // CORS Proxy - Binance API isteklerini proxy üzerinden yapma
 const USE_CORS_PROXY = true; // Binance CORS bloğunu aşmak için
-const CORS_PROXY = '/api/proxy?url=';
+const CORS_PROXY = 'https://cors-anywhere.herokuapp.com/'; // Third-party CORS proxy
 const FALLBACK_DIRECT_URL = true; // Proxy başarısız olursa doğrudan API'yi dene
 
 // App Configuration
