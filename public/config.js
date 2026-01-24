@@ -31,4 +31,4 @@ const APP_CONFIG = {
     alarmCheckInterval: 2000, // 2 saniye (TP/SL kontrol için)
     newsUpdateInterval: 300000, // 5 dakika
     sentimentUpdateInterval: 3600000 // 1 saat
-};
+};/* Updated Sun Jan 25 02:35:41 +03 2026 */
