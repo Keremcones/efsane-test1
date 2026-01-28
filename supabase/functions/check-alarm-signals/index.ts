@@ -1,4 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
+/// <reference lib="deno.window" />
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
 
@@ -263,7 +264,7 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
       return [];
     }
 
-    const signals = rawSignals?.filter(signal => signal.status === "ACTIVE" || !signal.status);
+    const signals = rawSignals?.filter((signal: any) => signal.status === "ACTIVE" || !signal.status);
 
     const closedSignals: ClosedSignal[] = [];
     for (const signal of signals || []) {
@@ -490,7 +491,7 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
 // =====================
 // Handler
 // =====================
-serve(async (req) => {
+serve(async (req: any) => {
   // CORS headers
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -578,19 +579,25 @@ serve(async (req) => {
         .eq("is_active", true)
         .not("user_id", "is", null);
 
-      alarms = result.data?.filter(alarm => alarm.status === "ACTIVE" || !alarm.status);
+      alarms = result.data?.filter((alarm: any) => {
+        const status = String(alarm.status || "").toUpperCase();
+        return status === "ACTIVE" || status === "" || !alarm.status;
+      });
       alarmsError = result.error;
     } else {
       // Cron mode: get all active alarms
       console.log("🔄 [CRON] Getting all active alarms for monitoring");
+      
       const result = await supabase
         .from("alarms")
         .select("*")
         .eq("type", "user_alarm")
-        .eq("is_active", true)
-        .not("user_id", "is", null);
+        .eq("is_active", true);
 
-      alarms = result.data?.filter(alarm => alarm.status === "ACTIVE" || !alarm.status);
+      alarms = result.data?.filter((alarm: any) => {
+        const status = String(alarm.status || "").toUpperCase();
+        return status === "ACTIVE" || status === "" || !alarm.status;
+      });
       alarmsError = result.error;
     }
 
