@@ -1316,10 +1316,15 @@ class AlarmSystem {
             return a.id === id;
         });
         console.log('📋 Found alarm:', alarm);
+        
+        // Önce local array'den sil
         this.alarms = this.alarms.filter(alarm => alarm.id !== id);
         console.log('📋 After filter, alarms length:', this.alarms.length);
+        
+        // localStorage'a kaydet
+        localStorage.setItem('crypto_alarms', JSON.stringify(this.alarms));
 
-        // Supabase'den de sil
+        // Supabase'den sil
         if (this.supabase && this.userId) {
             try {
                 await this.supabase
@@ -1333,13 +1338,12 @@ class AlarmSystem {
             } catch (error) {
                 console.error('Supabase silme hatası:', error);
                 // Hata olursa alarmı geri ekle
-                if (alarm) this.alarms.push(alarm);
+                if (alarm) {
+                    this.alarms.push(alarm);
+                    localStorage.setItem('crypto_alarms', JSON.stringify(this.alarms));
+                }
             }
         }
-
-        await this.saveAlarms();
-        // Supabase'den yeniden yükle
-        await this.loadAlarms();
     }
 
     async deactivateAlarm(id) {
@@ -1943,61 +1947,57 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
             try {
                 console.log('🗑️ Eski alarmları siliyorum...');
                 // Önce eski verileri sil
-                const deleteResult = await this.supabase
+                await this.supabase
                     .from('alarms')
                     .delete()
                     .eq('user_id', this.userId)
                     .eq('type', 'user_alarm');
                 
-                console.log('🗑️ Delete result:', deleteResult);
-                
-                // Her alarm için insert yap
-                for (const alarm of this.alarms) {
-                    const alarmsData = this.alarms.map(alarm => {
-                        const baseData = {
-                            user_id: this.userId,
-                            symbol: alarm.symbol || 'BTCUSDT',
-                            timeframe: alarm.timeframe || '1h',
-                            market_type: alarm.marketType || 'spot',
-                            type: 'user_alarm',
-                            is_active: alarm.active !== false,
-                            telegram_enabled: true,
-                            telegram_chat_id: this.telegramChatId || null,
-                            confidence_score: String(alarm.confidenceScore || alarm.confidence_score || '60'),
-                            tp_percent: String(alarm.takeProfitPercent || alarm.tp_percent || '5'),
-                            sl_percent: String(alarm.stopLossPercent || alarm.sl_percent || '3'),
-                            bar_close_limit: alarm.barCloseLimit || alarm.bar_close_limit || 5
-                        };
-                        
-                        console.log('📊 Alarm data hazırlanıyor:', alarm.type, alarm);
-                        
-                        // Alarm türüne göre ek alanlar
-                        if (alarm.type === 'price' || alarm.type === 'PRICE_LEVEL') {
-                            return {
-                                ...baseData,
-                                target_price: alarm.targetPrice || alarm.target_price,
-                                condition: alarm.condition || 'above'
-                            };
-                        } else if (alarm.type === 'trade' || alarm.type === 'ACTIVE_TRADE') {
-                            return {
-                                ...baseData,
-                                direction: alarm.direction || 'LONG',
-                                entry_price: alarm.entryPrice || alarm.entry_price,
-                                take_profit: alarm.takeProfit || alarm.take_profit,
-                                stop_loss: alarm.stopLoss || alarm.stop_loss
-                            };
-                        }
-                        
-                        // Default olarak price alarm
+                // Tüm alarmları bir kez map et ve insert et (loop değil!)
+                const alarmsData = this.alarms.map(alarm => {
+                    const baseData = {
+                        user_id: this.userId,
+                        symbol: alarm.symbol || 'BTCUSDT',
+                        timeframe: alarm.timeframe || '1h',
+                        market_type: alarm.marketType || 'spot',
+                        type: 'user_alarm',
+                        is_active: alarm.active !== false,
+                        telegram_enabled: true,
+                        telegram_chat_id: this.telegramChatId || null,
+                        confidence_score: String(alarm.confidenceScore || alarm.confidence_score || '60'),
+                        tp_percent: String(alarm.takeProfitPercent || alarm.tp_percent || '5'),
+                        sl_percent: String(alarm.stopLossPercent || alarm.sl_percent || '3'),
+                        bar_close_limit: alarm.barCloseLimit || alarm.bar_close_limit || 5
+                    };
+                    
+                    // Alarm türüne göre ek alanlar
+                    if (alarm.type === 'price' || alarm.type === 'PRICE_LEVEL') {
                         return {
                             ...baseData,
                             target_price: alarm.targetPrice || alarm.target_price,
                             condition: alarm.condition || 'above'
                         };
-                    });
+                    } else if (alarm.type === 'trade' || alarm.type === 'ACTIVE_TRADE') {
+                        return {
+                            ...baseData,
+                            direction: alarm.direction || 'LONG',
+                            entry_price: alarm.entryPrice || alarm.entry_price,
+                            take_profit: alarm.takeProfit || alarm.take_profit,
+                            stop_loss: alarm.stopLoss || alarm.stop_loss
+                        };
+                    }
                     
-                    console.log('📤 Insert data:', alarmsData);
-                    
+                    // Default olarak price alarm
+                    return {
+                        ...baseData,
+                        target_price: alarm.targetPrice || alarm.target_price,
+                        condition: alarm.condition || 'above'
+                    };
+                });
+                
+                // Eğer boş değilse insert et
+                if (alarmsData.length > 0) {
+                    console.log('📤 Insert data:', alarmsData.length, 'alarms');
                     const insertResult = await this.supabase
                         .from('alarms')
                         .insert(alarmsData);

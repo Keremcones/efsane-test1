@@ -594,11 +594,24 @@ serve(async (req: any) => {
         .eq("type", "user_alarm")
         .eq("is_active", true);
 
+      console.log(`📥 [DEBUG] Raw query result: ${result.data?.length || 0} alarms returned`);
+      if (result.data?.length) {
+        result.data.forEach((a: any, idx: number) => {
+          console.log(`  [${idx}] id=${a.id}, symbol=${a.symbol}, status='${a.status}', is_active=${a.is_active}`);
+        });
+      }
+      if (result.error) {
+        console.error(`📥 [DEBUG] Query error:`, result.error);
+      }
+
       alarms = result.data?.filter((alarm: any) => {
         const status = String(alarm.status || "").toUpperCase();
-        return status === "ACTIVE" || status === "" || !alarm.status;
+        const matches = status === "ACTIVE" || status === "" || !alarm.status;
+        console.log(`  📥 [DEBUG] Filter check - id=${alarm.id}, status='${alarm.status}', uppercase='${status}', matches=${matches}`);
+        return matches;
       });
       alarmsError = result.error;
+      console.log(`📥 [DEBUG] After filter: ${alarms?.length || 0} alarms match criteria`);
     }
 
     if (alarmsError) {
