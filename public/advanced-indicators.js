@@ -2029,7 +2029,7 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                 if (data && data.length > 0) {
                     this.alarms = data.map(item => {
                         const baseAlarm = {
-                            id: item.id,
+                            id: String(item.id),  // Convert BIGSERIAL number to string for consistent type handling
                             symbol: item.symbol,
                             timeframe: item.timeframe,
                             marketType: item.market_type || 'spot',
