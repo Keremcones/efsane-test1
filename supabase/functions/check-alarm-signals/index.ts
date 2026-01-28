@@ -172,11 +172,21 @@ async function sendTelegramNotification(userId: string, message: string): Promis
 // User alarm trigger logic
 // =====================
 async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
-  for (const alarm of alarms || []) {
+  if (!alarms || alarms.length === 0) return;
+  
+  // 🚀 PARALLELIZED: Fetch all prices in parallel
+  const pricePromises = alarms.map(alarm =>
+    getCurrentPrice(String(alarm.symbol || "").toUpperCase(), normalizeMarketType(alarm.market_type || alarm.marketType || "spot"))
+  );
+  const prices = await Promise.all(pricePromises);
+
+  // Process alarms with fetched prices
+  const telegramPromises: Promise<void>[] = [];
+  
+  for (let i = 0; i < (alarms || []).length; i++) {
     try {
-      const marketType = normalizeMarketType(alarm.market_type || alarm.marketType || "spot");
-      const symbol = String(alarm.symbol || "").toUpperCase();
-      const currentPrice = await getCurrentPrice(symbol, marketType);
+      const alarm = alarms[i];
+      const currentPrice = prices[i];
 
       if (currentPrice === null) continue;
 
@@ -226,6 +236,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       }
 
       if (shouldTrigger && triggerMessage) {
+        const symbol = String(alarm.symbol || "").toUpperCase();
         const telegramMessage = `
 🔔 <b>ALARM TETİKLENDİ!</b> 🔔
 
@@ -235,13 +246,16 @@ ${triggerMessage}
 ⏰ Alarm Zamanı: <b>${new Date().toLocaleString('tr-TR')}</b>
 `;
 
-        await sendTelegramNotification(alarm.user_id, telegramMessage);
+        telegramPromises.push(sendTelegramNotification(alarm.user_id, telegramMessage));
         console.log(`✅ User alarm triggered for ${symbol}: ${triggerMessage}`);
       }
     } catch (e) {
-      console.error(`❌ Error checking user alarm ${alarm?.id}:`, e);
+      console.error(`❌ Error checking user alarm ${alarms[i]?.id}:`, e);
     }
   }
+  
+  // 🚀 PARALLELIZED: Send all Telegram messages in parallel
+  await Promise.all(telegramPromises);
 }
 type ClosedSignal = {
   id: string | number;
@@ -265,21 +279,42 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
     }
 
     const signals = rawSignals?.filter((signal: any) => signal.status === "ACTIVE" || !signal.status);
+    if (!signals || signals.length === 0) return [];
+
+    // 🚀 PARALLELIZED: Fetch all prices in parallel
+    const pricePromises = signals.map(signal =>
+      getCurrentPrice(
+        String(signal.symbol || ""),
+        normalizeMarketType(signal.market_type || signal.marketType || signal.market)
+      )
+    );
+    const prices = await Promise.all(pricePromises);
+
+    // 🚀 PARALLELIZED: Get exchange info for all market types
+    const marketTypes = [...new Set(signals.map(s => normalizeMarketType(s.market_type || s.marketType || s.market)))];
+    const exchangeInfoPromises = marketTypes.map(mt => getExchangeInfo(mt));
+    const exchangeInfoResults = await Promise.all(exchangeInfoPromises);
+    const exchangeInfoMap = Object.fromEntries(marketTypes.map((mt, i) => [mt, exchangeInfoResults[i]]));
 
     const closedSignals: ClosedSignal[] = [];
-    for (const signal of signals || []) {
+    const updatePromises: Promise<any>[] = [];
+
+    for (let idx = 0; idx < signals.length; idx++) {
       try {
+        const signal = signals[idx];
+        const rawPrice = prices[idx];
+        
+        if (rawPrice === null) continue;
+
         const marketType = normalizeMarketType(signal.market_type || signal.marketType || signal.market);
-        const exchangeInfo = await getExchangeInfo(marketType);
+        const exchangeInfo = exchangeInfoMap[marketType];
         const symbol = String(signal.symbol || "");
         const direction = (signal.signal_direction || signal.direction) as "LONG" | "SHORT";
+        
         if (direction !== "LONG" && direction !== "SHORT") {
           console.error(`❌ Invalid direction for signal ${signal.id}`);
           continue;
         }
-
-        const rawPrice = await getCurrentPrice(symbol, marketType);
-        if (rawPrice === null) continue;
 
         // tickSize rounding
         const tick = exchangeInfo ? getTickSize(exchangeInfo, symbol) : null;
@@ -319,28 +354,33 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
 
         if (!shouldClose || !closeReason) continue;
 
-        const { error: updateError } = await supabase
-          .from("alarms")
-          .update({
-            status: closeReason,
-            closed_at: new Date().toISOString(),
-            exit_price: currentPrice,
-            current_price: currentPrice,
-            close_price: currentPrice,
-            closed_price: currentPrice,
-            close_reason: closeReason,
-            telegram_sent_at: new Date().toISOString(),
-            profit_loss: direction === "LONG"
-              ? ((currentPrice - Number(signal.entry_price)) / Number(signal.entry_price)) * 100
-              : ((Number(signal.entry_price) - currentPrice) / Number(signal.entry_price)) * 100,
-          })
-          .eq("id", signal.id)
-          .eq("status", "ACTIVE"); // avoid race double-close
-
-        if (updateError) {
-          console.error("❌ updateError:", updateError);
-          continue;
-        }
+        // Queue update (don't await, collect all promises)
+        updatePromises.push(
+          supabase
+            .from("alarms")
+            .update({
+              status: closeReason,
+              closed_at: new Date().toISOString(),
+              exit_price: currentPrice,
+              current_price: currentPrice,
+              close_price: currentPrice,
+              closed_price: currentPrice,
+              close_reason: closeReason,
+              telegram_sent_at: new Date().toISOString(),
+              profit_loss: direction === "LONG"
+                ? ((currentPrice - Number(signal.entry_price)) / Number(signal.entry_price)) * 100
+                : ((Number(signal.entry_price) - currentPrice) / Number(signal.entry_price)) * 100,
+            })
+            .eq("id", signal.id)
+            .eq("status", "ACTIVE") // avoid race double-close
+            .then(result => {
+              if (result.error) {
+                console.error("❌ updateError:", result.error);
+                return null;
+              }
+              return { signal, direction, closeReason, currentPrice };
+            })
+        );
 
         closedSignals.push({
           id: signal.id,
@@ -351,9 +391,12 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           user_id: signal.user_id,
         });
       } catch (e) {
-        console.error(`❌ Error checking signal ${signal?.id}:`, e);
+        console.error(`❌ Error checking signal ${signals[idx]?.id}:`, e);
       }
     }
+
+    // 🚀 PARALLELIZED: Execute all database updates in parallel
+    await Promise.all(updatePromises);
 
     return closedSignals;
   } catch (e) {
@@ -629,8 +672,8 @@ serve(async (req: any) => {
     // ✅ Close signals that hit TP/SL
     const closedSignals = await checkAndCloseSignals();
 
-    // ✅ Notify
-    for (const signal of closedSignals) {
+    // ✅ Notify - 🚀 PARALLELIZED
+    const notificationPromises = closedSignals.map(signal => {
       const statusMessage =
         signal.close_reason === "TP_HIT"
           ? "✅ KAPANDI - TP HIT!"
@@ -647,8 +690,10 @@ ${statusMessage}
 Detaylı rapor için dashboard'u kontrol edin.
 `;
 
-      await sendTelegramNotification(signal.user_id, telegramMessage);
-    }
+      return sendTelegramNotification(signal.user_id, telegramMessage);
+    });
+    
+    await Promise.all(notificationPromises);
 
     return new Response(
       JSON.stringify({

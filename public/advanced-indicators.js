@@ -1311,36 +1311,56 @@ class AlarmSystem {
     
     async removeAlarm(id) {
         console.log('🗑️ [REMOVE ALARM] Başlatılıyor, id:', id, 'type:', typeof id);
+        
+        // ID'yi number ve string olarak convert et (Supabase type mismatch)
+        const numId = Number(id);
+        const strId = String(id);
+        
         const alarm = this.alarms.find(a => {
-            console.log('🔍 Checking alarm id:', a.id, 'type:', typeof a.id, 'vs', id, typeof id, 'equal:', a.id === id);
-            return a.id === id;
+            const aIdNum = Number(a.id);
+            const aIdStr = String(a.id);
+            console.log('🔍 Checking alarm:', { aIdNum, aIdStr, numId, strId, match: aIdNum === numId || aIdStr === strId });
+            return aIdNum === numId || aIdStr === strId;
         });
         console.log('📋 Found alarm:', alarm);
         
+        if (!alarm) {
+            console.error('❌ Alarm bulunamadı:', { id, numId, strId });
+            return;
+        }
+        
         // Önce local array'den sil
-        this.alarms = this.alarms.filter(alarm => alarm.id !== id);
+        this.alarms = this.alarms.filter(a => {
+            const aIdNum = Number(a.id);
+            return aIdNum !== numId;
+        });
         console.log('📋 After filter, alarms length:', this.alarms.length);
         
         // localStorage'a kaydet
         localStorage.setItem('crypto_alarms', JSON.stringify(this.alarms));
+        console.log('💾 localStorage kaydedildi');
 
         // Supabase'den sil
         if (this.supabase && this.userId) {
             try {
-                await this.supabase
+                console.log('🔄 Supabase DELETE çalışıyor:', { user_id: this.userId, id: numId, type: 'user_alarm' });
+                
+                const deleteResult = await this.supabase
                     .from('alarms')
                     .delete()
                     .eq('user_id', this.userId)
-                    .eq('id', id)
+                    .eq('id', numId)
                     .eq('type', 'user_alarm');
 
-                console.log('🗑️ Alarm alarms tablosundan silindi:', { id, symbol: alarm?.symbol });
+                console.log('🗑️ Supabase DELETE result:', deleteResult);
+                console.log('🗑️ Alarm silindi:', { id: numId, symbol: alarm?.symbol });
             } catch (error) {
-                console.error('Supabase silme hatası:', error);
+                console.error('❌ Supabase silme hatası:', error);
                 // Hata olursa alarmı geri ekle
                 if (alarm) {
                     this.alarms.push(alarm);
                     localStorage.setItem('crypto_alarms', JSON.stringify(this.alarms));
+                    console.log('↩️ Alarm geri eklendi');
                 }
             }
         }
