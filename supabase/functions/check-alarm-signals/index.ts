@@ -188,6 +188,8 @@ interface TechnicalIndicators {
   ema12: number;
   ema26: number;
   price: number;
+  closes: number[];
+  volumes: number[];
 }
 
 async function calculateIndicators(symbol: string, marketType: "spot" | "futures"): Promise<TechnicalIndicators | null> {
@@ -195,43 +197,140 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
   if (!klines || klines.length < 50) return null;
 
   const closes = klines.map((k: any) => parseFloat(k[4]));
+  const volumes = klines.map((k: any) => parseFloat(k[5]));
+  const highs = klines.map((k: any) => parseFloat(k[2]));
+  const lows = klines.map((k: any) => parseFloat(k[3]));
   const lastPrice = closes[closes.length - 1];
+
+  // Calculate MACD
+  const ema12 = calculateEMA(closes, 12);
+  const ema26 = calculateEMA(closes, 26);
+  const macdLine = ema12 - ema26;
+  const signalLine = calculateEMA(closes.map((_, i) => {
+    const c = closes.slice(0, i + 1);
+    return c.length >= 26 ? calculateEMA(c, 12) - calculateEMA(c, 26) : 0;
+  }), 9);
+  const histogram = macdLine - signalLine;
+
+  // Calculate OBV
+  let obv = 0;
+  let obvTrend = "neutral";
+  for (let i = 0; i < closes.length; i++) {
+    if (i === 0) obv = volumes[i];
+    else if (closes[i] > closes[i - 1]) obv += volumes[i];
+    else if (closes[i] < closes[i - 1]) obv -= volumes[i];
+  }
+  if (closes[closes.length - 1] > closes[closes.length - 2]) obvTrend = "rising";
+  else if (closes[closes.length - 1] < closes[closes.length - 2]) obvTrend = "falling";
+
+  // Support/Resistance
+  const highs20 = highs.slice(-20);
+  const lows20 = lows.slice(-20);
+  const resistance = Math.max(...highs20);
+  const support = Math.min(...lows20);
 
   return {
     rsi: calculateRSI(closes, 14),
     sma20: calculateSMA(closes, 20),
     sma50: calculateSMA(closes, 50),
-    ema12: calculateEMA(closes, 12),
-    ema26: calculateEMA(closes, 26),
+    ema12: ema12,
+    ema26: ema26,
     price: lastPrice,
+    closes: closes,
+    volumes: volumes,
+    macd: macdLine,
+    histogram: histogram,
+    obv: obv,
+    obvTrend: obvTrend,
+    resistance: resistance,
+    support: support,
   };
 }
 
 // =====================
-// Signal Generation
+// Full Signal Generation (40-30-15-15 weights)
 // =====================
-function generateSignalScore(indicators: TechnicalIndicators, userConfidenceThreshold: number = 70): { direction: "LONG" | "SHORT"; score: number; triggered: boolean } {
-  let score = 0;
+function generateSignalScore(indicators: TechnicalIndicators, userConfidenceThreshold: number = 70): { direction: "LONG" | "SHORT"; score: number; triggered: boolean; breakdown: any } {
+  let trendScore = 0;
+  let momentumScore = 0;
+  let volumeScore = 0;
+  let srScore = 0;
 
-  // Trend analysis (40%)
+  // ==================== TREND ANALYSIS (40%) ====================
   const trendUp = indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50;
   const trendDown = indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50;
 
-  if (trendUp) score += 40;
-  else if (trendDown) score -= 40;
+  if (trendUp) trendScore += 30;
+  else if (trendDown) trendScore -= 30;
 
-  // Momentum analysis (30%)
-  if (indicators.rsi < 30) score += 30; // Oversold = Bullish
-  else if (indicators.rsi < 40) score += 15;
-  else if (indicators.rsi > 70) score -= 30; // Overbought = Bearish
-  else if (indicators.rsi > 60) score -= 15;
+  // ADX proxy: Check if price is making higher highs (bullish) or lower lows (bearish)
+  if (indicators.closes.length >= 5) {
+    const recent5 = indicators.closes.slice(-5);
+    const isHigherHigh = recent5[4] > recent5[3] && recent5[3] > recent5[2];
+    const isLowerLow = recent5[4] < recent5[3] && recent5[3] < recent5[2];
+    if (isHigherHigh) trendScore += 15;
+    if (isLowerLow) trendScore -= 15;
+  }
 
-  // Normalize to 0-100
+  // ==================== MOMENTUM ANALYSIS (30%) ====================
+  // RSI
+  if (indicators.rsi < 30) momentumScore += 25;
+  else if (indicators.rsi < 40) momentumScore += 15;
+  else if (indicators.rsi > 70) momentumScore -= 25;
+  else if (indicators.rsi > 60) momentumScore -= 15;
+
+  // MACD
+  if (indicators.macd > 0 && indicators.histogram > 0) momentumScore += 15;
+  else if (indicators.macd > 0) momentumScore += 5;
+  else if (indicators.macd < 0) momentumScore -= 15;
+
+  // ==================== VOLUME ANALYSIS (15%) ====================
+  // Volume spike detection
+  if (indicators.volumes.length >= 10) {
+    const lastVolume = indicators.volumes[indicators.volumes.length - 1];
+    const avgVolume = indicators.volumes.slice(-10).reduce((a, b) => a + b, 0) / 10;
+    if (lastVolume > avgVolume * 1.5) volumeScore += 12;
+  }
+
+  // OBV trend
+  if (indicators.obvTrend === "rising") volumeScore += 8;
+  else if (indicators.obvTrend === "falling") volumeScore -= 8;
+
+  // ==================== SUPPORT/RESISTANCE (15%) ====================
+  const distanceToSupport = (indicators.price - indicators.support) / indicators.price;
+  const distanceToResistance = (indicators.resistance - indicators.price) / indicators.price;
+
+  if (distanceToSupport < 0.02) srScore += 12; // Near support = Bullish
+  if (distanceToResistance < 0.02) srScore -= 12; // Near resistance = Bearish
+
+  // Fibonacci 61.8% (classic reversal level)
+  const priceRange = indicators.resistance - indicators.support;
+  const fib618 = indicators.resistance - (priceRange * 0.618);
+  if (Math.abs(indicators.price - fib618) / indicators.price < 0.01) srScore += 8;
+
+  // ==================== TOTAL SCORE CALCULATION ====================
+  let score = 
+    (trendScore / 50 * 40) +      // Trend: -50 to +50 → 40%
+    (momentumScore / 50 * 30) +   // Momentum: -50 to +50 → 30%
+    (volumeScore / 25 * 15) +     // Volume: -25 to +25 → 15%
+    (srScore / 30 * 15);          // SR: -30 to +30 → 15%
+
+  // Clamp to 0-100
   const confidence = Math.min(Math.max(Math.abs(score), 0), 100);
   const direction = score > 0 ? "LONG" : "SHORT";
   const triggered = confidence >= userConfidenceThreshold;
 
-  return { direction, score: Math.round(confidence), triggered };
+  return {
+    direction,
+    score: Math.round(confidence),
+    triggered,
+    breakdown: {
+      trend: Math.round(trendScore),
+      momentum: Math.round(momentumScore),
+      volume: Math.round(volumeScore),
+      sr: Math.round(srScore),
+    },
+  };
 }
 
 // =====================
@@ -336,12 +435,22 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         const userConfidenceThreshold = Number(alarm.confidence_score || 70);
         const signal = generateSignalScore(indicators, userConfidenceThreshold);
 
-        console.log(`📊 ${alarm.symbol}: RSI=${indicators.rsi.toFixed(1)}, EMA12=${indicators.ema12.toFixed(2)}, EMA26=${indicators.ema26.toFixed(2)}, Signal=${signal.direction}(${signal.score}%)`);
+        console.log(
+          `📊 ${alarm.symbol}: ` +
+          `RSI=${indicators.rsi.toFixed(1)} | ` +
+          `EMA12=${indicators.ema12.toFixed(2)} vs EMA26=${indicators.ema26.toFixed(2)} | ` +
+          `Price=$${indicators.price.toFixed(2)} | ` +
+          `[Trend:${signal.breakdown.trend} Momentum:${signal.breakdown.momentum} Volume:${signal.breakdown.volume} SR:${signal.breakdown.sr}] ` +
+          `→ ${signal.direction}(${signal.score}%)`
+        );
 
         if (signal.triggered) {
           shouldTrigger = true;
           detectedSignal = signal;
-          triggerMessage = `🎯 ${signal.direction} Signal detected! Confidence: ${signal.score}% (RSI: ${indicators.rsi.toFixed(1)}, Price: $${indicators.price.toFixed(2)})`;
+          triggerMessage = `🎯 <b>${signal.direction}</b> Signal detected!\n` +
+            `Confidence: <b>${signal.score}%</b>\n` +
+            `RSI: ${indicators.rsi.toFixed(1)} | Price: $${indicators.price.toFixed(2)}\n` +
+            `📈 Analysis: Trend=${signal.breakdown.trend} Momentum=${signal.breakdown.momentum} Volume=${signal.breakdown.volume} SR=${signal.breakdown.sr}`;
         }
       }
 
