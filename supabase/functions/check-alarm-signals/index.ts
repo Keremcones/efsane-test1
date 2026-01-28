@@ -127,6 +127,114 @@ async function getCurrentPrice(symbol: string, marketType: "spot" | "futures"): 
 }
 
 // =====================
+// Technical Indicators (Simple)
+// =====================
+function calculateRSI(prices: number[], period: number = 14): number {
+  if (prices.length < period) return 50; // Default middle value
+
+  let gains = 0;
+  let losses = 0;
+
+  for (let i = 1; i < prices.length; i++) {
+    const change = prices[i] - prices[i - 1];
+    if (change > 0) gains += change;
+    else losses += Math.abs(change);
+  }
+
+  const avgGain = gains / period;
+  const avgLoss = losses / period;
+
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  const rsi = 100 - (100 / (1 + rs));
+  return rsi;
+}
+
+function calculateSMA(prices: number[], period: number): number {
+  if (prices.length < period) return prices[prices.length - 1];
+  const sum = prices.slice(-period).reduce((a, b) => a + b, 0);
+  return sum / period;
+}
+
+function calculateEMA(prices: number[], period: number): number {
+  if (prices.length < period) return prices[prices.length - 1];
+  const k = 2 / (period + 1);
+  let ema = prices[0];
+  for (let i = 1; i < prices.length; i++) {
+    ema = prices[i] * k + ema * (1 - k);
+  }
+  return ema;
+}
+
+async function getKlines(symbol: string, marketType: "spot" | "futures", limit: number = 100): Promise<any[] | null> {
+  try {
+    const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
+    const res = await fetch(`${base}/klines?symbol=${symbol}&interval=1h&limit=${limit}`);
+    if (!res.ok) {
+      console.error(`❌ klines fetch failed for ${symbol}:`, res.status, await res.text());
+      return null;
+    }
+    return await res.json();
+  } catch (e) {
+    console.error(`❌ klines fetch error for ${symbol}:`, e);
+    return null;
+  }
+}
+
+interface TechnicalIndicators {
+  rsi: number;
+  sma20: number;
+  sma50: number;
+  ema12: number;
+  ema26: number;
+  price: number;
+}
+
+async function calculateIndicators(symbol: string, marketType: "spot" | "futures"): Promise<TechnicalIndicators | null> {
+  const klines = await getKlines(symbol, marketType, 100);
+  if (!klines || klines.length < 50) return null;
+
+  const closes = klines.map((k: any) => parseFloat(k[4]));
+  const lastPrice = closes[closes.length - 1];
+
+  return {
+    rsi: calculateRSI(closes, 14),
+    sma20: calculateSMA(closes, 20),
+    sma50: calculateSMA(closes, 50),
+    ema12: calculateEMA(closes, 12),
+    ema26: calculateEMA(closes, 26),
+    price: lastPrice,
+  };
+}
+
+// =====================
+// Signal Generation
+// =====================
+function generateSignalScore(indicators: TechnicalIndicators, userConfidenceThreshold: number = 70): { direction: "LONG" | "SHORT"; score: number; triggered: boolean } {
+  let score = 0;
+
+  // Trend analysis (40%)
+  const trendUp = indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50;
+  const trendDown = indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50;
+
+  if (trendUp) score += 40;
+  else if (trendDown) score -= 40;
+
+  // Momentum analysis (30%)
+  if (indicators.rsi < 30) score += 30; // Oversold = Bullish
+  else if (indicators.rsi < 40) score += 15;
+  else if (indicators.rsi > 70) score -= 30; // Overbought = Bearish
+  else if (indicators.rsi > 60) score -= 15;
+
+  // Normalize to 0-100
+  const confidence = Math.min(Math.max(Math.abs(score), 0), 100);
+  const direction = score > 0 ? "LONG" : "SHORT";
+  const triggered = confidence >= userConfidenceThreshold;
+
+  return { direction, score: Math.round(confidence), triggered };
+}
+
+// =====================
 // Telegram
 // =====================
 async function sendTelegramNotification(userId: string, message: string): Promise<void> {
@@ -176,68 +284,89 @@ async function sendTelegramNotification(userId: string, message: string): Promis
 }
 
 // =====================
-// User alarm trigger logic
+// User alarm trigger logic (WITH SIGNAL GENERATION)
 // =====================
 async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
   if (!alarms || alarms.length === 0) return;
-  
-  // 🚀 PARALLELIZED: Fetch all prices in parallel
-  const pricePromises = alarms.map(alarm =>
-    getCurrentPrice(String(alarm.symbol || "").toUpperCase(), normalizeMarketType(alarm.market_type || alarm.marketType || "spot"))
-  );
-  const prices = await Promise.all(pricePromises);
 
-  // Process alarms with fetched prices
+  // 🚀 PARALLELIZED: Calculate indicators for all symbols
+  const indicatorsPromises = alarms.map(alarm =>
+    calculateIndicators(
+      String(alarm.symbol || "").toUpperCase(),
+      normalizeMarketType(alarm.market_type || alarm.marketType || "spot")
+    )
+  );
+  const indicatorsResults = await Promise.all(indicatorsPromises);
+
+  // Process alarms with calculated indicators
   const telegramPromises: Promise<void>[] = [];
-  
+
   for (let i = 0; i < (alarms || []).length; i++) {
     try {
       const alarm = alarms[i];
-      const currentPrice = prices[i];
+      const indicators = indicatorsResults[i];
 
-      if (currentPrice === null) continue;
+      if (!indicators) {
+        console.log(`⚠️ No indicators calculated for ${alarm.symbol}`);
+        continue;
+      }
 
       let shouldTrigger = false;
       let triggerMessage = "";
+      let detectedSignal = null;
 
-      // PRICE_LEVEL alarm kontrolü
+      // STRATEGY 1: PRICE_LEVEL alarm (explicit price target)
       if (alarm.type === "PRICE_LEVEL" || alarm.condition) {
         const targetPrice = Number(alarm.target_price || alarm.targetPrice);
         const condition = String(alarm.condition || "").toLowerCase();
 
         if (Number.isFinite(targetPrice)) {
-          if (condition === "above" && currentPrice >= targetPrice) {
+          if (condition === "above" && indicators.price >= targetPrice) {
             shouldTrigger = true;
-            triggerMessage = `🚀 Fiyat ${targetPrice}$'ın üzerine çıktı! (Şu an: $${currentPrice})`;
-          } else if (condition === "below" && currentPrice <= targetPrice) {
+            triggerMessage = `🚀 Price ${targetPrice}$ reached! (Current: $${indicators.price.toFixed(2)})`;
+          } else if (condition === "below" && indicators.price <= targetPrice) {
             shouldTrigger = true;
-            triggerMessage = `📉 Fiyat ${targetPrice}$'ın altına indi! (Şu an: $${currentPrice})`;
+            triggerMessage = `📉 Price dropped below ${targetPrice}$! (Current: $${indicators.price.toFixed(2)})`;
           }
         }
       }
 
-      // ACTIVE_TRADE alarm kontrolü
-      if (alarm.type === "ACTIVE_TRADE" || alarm.direction) {
+      // STRATEGY 2: TECHNICAL SIGNAL alarm (confidence-based)
+      if (!shouldTrigger && (alarm.type === "SIGNAL" || alarm.confidence_score)) {
+        const userConfidenceThreshold = Number(alarm.confidence_score || 70);
+        const signal = generateSignalScore(indicators, userConfidenceThreshold);
+
+        console.log(`📊 ${alarm.symbol}: RSI=${indicators.rsi.toFixed(1)}, EMA12=${indicators.ema12.toFixed(2)}, EMA26=${indicators.ema26.toFixed(2)}, Signal=${signal.direction}(${signal.score}%)`);
+
+        if (signal.triggered) {
+          shouldTrigger = true;
+          detectedSignal = signal;
+          triggerMessage = `🎯 ${signal.direction} Signal detected! Confidence: ${signal.score}% (RSI: ${indicators.rsi.toFixed(1)}, Price: $${indicators.price.toFixed(2)})`;
+        }
+      }
+
+      // STRATEGY 3: ACTIVE_TRADE alarm (TP/SL hit)
+      if (!shouldTrigger && (alarm.type === "ACTIVE_TRADE" || alarm.direction)) {
         const direction = String(alarm.direction || "").toUpperCase();
         const entryPrice = Number(alarm.entry_price || alarm.entryPrice);
         const takeProfit = Number(alarm.take_profit || alarm.takeProfit);
         const stopLoss = Number(alarm.stop_loss || alarm.stopLoss);
 
         if (direction === "LONG" && Number.isFinite(entryPrice) && Number.isFinite(takeProfit) && Number.isFinite(stopLoss)) {
-          if (currentPrice >= takeProfit) {
+          if (indicators.price >= takeProfit) {
             shouldTrigger = true;
-            triggerMessage = `✅ LONG TP'ye ulaştı! (Giriş: $${entryPrice}, TP: $${takeProfit}, Şu an: $${currentPrice})`;
-          } else if (currentPrice <= stopLoss) {
+            triggerMessage = `✅ LONG TP Hit! (Entry: $${entryPrice}, TP: $${takeProfit}, Current: $${indicators.price.toFixed(2)})`;
+          } else if (indicators.price <= stopLoss) {
             shouldTrigger = true;
-            triggerMessage = `⛔ LONG SL'ye düştü! (Giriş: $${entryPrice}, SL: $${stopLoss}, Şu an: $${currentPrice})`;
+            triggerMessage = `⛔ LONG SL Hit! (Entry: $${entryPrice}, SL: $${stopLoss}, Current: $${indicators.price.toFixed(2)})`;
           }
         } else if (direction === "SHORT" && Number.isFinite(entryPrice) && Number.isFinite(takeProfit) && Number.isFinite(stopLoss)) {
-          if (currentPrice <= takeProfit) {
+          if (indicators.price <= takeProfit) {
             shouldTrigger = true;
-            triggerMessage = `✅ SHORT TP'ye ulaştı! (Giriş: $${entryPrice}, TP: $${takeProfit}, Şu an: $${currentPrice})`;
-          } else if (currentPrice >= stopLoss) {
+            triggerMessage = `✅ SHORT TP Hit! (Entry: $${entryPrice}, TP: $${takeProfit}, Current: $${indicators.price.toFixed(2)})`;
+          } else if (indicators.price >= stopLoss) {
             shouldTrigger = true;
-            triggerMessage = `⛔ SHORT SL'ye yükseldi! (Giriş: $${entryPrice}, SL: $${stopLoss}, Şu an: $${currentPrice})`;
+            triggerMessage = `⛔ SHORT SL Hit! (Entry: $${entryPrice}, SL: $${stopLoss}, Current: $${indicators.price.toFixed(2)})`;
           }
         }
       }
@@ -245,12 +374,14 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       if (shouldTrigger && triggerMessage) {
         const symbol = String(alarm.symbol || "").toUpperCase();
         const telegramMessage = `
-🔔 <b>ALARM TETİKLENDİ!</b> 🔔
+🔔 <b>ALARM TRIGGERED!</b> 🔔
 
 📊 Coin: <b>${symbol}</b>
 ${triggerMessage}
 
-⏰ Alarm Zamanı: <b>${new Date().toLocaleString('tr-TR')}</b>
+${detectedSignal ? `📈 Signal: <b>${detectedSignal.direction}</b> (Confidence: ${detectedSignal.score}%)` : ""}
+
+⏰ Time: <b>${new Date().toLocaleString("tr-TR")}</b>
 `;
 
         telegramPromises.push(sendTelegramNotification(alarm.user_id, telegramMessage));
@@ -260,7 +391,7 @@ ${triggerMessage}
       console.error(`❌ Error checking user alarm ${alarms[i]?.id}:`, e);
     }
   }
-  
+
   // 🚀 PARALLELIZED: Send all Telegram messages in parallel
   await Promise.all(telegramPromises);
 }
