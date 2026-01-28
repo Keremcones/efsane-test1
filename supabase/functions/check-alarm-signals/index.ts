@@ -575,6 +575,7 @@ serve(async (req) => {
         .select("*")
         .eq("user_id", body.user_id)
         .eq("type", "user_alarm")
+        .eq("is_active", true)
         .not("user_id", "is", null);
 
       alarms = result.data?.filter(alarm => alarm.status === "ACTIVE" || !alarm.status);
@@ -586,6 +587,7 @@ serve(async (req) => {
         .from("alarms")
         .select("*")
         .eq("type", "user_alarm")
+        .eq("is_active", true)
         .not("user_id", "is", null);
 
       alarms = result.data?.filter(alarm => alarm.status === "ACTIVE" || !alarm.status);
