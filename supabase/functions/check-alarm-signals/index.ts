@@ -22,8 +22,15 @@ const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const telegramBotToken = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const cronSecret = Deno.env.get("CRON_SECRET") ?? ""; // set this to protect endpoint
 
-if (!supabaseUrl || !supabaseServiceRoleKey || !telegramBotToken) {
-  console.error("❌ Missing env. Need SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, TELEGRAM_BOT_TOKEN");
+// CRITICAL: Fail fast if env vars missing
+if (!supabaseUrl) {
+  throw new Error("❌ FATAL: SUPABASE_URL not set in Edge Function environment variables");
+}
+if (!supabaseServiceRoleKey) {
+  throw new Error("❌ FATAL: SUPABASE_SERVICE_ROLE_KEY not set in Edge Function environment variables");
+}
+if (!telegramBotToken) {
+  throw new Error("❌ FATAL: TELEGRAM_BOT_TOKEN not set in Edge Function environment variables");
 }
 
 // Single supabase client for whole function (more efficient)
