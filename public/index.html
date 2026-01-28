@@ -9,11 +9,21 @@
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Utilities -->
+    <script src="rate-limiter.js"></script>
+    <script src="toast-manager.js"></script>
+    <script src="setup-supabase.js"></script>
     <!-- Auth Guard -->
     <script src="config.js"></script>
     <script>
         // Hemen kontrol et - sayfa yüklemeden önce
         (async () => {
+            // Supabase credentials var mı kontrol et
+            if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+                console.error('Supabase credentials missing! Set in Vercel Environment Variables or LOCAL_DEV in config.js');
+                return;
+            }
+            
             const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
             const { data: { session } } = await supabaseClient.auth.getSession();
             
@@ -1679,7 +1689,17 @@
                                background: var(--bg-primary); border: 1px solid var(--border); 
                                border-radius: 8px; color: var(--text-primary);">
                         
-                        <div style="max-height: 400px; overflow-y: auto;" id="coinList">
+                        <!-- Market Type Seçici -->
+                        <div style="margin-bottom: 8px;">
+                            <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 0.9rem;">📊 Piyasa Tipi:</label>
+                            <select id="marketTypeFilter" onchange="changeMarketType()" style="width: 100%; padding: 12px; 
+                                    background: var(--bg-primary); border: 1px solid var(--border); 
+                                    border-radius: 8px; color: var(--text-primary); cursor: pointer;">
+                                <option value="spot">🏪 Binance Spot</option>
+                                <option value="futures">🚀 Binance Futures</option>
+                            </select>
+                        </div>
+                                                <div style="max-height: 400px; overflow-y: auto;" id="coinList">
                             <div style="text-align: center; padding: 40px; color: var(--text-secondary);">
                                 Yükleniyor...
                             </div>
@@ -1808,7 +1828,15 @@
                 const { data, error } = await supabaseClient.auth.getSession();
                 if (data && data.session) {
                     currentUser = data.session.user;
-                    alarmSystem.setSupabaseClient(supabaseClient, currentUser.id);
+                    
+                    // Telegram chat ID'yi user_settings'den çek
+                    const { data: userSettings } = await supabaseClient
+                        .from('user_settings')
+                        .select('telegram_chat_id')
+                        .eq('user_id', currentUser.id)
+                        .maybeSingle();
+                    
+                    alarmSystem.setSupabaseClient(supabaseClient, currentUser.id, userSettings?.telegram_chat_id);
                     console.log(`✅ Supabase ile bağlantı kuruldu - User: ${currentUser.email}`);
                 }
             } catch (error) {
@@ -1820,9 +1848,20 @@
         supabaseClient.auth.onAuthStateChange((event, session) => {
             if (session) {
                 currentUser = session.user;
-                if (alarmSystem) {
-                    alarmSystem.setSupabaseClient(supabaseClient, currentUser.id);
-                }
+                
+                // Telegram chat ID'yi user_settings'den çek
+                (async () => {
+                    const { data: userSettings } = await supabaseClient
+                        .from('user_settings')
+                        .select('telegram_chat_id')
+                        .eq('user_id', currentUser.id)
+                        .maybeSingle();
+                    
+                    if (alarmSystem) {
+                        alarmSystem.setSupabaseClient(supabaseClient, currentUser.id, userSettings?.telegram_chat_id);
+                    }
+                })();
+                
                 console.log(`✅ Kullanıcı giriş yaptı: ${currentUser.email}`);
                 loadAlarms();
                 
@@ -2042,11 +2081,23 @@
         // Tüm coinleri yükle
         async function loadAllCoins() {
             try {
-                const response = await fetch(`${BINANCE_API_BASE}/ticker/24hr`);
+                const response = await fetch(`${getBinanceApiBase()}/ticker/24hr`);
                 const data = await response.json();
                 
                 allCoins = data
-                    .filter(coin => coin.symbol.endsWith('USDT') && !coin.symbol.includes('DOWN') && !coin.symbol.includes('UP') && !coin.symbol.includes('BEAR') && !coin.symbol.includes('BULL'))
+                    .filter(coin => {
+                        const minimumVolume = 1000; // Minimum 24h işlem hacmi (USDT)
+                        // Aktif işlem gören coinleri filtrele (24h quote volume > minimumVolume USDT)
+                        const quoteVolume = parseFloat(coin.quoteVolume || 0);
+                        if (quoteVolume < minimumVolume) return false;
+                        if (CURRENT_MARKET_TYPE === 'futures') {
+                            // Futures: Sadece USDT perpetual sözleşmeleri
+                            return coin.symbol.endsWith('USDT') && !coin.symbol.includes('_');
+                        } else {
+                            // Spot: USDT ile biten, leverage olmayan coinler
+                            return coin.symbol.endsWith('USDT') && !coin.symbol.includes('DOWN') && !coin.symbol.includes('UP') && !coin.symbol.includes('BEAR') && !coin.symbol.includes('BULL');
+                        }
+                    })
                     .map(coin => ({
                         symbol: coin.symbol,
                         name: coin.symbol.replace('USDT', ''),
@@ -2157,7 +2208,25 @@
             renderCoinList();
         }
         
-        // Sıralama
+        
+        // Market type değişimi
+        async function changeMarketType() {
+            const newMarketType = document.getElementById('marketTypeFilter').value;
+            setMarketType(newMarketType);
+            
+            // Coin listesini yeniden yükle
+            await loadAllCoins();
+            
+            // Mevcut coin seçili ise yeniden analiz et
+            if (currentSymbol) {
+                await analyzeCoinWithAdvancedFeatures(currentSymbol);
+            }
+            
+            // Toast mesajı göster
+            showUpdateToast(`📊 Piyasa tipi ${newMarketType === 'futures' ? 'Futures' : 'Spot'} olarak değiştirildi`);
+        }
+        
+        // Sıralama        // Sıralama
         function sortCoins() {
             const sortType = document.getElementById('sortFilter').value;
             
@@ -2484,7 +2553,7 @@
             
             priceUpdateInterval = setInterval(async () => {
                 try {
-                    const response = await fetch(`${BINANCE_API_BASE}/ticker/24hr?symbol=${symbol}`);
+                    const response = await fetch(`${getBinanceApiBase()}/ticker/24hr?symbol=${symbol}`);
                     const data = await response.json();
                     
                     const price = parseFloat(data.lastPrice);
@@ -2543,7 +2612,7 @@
         function startIndicatorUpdates(symbol) {
             indicatorUpdateInterval = setInterval(async () => {
                 try {
-                    const klinesUrl = `${BINANCE_API_BASE}/klines?symbol=${symbol}&interval=${currentTimeframe}&limit=100`;
+                    const klinesUrl = `${getBinanceApiBase()}/klines?symbol=${symbol}&interval=${currentTimeframe}&limit=100`;
                     const response = await fetch(klinesUrl);
                     const klines = await response.json();
 
@@ -2645,8 +2714,8 @@
                 }
                 
                 // İlk önce fiyat verisini çek (backtest'ten önce lazım)
-                const tickerUrl = `${BINANCE_API_BASE}/ticker/price?symbol=${symbol}`;
-                const ticker24Url = `${BINANCE_API_BASE}/ticker/24hr?symbol=${symbol}`;
+                const tickerUrl = `${getBinanceApiBase()}/ticker/price?symbol=${symbol}`;
+                const ticker24Url = `${getBinanceApiBase()}/ticker/24hr?symbol=${symbol}`;
 
                 const [tickerRes, ticker24Res] = await Promise.all([
                     fetch(tickerUrl),
@@ -2675,7 +2744,7 @@
                     console.log('Son bar güncellendi - Close:', currentPrice);
                 } else {
                     // Eğer backtest başarısız olduysa, son 999 bar al + açık bar ekle
-                    const klinesUrl = `${BINANCE_API_BASE}/klines?symbol=${symbol}&interval=${currentTimeframe}&limit=999`;
+                    const klinesUrl = `${getBinanceApiBase()}/klines?symbol=${symbol}&interval=${currentTimeframe}&limit=999`;
                     const klinesRes = await fetch(klinesUrl);
                     if (!klinesRes.ok) throw new Error(`Klines API hatası: ${klinesRes.status} ${klinesRes.statusText}`);
                     klines = await klinesRes.json();
@@ -3571,15 +3640,9 @@
                             <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 6px; margin-bottom: 0; line-height: 1.4;">TP/SL vurmayan işlemler kaç bar içinde kapanacağını belirler. Örnek: 5 bar = 5 bardan sonra işlem otomatik kapanır.</p>
                         </div>
 
-                        ${signal && signal.isValidSignal ? `
-                            <button class="btn btn-primary save-analysis-btn" onclick="trackSignalAsAlarm()" style="margin-top: 16px;">
-                                👁️ 🔔 Alarmlardan Takip Et
-                            </button>
-                        ` : `
-                            <button class="btn btn-primary save-analysis-btn" onclick="createAlarmFromAnalysis()" style="margin-top: 16px;" ${!signal ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}>
-                                🔔 Alarm Kur
-                            </button>
-                        `}
+                        <button class="btn btn-primary save-analysis-btn" onclick="createAlarmFromAnalysis()" style="margin-top: 16px;" ${!signal ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}>
+                            🔔 Alarm Kur
+                        </button>
                     </div>
                 </div>
                 
@@ -4124,9 +4187,9 @@
                     const bar = descriptionMatch ? descriptionMatch[3] : alarm.barCloseLimit || '-';
                     
                     if (alarm.type === 'ACTIVE_TRADE') {
-                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;">${logoHtml}<div><span style="font-weight: 600;">${coinSymbol} ${alarm.direction}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe}')">📈 Grafiğe Git</span></div></div></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;"><div>⏱️ Timeframe: <strong>${alarm.timeframe || '-'}</strong></div><div style="margin-top: 4px;">� Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></div><div style="margin-top: 4px;">�📊 TP: ${alarm.tpPercent}% | SL: ${alarm.slPercent}% | Bar: ${alarm.barCloseLimit || '-'}</div></div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;">🗑️ Sil</button></div>`;
+                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;">${logoHtml}<div><span style="font-weight: 600;">${coinSymbol} ${alarm.direction}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe}')">📈 Grafiğe Git</span><br><span style="font-size: 0.75rem; color: var(--text-secondary);">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></span></div></div></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;"><div>⏱️ Timeframe: <strong>${alarm.timeframe || '-'}</strong></div><div style="margin-top: 4px;">�📊 TP: ${alarm.tpPercent}% | SL: ${alarm.slPercent}% | Bar: ${alarm.barCloseLimit || '-'}</div></div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;">🗑️ Sil</button></div>`;
                     } else {
-                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;"><div>${logoHtml}</div><div><span style="font-weight: 600;">${coinSymbol} - ${alarm.name}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe || '1h'}')">📈 Grafiğe Git</span></div></div><span style="font-size: 0.85rem; color: var(--text-secondary);">⏳ Aktif</span></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></div><div style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 8px;">${alarm.description}</div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">TP: ${tp}% | SL: ${sl}% | Bar: ${bar}</div><button class="btn" onclick="toggleAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;">⏸️ Durdur</button></div>`;
+                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;"><div>${logoHtml}</div><div><span style="font-weight: 600;">${coinSymbol} - ${alarm.name}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe || '1h'}')">📈 Grafiğe Git</span></div></div><span style="font-size: 0.85rem; color: var(--text-secondary);">⏳ Aktif</span></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">Timeframe: ${alarm.timeframe || '1h'} | TP: ${tp}% | SL: ${sl}% | Bar: ${bar}</div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;">🗑️ Sil</button></div>`;
                     }
                 });
                 activeGrid.innerHTML = activeHtml;
@@ -4269,8 +4332,11 @@
         
         // Alarm sil
         async function removeAlarm(alarmId) {
-            await alarmSystem.removeAlarm(parseFloat(alarmId));
-            loadAlarms();
+            console.log('🗑️ [HTML REMOVE] alarmId:', alarmId, 'type:', typeof alarmId);
+            // UUID string'i olduğu gibi kullan, parseFloat yapma
+            console.log('🗑️ [HTML REMOVE] Supabase siliniyor:', alarmId);
+            await alarmSystem.removeAlarm(alarmId);
+            loadAlarms(); // UI'yi güncelle
         }
         
         // Notification izni iste
@@ -4288,6 +4354,7 @@
             }
 
             const alarm = {
+                marketType: CURRENT_MARKET_TYPE,
                 symbol: currentSymbol,
                 type: 'PRICE_LEVEL',
                 name: `${currentSymbol} - Alarm Kuruldu`,
@@ -4296,6 +4363,7 @@
                 takeProfitPercent: takeProfitPercent,
                 stopLossPercent: stopLossPercent,
                 barCloseLimit: barCloseLimit,
+                confidenceScore: confidenceThreshold,
                 active: true,
                 createdAt: new Date().toISOString()
             };
@@ -4306,52 +4374,6 @@
         }
 
         // Aktif sinyali alarm sistemi'ne ekle
-        function trackSignalAsAlarm() {
-            if (!currentAnalysis || !currentAnalysis.signal_direction) {
-                showUpdateToast('❌ Sinyal bulunamadı');
-                return;
-            }
-
-            const signalTime = currentAnalysis.signal_timestamp 
-                ? new Date(currentAnalysis.signal_timestamp).toLocaleString('tr-TR')
-                : new Date().toLocaleString('tr-TR');
-
-            const signalAlarm = {
-                symbol: currentSymbol,
-                type: 'ACTIVE_TRADE',
-                name: `${currentSymbol} - ${currentAnalysis.signal_direction} İşlemi`,
-                description: `Sinyal: ${signalTime} | Giriş: $${formatPrice(currentAnalysis.entry_price)}, TP: $${formatPrice(currentAnalysis.take_profit)}, SL: $${formatPrice(currentAnalysis.stop_loss)}`,
-                entryPrice: currentAnalysis.entry_price,
-                takeProfit: currentAnalysis.take_profit,
-                stopLoss: currentAnalysis.stop_loss,
-                direction: currentAnalysis.signal_direction,
-                tpPercent: currentAnalysis.signal_direction === 'LONG' ? 
-                    ((currentAnalysis.take_profit - currentAnalysis.entry_price) / currentAnalysis.entry_price * 100).toFixed(2) :
-                    ((currentAnalysis.entry_price - currentAnalysis.take_profit) / currentAnalysis.entry_price * 100).toFixed(2),
-                slPercent: currentAnalysis.signal_direction === 'LONG' ?
-                    ((currentAnalysis.stop_loss - currentAnalysis.entry_price) / currentAnalysis.entry_price * 100).toFixed(2) :
-                    ((currentAnalysis.entry_price - currentAnalysis.stop_loss) / currentAnalysis.entry_price * 100).toFixed(2),
-                timeframe: currentTimeframe,
-                barCloseLimit: barCloseLimit,
-                confidenceScore: confidenceThreshold,
-                active: true,
-                createdAt: new Date().toISOString(),
-                signalTimestamp: currentAnalysis.signal_timestamp,
-                status: 'AKTIF'
-            };
-
-            alarmSystem.addAlarm(signalAlarm);
-            loadAlarms();
-            showUpdateToast('✅ İşlem başarıyla takip listesine eklendi!');
-            
-            setTimeout(() => {
-                const alarmSection = document.getElementById('alarmGrid');
-                if (alarmSection) {
-                    alarmSection.scrollIntoView({ behavior: 'smooth' });
-                }
-            }, 500);
-        }
-        
         // Toast mesajı göster
         function showUpdateToast(message) {
             const toast = document.createElement('div');

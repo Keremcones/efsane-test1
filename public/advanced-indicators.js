@@ -13,7 +13,7 @@ async function analyzeMultiTimeframe(symbol) {
     // Tüm API çağrılarını paralel yap (sequential yerine)
     const promises = timeframes.map(async (tf) => {
         try {
-            const klinesUrl = `${BINANCE_API_BASE}/klines?symbol=${symbol}&interval=${tf}&limit=100`;
+            const klinesUrl = `${window.getBinanceApiBase ? window.getBinanceApiBase() : "https://api.binance.com/api/v3"}/klines?symbol=${symbol}&interval=${tf}&limit=100`;
             const response = await fetch(klinesUrl);
             const klines = await response.json();
             
@@ -593,9 +593,9 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
     const neededKlines = Math.min(Math.ceil(days * klinesPerDay), 1000);
     
     try {
-        // Son 999 kapanmış bar'ı al
-        const klinesUrl = `${BINANCE_API_BASE}/klines?symbol=${symbol}&interval=${timeframe}&limit=999`;
-        const response = await fetch(klinesUrl);
+        // Son 999 kapanmış bar'ı al with retry & rate limiting
+        const klinesUrl = `${window.getBinanceApiBase ? window.getBinanceApiBase() : "https://api.binance.com/api/v3"}/klines?symbol=${symbol}&interval=${timeframe}&limit=999`;
+        const response = await fetchWithRetry(klinesUrl, {}, 3, 1000, 30000);
         const klines = await response.json();
         
         // Şu anki açık bar'ı ekle (manuel olarak) - TÜRKİYE SAATİNE GÖRE
@@ -621,7 +621,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         const openPrice = lastClosedBar[1];
         
         // Şu anki fiyat (ayrıca çekmeliyiz)
-        const tickerUrl = `${BINANCE_API_BASE}/ticker/price?symbol=${symbol}`;
+        const tickerUrl = `${window.getBinanceApiBase ? window.getBinanceApiBase() : "https://api.binance.com/api/v3"}/ticker/price?symbol=${symbol}`;
         const tickerRes = await fetch(tickerUrl);
         const tickerData = await tickerRes.json();
         const currentPrice = parseFloat(tickerData.price);
@@ -1260,15 +1260,22 @@ class AlarmSystem {
         this.checkInterval = null;
         this.supabase = supabaseClient;
         this.userId = null;
+        this.telegramChatId = null;
+        this.subscription = null;
         // Kaydedilmiş alarmları yükle
         this.loadAlarms();
     }
     
-    setSupabaseClient(supabaseClient, userId) {
+    setSupabaseClient(supabaseClient, userId, telegramChatId = null) {
         this.supabase = supabaseClient;
         this.userId = userId;
+        this.telegramChatId = telegramChatId;
+        // Eski subscription'ı durdur
+        this.stopRealtimeSubscription();
         // Supabase'den alarmları yeniden yükle
         this.loadAlarms();
+        // Real-time subscription başlat
+        this.startRealtimeSubscription();
     }
     
     async addAlarm(symbolOrAlarm, targetPrice, condition, type = 'price') {
@@ -1286,7 +1293,7 @@ class AlarmSystem {
                 symbol: symbolOrAlarm,
                 targetPrice,
                 condition, // 'above' veya 'below'
-                type,
+                type: type === 'price' ? 'PRICE_LEVEL' : type, // 'price' -> 'PRICE_LEVEL'
                 active: true,
                 createdAt: new Date(),
                 triggered: false,
@@ -1303,12 +1310,36 @@ class AlarmSystem {
     }
     
     async removeAlarm(id) {
-        const alarm = this.alarms.find(a => a.id === id);
+        console.log('🗑️ [REMOVE ALARM] Başlatılıyor, id:', id, 'type:', typeof id);
+        const alarm = this.alarms.find(a => {
+            console.log('🔍 Checking alarm id:', a.id, 'type:', typeof a.id, 'vs', id, typeof id, 'equal:', a.id === id);
+            return a.id === id;
+        });
+        console.log('📋 Found alarm:', alarm);
         this.alarms = this.alarms.filter(alarm => alarm.id !== id);
+        console.log('📋 After filter, alarms length:', this.alarms.length);
+
+        // Supabase'den de sil
+        if (this.supabase && this.userId) {
+            try {
+                await this.supabase
+                    .from('alarms')
+                    .delete()
+                    .eq('user_id', this.userId)
+                    .eq('id', id)
+                    .eq('type', 'user_alarm');
+
+                console.log('🗑️ Alarm alarms tablosundan silindi:', { id, symbol: alarm?.symbol });
+            } catch (error) {
+                console.error('Supabase silme hatası:', error);
+                // Hata olursa alarmı geri ekle
+                if (alarm) this.alarms.push(alarm);
+            }
+        }
+
         await this.saveAlarms();
-        
-        // NOT: Pasif alarmlardan silinme bildirimi gönderilmiyor
-        // Telegram bildirimleri sadece aktif alarmlar pasif alarmlarla kesiştiğinde gönderilecek
+        // Supabase'den yeniden yükle
+        await this.loadAlarms();
     }
 
     async deactivateAlarm(id) {
@@ -1905,32 +1936,81 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
         // localStorage'a her zaman kaydet (offline support)
         localStorage.setItem('crypto_alarms', JSON.stringify(this.alarms));
         
+        console.log('💾 saveAlarms çağrıldı, supabase:', !!this.supabase, 'userId:', this.userId, 'alarms length:', this.alarms.length);
+        
         // Supabase'e de kaydet (eğer client varsa)
         if (this.supabase && this.userId) {
             try {
+                console.log('🗑️ Eski alarmları siliyorum...');
                 // Önce eski verileri sil
-                await this.supabase
+                const deleteResult = await this.supabase
                     .from('alarms')
                     .delete()
-                    .eq('user_id', this.userId);
+                    .eq('user_id', this.userId)
+                    .eq('type', 'user_alarm');
                 
-                // Yeni verileri ekle
-                if (this.alarms.length > 0) {
-                    const alarmsData = this.alarms.map(alarm => ({
-                        user_id: this.userId,
-                        alarm_id: alarm.id,
-                        data: alarm
-                    }));
+                console.log('🗑️ Delete result:', deleteResult);
+                
+                // Her alarm için insert yap
+                for (const alarm of this.alarms) {
+                    const alarmsData = this.alarms.map(alarm => {
+                        const baseData = {
+                            user_id: this.userId,
+                            symbol: alarm.symbol || 'BTCUSDT',
+                            timeframe: alarm.timeframe || '1h',
+                            market_type: alarm.marketType || 'spot',
+                            type: 'user_alarm',
+                            is_active: alarm.active !== false,
+                            telegram_enabled: true,
+                            telegram_chat_id: this.telegramChatId || null,
+                            confidence_score: String(alarm.confidenceScore || alarm.confidence_score || '60'),
+                            tp_percent: String(alarm.takeProfitPercent || alarm.tp_percent || '5'),
+                            sl_percent: String(alarm.stopLossPercent || alarm.sl_percent || '3'),
+                            bar_close_limit: alarm.barCloseLimit || alarm.bar_close_limit || 5
+                        };
+                        
+                        console.log('📊 Alarm data hazırlanıyor:', alarm.type, alarm);
+                        
+                        // Alarm türüne göre ek alanlar
+                        if (alarm.type === 'price' || alarm.type === 'PRICE_LEVEL') {
+                            return {
+                                ...baseData,
+                                target_price: alarm.targetPrice || alarm.target_price,
+                                condition: alarm.condition || 'above'
+                            };
+                        } else if (alarm.type === 'trade' || alarm.type === 'ACTIVE_TRADE') {
+                            return {
+                                ...baseData,
+                                direction: alarm.direction || 'LONG',
+                                entry_price: alarm.entryPrice || alarm.entry_price,
+                                take_profit: alarm.takeProfit || alarm.take_profit,
+                                stop_loss: alarm.stopLoss || alarm.stop_loss
+                            };
+                        }
+                        
+                        // Default olarak price alarm
+                        return {
+                            ...baseData,
+                            target_price: alarm.targetPrice || alarm.target_price,
+                            condition: alarm.condition || 'above'
+                        };
+                    });
                     
-                    await this.supabase
+                    console.log('📤 Insert data:', alarmsData);
+                    
+                    const insertResult = await this.supabase
                         .from('alarms')
                         .insert(alarmsData);
+                    
+                    console.log('✅ Insert result:', insertResult);
                 }
                 
-                console.log('💾 Alarmlar Supabase\'e kaydedildi');
+                console.log('💾 Alarmlar alarms tablosuna kaydedildi');
             } catch (error) {
-                console.error('Supabase kayıt hatası:', error);
+                console.error('❌ Supabase kayıt hatası:', error);
             }
+        } else {
+            console.log('⚠️ Supabase client veya userId yok, sadece localStorage kaydedildi');
         }
     }
     
@@ -1940,14 +2020,61 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
             try {
                 const { data, error } = await this.supabase
                     .from('alarms')
-                    .select('data')
-                    .eq('user_id', this.userId);
+                    .select('*')
+                    .eq('user_id', this.userId)
+                    .eq('type', 'user_alarm');
                 
                 if (error) throw error;
                 
                 if (data && data.length > 0) {
-                    this.alarms = data.map(item => item.data);
-                    console.log(`📥 Supabase\'den ${this.alarms.length} alarm yüklendi`);
+                    this.alarms = data.map(item => {
+                        const baseAlarm = {
+                            id: item.id,
+                            symbol: item.symbol,
+                            timeframe: item.timeframe,
+                            marketType: item.market_type || 'spot',
+                            active: item.is_active,
+                            createdAt: item.created_at,
+                            confidenceScore: parseInt(item.confidence_score) || 60,
+                            takeProfitPercent: parseInt(item.tp_percent) || 5,
+                            stopLossPercent: parseInt(item.sl_percent) || 3,
+                            barCloseLimit: item.bar_close_limit || 5
+                        };
+                        
+                        // Alarm türüne göre ek alanlar
+                        if (item.target_price) {
+                            // Price level alarm
+                            return {
+                                ...baseAlarm,
+                                type: 'PRICE_LEVEL',
+                                targetPrice: parseFloat(item.target_price),
+                                condition: item.condition || 'above',
+                                name: `${item.symbol} - ${item.condition} ${item.target_price}`,
+                                description: `Fiyat alarmı: ${item.condition} $${item.target_price}`
+                            };
+                        } else if (item.entry_price) {
+                            // Active trade alarm
+                            return {
+                                ...baseAlarm,
+                                type: 'ACTIVE_TRADE',
+                                direction: item.direction || 'LONG',
+                                entryPrice: parseFloat(item.entry_price),
+                                takeProfit: parseFloat(item.take_profit),
+                                stopLoss: parseFloat(item.stop_loss),
+                                name: `${item.symbol} - ${item.direction} Trade`,
+                                description: `Giriş: $${item.entry_price}, TP: $${item.take_profit}, SL: $${item.stop_loss}`
+                            };
+                        }
+                        
+                        // Default
+                        return {
+                            ...baseAlarm,
+                            type: 'PRICE_LEVEL',
+                            name: `${item.symbol} - Alarm`,
+                            description: `Güven skoru: ${item.confidence_score}%, TP: ${item.tp_percent}%, SL: ${item.sl_percent}%, Bar: ${item.bar_close_limit}`
+                        };
+                    });
+                    console.log(`📥 alarms tablosundan ${this.alarms.length} alarm yüklendi`);
                     return;
                 }
             } catch (error) {
@@ -1975,6 +2102,48 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
         if (this.checkInterval) {
             clearInterval(this.checkInterval);
             this.checkInterval = null;
+        }
+    }
+
+    startRealtimeSubscription() {
+        if (!this.supabase || !this.userId) return;
+
+        // Eski subscription'ı durdur
+        this.stopRealtimeSubscription();
+
+        console.log('🔄 Real-time alarm subscription başlatılıyor...');
+
+        this.subscription = this.supabase
+            .channel('alarms_changes')
+            .on('postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'alarms',
+                    filter: `user_id=eq.${this.userId}`
+                },
+                (payload) => {
+                    console.log('📡 Alarm değişikliği algılandı:', payload.eventType, payload.new || payload.old);
+
+                    // Alarmları yeniden yükle ve UI'yi güncelle
+                    this.loadAlarms().then(() => {
+                        // Global loadAlarms fonksiyonunu çağır (eğer varsa)
+                        if (typeof loadAlarms === 'function') {
+                            loadAlarms();
+                        }
+                    });
+                }
+            )
+            .subscribe((status) => {
+                console.log('📡 Alarm subscription durumu:', status);
+            });
+    }
+
+    stopRealtimeSubscription() {
+        if (this.subscription) {
+            console.log('🔄 Real-time alarm subscription durduruluyor...');
+            this.supabase.removeChannel(this.subscription);
+            this.subscription = null;
         }
     }
 }

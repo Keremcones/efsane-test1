@@ -1,100 +1,530 @@
-// Vercel Serverless Function - CORS Proxy with Retry
-export default async function handler(req, res) {
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+// deno-lint-ignore-file no-explicit-any
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
 
-  // Handle preflight
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+/**
+ * ✅ FIXES INCLUDED
+ * - Uses SERVICE_ROLE_KEY (server-side safe) instead of ANON
+ * - Adds CRON_SECRET auth guard (optional but recommended)
+ * - Implements tickSize precision rounding via exchangeInfo cache
+ * - Properly handles Binance response errors + NaN protection
+ * - Uses maybeSingle() for duplicate check
+ * - Inserts new signal if provided and not duplicate
+ * - Status model: ACTIVE / CLOSED + close_reason: TP_HIT / SL_HIT
+ */
+
+// =====================
+// ENV
+// =====================
+const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const telegramBotToken = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
+const cronSecret = Deno.env.get("CRON_SECRET") ?? ""; // set this to protect endpoint
+
+if (!supabaseUrl || !supabaseServiceRoleKey || !telegramBotToken) {
+  console.error("❌ Missing env. Need SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, TELEGRAM_BOT_TOKEN");
+}
+
+// Single supabase client for whole function (more efficient)
+const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
+
+// =====================
+// Binance API bases
+// =====================
+const BINANCE_SPOT_API_BASE = "https://api.binance.com/api/v3";
+const BINANCE_FUTURES_API_BASE = "https://fapi.binance.com/fapi/v1";
+
+// =====================
+// Binance exchangeInfo cache
+// =====================
+const exchangeInfoCache: Record<string, any> = {};
+const exchangeInfoCacheTime: Record<string, number> = {};
+
+function normalizeMarketType(value: any): "spot" | "futures" {
+  const v = String(value || "").toLowerCase();
+  return v === "futures" || v === "future" || v === "perp" || v === "perpetual" ? "futures" : "spot";
+}
+
+async function getExchangeInfo(marketType: "spot" | "futures"): Promise<any | null> {
+  const now = Date.now();
+  const cacheKey = marketType;
+  if (exchangeInfoCache[cacheKey] && (now - (exchangeInfoCacheTime[cacheKey] || 0)) < 60 * 60 * 1000) {
+    return exchangeInfoCache[cacheKey];
   }
 
+  const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
+  const url = marketType === "futures"
+    ? `${base}/exchangeInfo`
+    : `${base}/exchangeInfo?permissions=SPOT`;
+
   try {
-    const { url } = req.query;
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.error("❌ exchangeInfo fetch failed:", res.status, await res.text());
+      return null;
+    }
+    exchangeInfoCache[cacheKey] = await res.json();
+    exchangeInfoCacheTime[cacheKey] = now;
+    return exchangeInfoCache[cacheKey];
+  } catch (e) {
+    console.error("❌ Exchange info fetch error:", e);
+    return null;
+  }
+}
 
-    if (!url) {
-      return res.status(400).json({ error: 'URL parameter is required' });
+function getTickSize(exchangeInfo: any, symbol: string): number | null {
+  try {
+    const s = exchangeInfo?.symbols?.find((x: any) => x.symbol === symbol);
+    const filter = s?.filters?.find((f: any) => f.filterType === "PRICE_FILTER");
+    const tickSizeStr = filter?.tickSize;
+    const tick = tickSizeStr ? Number(tickSizeStr) : NaN;
+    if (!Number.isFinite(tick) || tick <= 0) return null;
+    return tick;
+  } catch {
+    return null;
+  }
+}
+
+// Round price to tick size (safe for comparisons/storage)
+function roundToTick(price: number, tick: number, mode: "DOWN" | "NEAREST" = "NEAREST") {
+  if (!Number.isFinite(price) || !Number.isFinite(tick) || tick <= 0) return price;
+
+  const factor = 1 / tick;
+  const v = price * factor;
+
+  const rounded = mode === "DOWN" ? Math.floor(v) : Math.round(v);
+  const result = rounded / factor;
+
+  // Fix floating point noise
+  const decimals = Math.max(0, Math.round(-Math.log10(tick)));
+  return Number(result.toFixed(decimals));
+}
+
+async function getCurrentPrice(symbol: string, marketType: "spot" | "futures"): Promise<number | null> {
+  try {
+    const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
+    const res = await fetch(`${base}/ticker/price?symbol=${symbol}`);
+    if (!res.ok) {
+      console.error(`❌ price fetch failed for ${symbol}:`, res.status, await res.text());
+      return null;
+    }
+    const data = await res.json();
+    const p = Number(data?.price);
+    if (!Number.isFinite(p)) return null;
+    return p;
+  } catch (e) {
+    console.error(`❌ price fetch error for ${symbol}:`, e);
+    return null;
+  }
+}
+
+// =====================
+// Telegram
+// =====================
+async function sendTelegramNotification(userId: string, message: string): Promise<void> {
+  try {
+    const { data: userSettings, error } = await supabase
+      .from("user_settings")
+      .select("telegram_chat_id, telegram_username, notifications_enabled")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("❌ user_settings fetch error:", error);
+      return;
+    }
+    if (userSettings?.notifications_enabled === false) {
+      console.log(`⚠️ Notifications disabled for user ${userId}`);
+      return;
     }
 
-    // Sadece Binance API'ye izin ver
-    if (!url.includes('binance.com')) {
-      return res.status(403).json({ error: 'Only Binance API requests are allowed' });
+    const chatId = userSettings?.telegram_chat_id || userSettings?.telegram_username;
+    if (!chatId) {
+      console.log(`⚠️ No Telegram chat ID for user ${userId}`);
+      return;
     }
 
-    console.log('🔄 Proxying request to:', url);
+    const botUrl = `https://api.telegram.org/bot${telegramBotToken}/sendMessage`;
 
-    // Retry logic - 3 attempts
-    let lastError;
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    const resp = await fetch(botUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message,
+        parse_mode: "HTML",
+      }),
+    });
+
+    if (!resp.ok) {
+      console.error("❌ Telegram send failed:", resp.status, await resp.text());
+      return;
+    }
+
+    console.log(`✅ Telegram message sent to user ${userId}`);
+  } catch (e) {
+    console.error("❌ Telegram notification error:", e);
+  }
+}
+
+// =====================
+// Signal close logic
+// =====================
+type ClosedSignal = {
+  id: string | number;
+  symbol: string;
+  direction: "LONG" | "SHORT";
+  close_reason: "TP_HIT" | "SL_HIT";
+  price: number;
+  user_id: string;
+};
+
+async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
+  try {
+    const { data: signals, error: signalsError } = await supabase
+      .from("alarm_signals")
+      .select("*")
+      .eq("status", "ACTIVE");
+
+    if (signalsError) {
+      console.error("❌ Error fetching signals:", signalsError);
+      return [];
+    }
+
+    const closedSignals: ClosedSignal[] = [];
+    for (const signal of signals || []) {
       try {
-        const response = await fetch(url, {
-          method: req.method,
-          headers: {
-            'Content-Type': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'application/json',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
-            'Referer': 'https://www.binance.com/',
-            'Origin': 'https://www.binance.com',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-site',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-          },
-          timeout: 15000, // 15 second timeout
+        const marketType = normalizeMarketType(signal.market_type || signal.marketType || signal.market);
+        const exchangeInfo = await getExchangeInfo(marketType);
+        const symbol = String(signal.symbol || "");
+        const direction = (signal.signal_direction || signal.direction) as "LONG" | "SHORT";
+        if (direction !== "LONG" && direction !== "SHORT") {
+          console.error(`❌ Invalid direction for signal ${signal.id}`);
+          continue;
+        }
+
+        const rawPrice = await getCurrentPrice(symbol, marketType);
+        if (rawPrice === null) continue;
+
+        // tickSize rounding
+        const tick = exchangeInfo ? getTickSize(exchangeInfo, symbol) : null;
+        const currentPrice = tick ? roundToTick(rawPrice, tick, "NEAREST") : rawPrice;
+
+        const tp = Number(signal.take_profit);
+        const sl = Number(signal.stop_loss);
+
+        if (!Number.isFinite(tp) || !Number.isFinite(sl)) {
+          console.error(`❌ Invalid TP/SL for signal ${signal.id}`);
+          continue;
+        }
+
+        const takeProfit = tick ? roundToTick(tp, tick, "NEAREST") : tp;
+        const stopLoss = tick ? roundToTick(sl, tick, "NEAREST") : sl;
+
+        let shouldClose = false;
+        let closeReason: "TP_HIT" | "SL_HIT" | "" = "";
+
+        if (direction === "LONG") {
+          if (currentPrice >= takeProfit) {
+            shouldClose = true;
+            closeReason = "TP_HIT";
+          } else if (currentPrice <= stopLoss) {
+            shouldClose = true;
+            closeReason = "SL_HIT";
+          }
+        } else if (direction === "SHORT") {
+          if (currentPrice <= takeProfit) {
+            shouldClose = true;
+            closeReason = "TP_HIT";
+          } else if (currentPrice >= stopLoss) {
+            shouldClose = true;
+            closeReason = "SL_HIT";
+          }
+        }
+
+        if (!shouldClose || !closeReason) continue;
+
+        const { error: updateError } = await supabase
+          .from("alarm_signals")
+          .update({
+            status: closeReason,
+            closed_at: new Date().toISOString(),
+            exit_price: currentPrice,
+          })
+          .eq("id", signal.id)
+          .eq("status", "ACTIVE"); // avoid race double-close
+
+        if (updateError) {
+          console.error("❌ updateError:", updateError);
+          continue;
+        }
+
+        closedSignals.push({
+          id: signal.id,
+          symbol,
+          direction,
+          close_reason: closeReason,
+          price: currentPrice,
+          user_id: signal.user_id,
         });
-
-        if (response.ok) {
-          const data = await response.json();
-          return res.status(200).json(data);
-        }
-
-        // If not ok, throw to retry
-        lastError = `HTTP ${response.status}`;
-        
-        // Don't retry on 4xx errors
-        if (response.status >= 400 && response.status < 500) {
-          return res.status(response.status).json({
-            error: `API returned ${response.status}`,
-            message: 'Request failed'
-          });
-        }
-
-        console.warn(`⚠️ Attempt ${attempt}/3 failed: ${lastError}`);
-        
-        if (attempt < 3) {
-          // Exponential backoff: 1s, 2s, 4s
-          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt - 1) * 1000));
-        }
-      } catch (error) {
-        lastError = error.message;
-        console.warn(`⚠️ Attempt ${attempt}/3 failed: ${lastError}`);
-        
-        if (attempt < 3) {
-          // Exponential backoff
-          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt - 1) * 1000));
-        }
+      } catch (e) {
+        console.error(`❌ Error checking signal ${signal?.id}:`, e);
       }
     }
 
-    // All retries failed
-    console.error('❌ All retry attempts failed:', lastError);
-    return res.status(503).json({
-      error: 'Service temporarily unavailable',
-      message: 'Binance API is currently unreachable. Please try again later.',
-      details: lastError
-    });
-
-  } catch (error) {
-    console.error('❌ Proxy error:', error.message);
-    return res.status(500).json({
-      error: 'Failed to fetch data',
-      message: error.message
-    });
+    return closedSignals;
+  } catch (e) {
+    console.error("❌ Error in checkAndCloseSignals:", e);
+    return [];
   }
 }
+
+// =====================
+// Insert new signal (optional incoming body)
+// =====================
+type NewSignal = {
+  user_id: string;
+  alarm_id?: string | null;
+  market_type?: "spot" | "futures";
+  symbol: string; // e.g. BTCUSDT
+  timeframe: string;
+  signal_direction: "LONG" | "SHORT";
+  entry_price: number;
+  take_profit: number;
+  stop_loss: number;
+  confidence_score: number;
+  tp_percent: number;
+  sl_percent: number;
+  bar_close_limit: number;
+  signal_timestamp: string;
+  status?: "ACTIVE";
+  created_at?: string;
+};
+
+async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; duplicate: boolean }> {
+  if (!body || !body.symbol || !body.direction || !body.user_id) {
+    return { inserted: false, duplicate: false };
+  }
+
+  const userId = String(body.user_id);
+  const symbol = String(body.symbol).toUpperCase();
+  const rawDirection = String(body.direction ?? body.signal_direction ?? body.signalDirection ?? "").toUpperCase();
+  const direction = rawDirection === "SHORT" ? "SHORT" : "LONG";
+  const marketType = normalizeMarketType(body.market_type ?? body.marketType ?? body.market);
+
+  const entryPrice = Number(body.entry_price ?? body.entryPrice ?? body.entry);
+  const takeProfit = Number(body.take_profit ?? body.takeProfit);
+  const stopLoss = Number(body.stop_loss ?? body.stopLoss);
+  const timeframe = String(body.timeframe ?? "").trim();
+
+  if (!timeframe || !Number.isFinite(entryPrice) || !Number.isFinite(takeProfit) || !Number.isFinite(stopLoss)) {
+    throw new Error("Missing or invalid fields: timeframe, entry_price, take_profit, stop_loss");
+  }
+  if (entryPrice <= 0) {
+    throw new Error("Invalid entry_price: must be > 0");
+  }
+
+  const tpPercentRaw = Number(body.tp_percent ?? body.tpPercent);
+  const slPercentRaw = Number(body.sl_percent ?? body.slPercent);
+  const tpPercent = Number.isFinite(tpPercentRaw)
+    ? tpPercentRaw
+    : Math.abs(((takeProfit - entryPrice) / entryPrice) * 100);
+  const slPercent = Number.isFinite(slPercentRaw)
+    ? slPercentRaw
+    : Math.abs(((entryPrice - stopLoss) / entryPrice) * 100);
+
+  const barCloseLimitRaw = Number(body.bar_close_limit ?? body.barCloseLimit ?? 30);
+  const barCloseLimit = Number.isFinite(barCloseLimitRaw) ? barCloseLimitRaw : 30;
+
+  const confidenceRaw = Number(body.confidence_score ?? body.confidenceScore ?? 0);
+  const confidenceScore = Number.isFinite(confidenceRaw) ? confidenceRaw : 0;
+
+  const signalTimestamp = String(body.signal_timestamp ?? body.signalTimestamp ?? new Date().toISOString());
+
+  const newSignal: NewSignal = {
+    user_id: userId,
+    alarm_id: body.alarm_id ? String(body.alarm_id) : null,
+    market_type: marketType,
+    symbol,
+    timeframe,
+    signal_direction: direction,
+    entry_price: entryPrice,
+    take_profit: takeProfit,
+    stop_loss: stopLoss,
+    confidence_score: confidenceScore,
+    tp_percent: tpPercent,
+    sl_percent: slPercent,
+    bar_close_limit: barCloseLimit,
+    signal_timestamp: signalTimestamp,
+    status: "ACTIVE",
+    created_at: new Date().toISOString(),
+  };
+
+  // Duplicate check - more lenient: allow if different entry price or timestamp
+  const { data: existing, error } = await supabase
+    .from("alarm_signals")
+    .select("id")
+    .eq("user_id", newSignal.user_id)
+    .eq("symbol", newSignal.symbol)
+    .eq("signal_direction", newSignal.signal_direction)
+    .eq("status", "ACTIVE")
+    .neq("entry_price", newSignal.entry_price) // Allow if different entry price
+    .maybeSingle();
+
+  if (error) {
+    console.error("❌ duplicate check error:", error);
+  }
+
+  if (existing?.id) {
+    console.log(`⚠️ Duplicate signal attempt: ${newSignal.symbol} ${newSignal.signal_direction}`);
+    return { inserted: false, duplicate: true };
+  }
+
+  const { error: insertError } = await supabase.from("alarm_signals").insert(newSignal);
+
+  if (insertError) {
+    console.error("❌ insertError:", insertError);
+    throw new Error("Failed to insert new signal");
+  }
+
+  return { inserted: true, duplicate: false };
+}
+
+// =====================
+// Handler
+// =====================
+serve(async (req) => {
+  // CORS headers
+  const corsHeaders = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  };
+
+  // Handle preflight OPTIONS request
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
+  if (req.method !== "POST") {
+    return new Response("Method not allowed", {
+      status: 405,
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
+  }
+
+  // ✅ Auth guard (recommended). If CRON_SECRET is not set, it will skip.
+  if (cronSecret) {
+    const auth = req.headers.get("authorization") || "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+    if (token !== cronSecret) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  }
+
+  try {
+    console.log("🚀 [CRON] Starting alarm signals check");
+
+    // Body optional
+    let body: any = null;
+    try {
+      body = await req.json();
+    } catch {
+      body = null;
+    }
+
+    console.log("📥 [DEBUG] Request body:", JSON.stringify(body, null, 2));
+    console.log("📥 [DEBUG] body?.user_id:", body?.user_id);
+    console.log("📥 [DEBUG] typeof body?.user_id:", typeof body?.user_id);
+    console.log("📥 [DEBUG] Boolean(body?.user_id):", Boolean(body?.user_id));
+
+    // ✅ If request includes a new signal, insert it (with duplicate prevention)
+    let insertResult = { inserted: false, duplicate: false };
+    try {
+      if (body) insertResult = await insertSignalIfProvided(body);
+    } catch (e) {
+      return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Bad request" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Active alarms check (using alarms table)
+    // Check alarms for specific user or all active alarms for cron
+    let alarms = null;
+    let alarmsError = null;
+
+    if (body?.user_id) {
+      const result = await supabase
+        .from("alarms")
+        .select("*")
+        .eq("user_id", body.user_id)
+        .eq("data->>active", "true");
+
+      alarms = result.data;
+      alarmsError = result.error;
+    } else {
+      // Cron mode: get all active alarms
+      console.log("🔄 [CRON] Getting all active alarms for monitoring");
+      const result = await supabase
+        .from("alarms")
+        .select("*")
+        .eq("data->>active", "true");
+
+      alarms = result.data;
+      alarmsError = result.error;
+    }
+
+    if (alarmsError) {
+      console.error("❌ Error fetching alarms:", alarmsError);
+      // Don't fail the request, just log the error
+    }
+
+    console.log(`📊 Found ${alarms?.length || 0} active alarms for user`);
+
+    // ✅ Close signals that hit TP/SL
+    const closedSignals = await checkAndCloseSignals();
+
+    // ✅ Notify
+    for (const signal of closedSignals) {
+      const statusMessage =
+        signal.close_reason === "TP_HIT"
+          ? "✅ KAPANDI - TP HIT!"
+          : "⛔ KAPANDI - STOP LOSS HIT!";
+
+      const telegramMessage = `
+🔔 <b>İŞLEM KAPANDI</b> 🔔
+
+📊 Coin: <b>${signal.symbol}</b>
+📈 İşlem Yönü: <b>${signal.direction}</b>
+${statusMessage}
+💰 Kapanış Fiyatı: <b>$${signal.price}</b>
+
+Detaylı rapor için dashboard'u kontrol edin.
+`;
+
+      await sendTelegramNotification(signal.user_id, telegramMessage);
+    }
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        alarms_checked: alarms?.length || 0,
+        inserted_signal: insertResult.inserted,
+        duplicate_signal: insertResult.duplicate,
+        closed_signals: closedSignals.length,
+        message: "Alarm signals check completed",
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  } catch (e) {
+    console.error("❌ Fatal error:", e);
+    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});

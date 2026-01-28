@@ -1,0 +1,51 @@
+🔧 SUPABASE KEY HATASI - FİX REHBERI
+
+❌ PROBLEM:
+- 401 Unauthorized hatası
+- REST API çağrıları başarısız
+- Real-time bağlantısı açılamıyor
+
+✅ ÇÖZÜM: Gerçek ANON_KEY'i ekle
+
+📋 ADIMLAR:
+
+1️⃣ SUPABASE DASHBOARD AÇBUL:
+   https://app.supabase.com/project/jcrbhekrphxodxhkuzju/settings/api
+
+2️⃣ SAĞ TARAFTA "Project API keys" BÖLÜMÜ:
+   ┌─────────────────────────┐
+   │ anon (public)          │  ← BU KEY'İ KopyaLA
+   │ service_role (secret)  │
+   └─────────────────────────┘
+
+3️⃣ KOPYALANAN KEYI BURAYA YAPIŞDIR:
+
+   config.js değiştir:
+   ```javascript
+   const LOCAL_DEV = {
+       SUPABASE_URL: 'https://jcrbhekrphxodxhkuzju.supabase.co',
+       SUPABASE_ANON_KEY: 'YOUR_REAL_ANON_KEY_HERE', // ← BURAYA
+       TELEGRAM_BOT_TOKEN: '8572447825:AAEkE3NUcqI3Ocd9C5c9jkGJmawXD2EI-KQ',
+       TELEGRAM_BOT_USERNAME: 'HerSeyOkAlarmBot'
+   };
+   ```
+
+4️⃣ TARAYICIYI RESTART ET:
+   - Go Live restart et
+   - Hard refresh: Cmd+Shift+R (Mac) veya Ctrl+Shift+R
+
+5️⃣ KONTROL:
+   - Console'da 401 hatası kalmamalı
+   - Alarmlar Supabase'den yüklenecek
+   - WebSocket bağlantısı açılacak
+
+⚠️ NOT: 
+- SUPABASE_ANON_KEY public key, güvenli değildir
+- Gerçek key'i git'e commit etme
+- Vercel'de Environment Variables'a ekle
+
+💾 SAVE SONRA:
+- Live server çalışması durdurup restart et
+- Browser tam yenile (cache temizle)
+
+Test et: Alarmlar gelmeli ✅

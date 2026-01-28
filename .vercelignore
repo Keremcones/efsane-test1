@@ -1,4 +1,17 @@
 *.bak
+*.backup
 .DS_Store
 node_modules
 .vercel
+.git
+.env
+.env.local
+.env.*.local
+temp/
+scripts/test-*.html
+docs/
+*.md
+public/*.backup
+src/
+supabase/migrations/
+.deploy-timestamp

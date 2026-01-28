@@ -1,0 +1,9 @@
+{
+  "project_id": "jcrbhekrphxodxhkuzju",
+  "api_url": "https://jcrbhekrphxodxhkuzju.supabase.co",
+  "functions": {
+    "check-alarm-signals": {
+      "verify_jwt": false
+    }
+  }
+}
