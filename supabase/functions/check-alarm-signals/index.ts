@@ -101,11 +101,8 @@ async function throttledFetch(url: string, options?: any): Promise<Response> {
 }
 
 // =====================
-// Binance exchangeInfo cache & klines cache
+// Binance klines cache
 // =====================
-const exchangeInfoCache: Record<string, any> = {};
-const exchangeInfoCacheTime: Record<string, number> = {};
-const EXCHANGE_INFO_TTL = 8 * 60 * 60 * 1000; // 8 hours
 
 // Cache klines to avoid redundant API calls
 const klinesCache: Record<string, { data: any[]; timestamp: number }> = {};
@@ -137,60 +134,6 @@ function timeframeToMinutes(timeframe: string): number {
   }
 }
 
-async function getExchangeInfo(marketType: "spot" | "futures"): Promise<any | null> {
-  const now = Date.now();
-  const cacheKey = marketType;
-  if (exchangeInfoCache[cacheKey] && (now - (exchangeInfoCacheTime[cacheKey] || 0)) < EXCHANGE_INFO_TTL) {
-    return exchangeInfoCache[cacheKey];
-  }
-
-  const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
-  const url = marketType === "futures"
-    ? `${base}/exchangeInfo`
-    : `${base}/exchangeInfo?permissions=SPOT`;
-
-  try {
-    const res = await throttledFetch(url);
-    if (!res.ok) {
-      console.error("❌ exchangeInfo fetch failed:", res.status, await res.text());
-      return null;
-    }
-    exchangeInfoCache[cacheKey] = await res.json();
-    exchangeInfoCacheTime[cacheKey] = now;
-    return exchangeInfoCache[cacheKey];
-  } catch (e) {
-    console.error("❌ Exchange info fetch error:", e);
-    return null;
-  }
-}
-
-function getTickSize(exchangeInfo: any, symbol: string): number | null {
-  try {
-    const s = exchangeInfo?.symbols?.find((x: any) => x.symbol === symbol);
-    const filter = s?.filters?.find((f: any) => f.filterType === "PRICE_FILTER");
-    const tickSizeStr = filter?.tickSize;
-    const tick = tickSizeStr ? Number(tickSizeStr) : NaN;
-    if (!Number.isFinite(tick) || tick <= 0) return null;
-    return tick;
-  } catch {
-    return null;
-  }
-}
-
-// Round price to tick size (safe for comparisons/storage)
-function roundToTick(price: number, tick: number, mode: "DOWN" | "NEAREST" = "NEAREST") {
-  if (!Number.isFinite(price) || !Number.isFinite(tick) || tick <= 0) return price;
-
-  const factor = 1 / tick;
-  const v = price * factor;
-
-  const rounded = mode === "DOWN" ? Math.floor(v) : Math.round(v);
-  const result = rounded / factor;
-
-  // Fix floating point noise
-  const decimals = Math.max(0, Math.round(-Math.log10(tick)));
-  return Number(result.toFixed(decimals));
-}
 
 async function getCurrentPrice(symbol: string, marketType: "spot" | "futures"): Promise<number | null> {
   try {
@@ -211,15 +154,10 @@ async function getCurrentPrice(symbol: string, marketType: "spot" | "futures"): 
     const p = Number(lastKline?.[4]);
     if (!Number.isFinite(p)) return null;
     
-    // Get tickSize for proper precision
-    const exchangeInfo = await getExchangeInfo(marketType);
-    const tick = exchangeInfo ? getTickSize(exchangeInfo, symbol) : null;
-    const roundedPrice = tick ? roundToTick(p, tick, "NEAREST") : p;
-    
     // Cache the price
-    priceCache[cacheKey] = { price: roundedPrice, timestamp: now };
+    priceCache[cacheKey] = { price: p, timestamp: now };
     
-    return roundedPrice;
+    return p;
   } catch (e) {
     console.error(`❌ price fetch error for ${symbol}:`, e);
     return null;
@@ -1038,11 +976,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         const direction = detectedSignal?.direction || "LONG";
         const directionTR = direction === "LONG" ? "🟢 LONG" : "🔴 SHORT";
         
-        // Get exchange info for proper decimal precision
-        const marketTypeNorm = normalizeMarketType(alarm.market_type || "spot");
-        const exchangeInfo = await getExchangeInfo(marketTypeNorm);
-        const tick = exchangeInfo ? getTickSize(exchangeInfo, symbol) : null;
-        const decimals = tick ? Math.max(0, Math.round(-Math.log10(tick))) : 2;
+        const decimals = 2;
         
         // Calculate TP/SL prices based on current price and percentages
         const rawTpPrice = direction === "SHORT"
@@ -1051,8 +985,8 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         const rawSlPrice = direction === "SHORT"
           ? indicators.price * (1 + slPercent / 100)
           : indicators.price * (1 - slPercent / 100);
-        const tpPrice = tick ? roundToTick(rawTpPrice, tick, "NEAREST") : rawTpPrice;
-        const slPrice = tick ? roundToTick(rawSlPrice, tick, "NEAREST") : rawSlPrice;
+        const tpPrice = rawTpPrice;
+        const slPrice = rawSlPrice;
         
         // Format date as DD.MM.YYYY HH:MM:SS in GMT+3 (Turkey timezone)
         const now = new Date();
@@ -1165,12 +1099,6 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
     );
     const prices = await Promise.all(pricePromises);
 
-    // 🚀 PARALLELIZED: Get exchange info for all market types
-    const marketTypes = [...new Set(signals.map(s => normalizeMarketType(s.market_type || s.marketType || s.market)))];
-    const exchangeInfoPromises = marketTypes.map(mt => getExchangeInfo(mt));
-    const exchangeInfoResults = await Promise.all(exchangeInfoPromises);
-    const exchangeInfoMap = Object.fromEntries(marketTypes.map((mt, i) => [mt, exchangeInfoResults[i]]));
-
     const closedSignals: ClosedSignal[] = [];
     const updatePromises: Promise<any>[] = [];
 
@@ -1181,8 +1109,6 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         
         if (rawPrice === null) continue;
 
-        const marketType = normalizeMarketType(signal.market_type || signal.marketType || signal.market);
-        const exchangeInfo = exchangeInfoMap[marketType];
         const symbol = String(signal.symbol || "");
         const direction = (signal.condition || signal.direction) as "LONG" | "SHORT";
         
@@ -1191,9 +1117,7 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           continue;
         }
 
-        // tickSize rounding
-        const tick = exchangeInfo ? getTickSize(exchangeInfo, symbol) : null;
-        const currentPrice = tick ? roundToTick(rawPrice, tick, "NEAREST") : rawPrice;
+        const currentPrice = rawPrice;
 
         const tp = Number(signal.take_profit);
         const sl = Number(signal.stop_loss);
@@ -1203,8 +1127,8 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           continue;
         }
 
-        const takeProfit = tick ? roundToTick(tp, tick, "NEAREST") : tp;
-        const stopLoss = tick ? roundToTick(sl, tick, "NEAREST") : sl;
+        const takeProfit = tp;
+        const stopLoss = sl;
 
         let shouldClose = false;
         let closeReason: "TP_HIT" | "SL_HIT" | "BAR_CLOSE" | "" = "";
