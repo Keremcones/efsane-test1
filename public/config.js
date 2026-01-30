@@ -87,4 +87,12 @@ var APP_CONFIG = window.APP_CONFIG || {
     sentimentUpdateInterval: 3600000 // 1 saat
 };
 window.APP_CONFIG = APP_CONFIG;
+// Console verbosity: only errors in production
+var DEBUG_CONSOLE = window.DEBUG_CONSOLE ?? false;
+window.DEBUG_CONSOLE = DEBUG_CONSOLE;
+if (!DEBUG_CONSOLE) {
+    console.log = function () {};
+    console.info = function () {};
+    console.warn = function () {};
+}
 /* Updated Sun Jan 25 02:35:41 +03 2026 */

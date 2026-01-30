@@ -1,6 +1,6 @@
 {
-  "name": "Sentinal Signals",
-  "short_name": "Sentinal",
+  "name": "Sentinel Signals",
+  "short_name": "Sentinel",
   "start_url": "/home.html",
   "display": "standalone",
   "background_color": "#0b0f14",
