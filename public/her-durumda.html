@@ -1,0 +1,1241 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Sentinel Signals • Her Durumda</title>
+    <link rel="icon" type="image/svg+xml" href="logo.svg">
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="config.js"></script>
+    <script>
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.dataset.theme = savedTheme;
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg-primary: #eef2f6;
+            --bg-secondary: #e4eaf2;
+            --bg-card: #f8fafc;
+            --accent: #3a7bd5;
+            --accent-red: #e15b64;
+            --accent-blue: #4f46e5;
+            --accent-yellow: #c9a227;
+            --primary: var(--accent);
+            --secondary: var(--accent-blue);
+            --text-primary: #1f2a44;
+            --text-secondary: #5c6b87;
+            --border: #d4dde8;
+            --border-color: rgba(79, 70, 229, 0.22);
+        }
+
+        html[data-theme="dark"] {
+            --bg-primary: #0b0f14;
+            --bg-secondary: #0f1621;
+            --bg-card: #141c2a;
+            --accent: #38e8ff;
+            --accent-red: #ff4d6d;
+            --accent-blue: #8b5cf6;
+            --accent-yellow: #f5b75b;
+            --text-primary: #ffffff;
+            --text-secondary: #9aa4b2;
+            --border: #263044;
+            --border-color: rgba(56, 232, 255, 0.28);
+        }
+
+        html[data-theme="purple"] {
+            --bg-primary: #0b0714;
+            --bg-secondary: #120a1f;
+            --bg-card: #191026;
+            --accent: #c07bff;
+            --accent-red: #ff5c7a;
+            --accent-blue: #7c5cff;
+            --accent-yellow: #f2b15b;
+            --text-primary: #f6efff;
+            --text-secondary: #c2b4d6;
+            --border: #2a193a;
+            --border-color: rgba(184, 108, 255, 0.32);
+        }
+
+        html[data-theme="gold"] {
+            --bg-primary: #0b0b0b;
+            --bg-secondary: #141214;
+            --bg-card: #1b181a;
+            --accent: #f5d06f;
+            --accent-red: #ff6b7a;
+            --accent-blue: #f5d06f;
+            --accent-yellow: #ffd86b;
+            --text-primary: #f6f1e7;
+            --text-secondary: #c9bba0;
+            --border: #2a2420;
+            --border-color: rgba(245, 208, 111, 0.3);
+        }
+
+        body {
+            font-family: 'Sora', sans-serif;
+            background: radial-gradient(circle at 12% 18%, rgba(58, 123, 213, 0.16), transparent 46%),
+                        radial-gradient(circle at 88% 12%, rgba(79, 70, 229, 0.14), transparent 42%),
+                        linear-gradient(155deg, var(--bg-primary), var(--bg-secondary));
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        body.premium-locked .container {
+            filter: blur(4px);
+            pointer-events: none;
+            user-select: none;
+        }
+
+        .premium-lock {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(8, 10, 18, 0.6);
+            backdrop-filter: blur(10px);
+            z-index: 2000;
+            padding: 24px;
+        }
+
+        .premium-modal {
+            width: min(560px, 92vw);
+            background: rgba(20, 24, 34, 0.92);
+            border: 1px solid rgba(56, 232, 255, 0.25);
+            border-radius: 18px;
+            padding: 28px;
+            box-shadow: 0 20px 50px rgba(5, 8, 16, 0.55);
+            text-align: center;
+        }
+
+        html[data-theme="light"] .premium-modal {
+            background: rgba(245, 248, 252, 0.96);
+            border-color: rgba(79, 70, 229, 0.25);
+        }
+
+        .premium-modal h2 {
+            font-size: 1.5rem;
+            margin-bottom: 10px;
+        }
+
+        .premium-modal p {
+            color: var(--text-secondary);
+            margin-bottom: 18px;
+            line-height: 1.6;
+        }
+
+        .premium-features {
+            text-align: left;
+            display: grid;
+            gap: 10px;
+            margin: 16px 0 22px;
+        }
+
+        .premium-features li {
+            list-style: none;
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            color: var(--text-secondary);
+        }
+
+        .premium-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: center;
+        }
+
+        .premium-btn {
+            padding: 12px 18px;
+            border-radius: 10px;
+            border: 1px solid transparent;
+            font-weight: 700;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .premium-btn.primary {
+            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
+            color: #fff;
+            border-color: rgba(56, 232, 255, 0.35);
+        }
+
+        .premium-btn.secondary {
+            background: transparent;
+            border-color: var(--border);
+            color: var(--text-primary);
+        }
+
+        .navbar {
+            background: rgba(240, 246, 255, 0.82);
+            border-bottom: 1px solid rgba(124, 92, 255, 0.22);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(14px);
+            box-shadow: 0 10px 28px rgba(86, 110, 170, 0.2);
+            min-height: 72px;
+        }
+
+        html[data-theme="dark"] .navbar {
+            background: rgba(11, 15, 20, 0.78);
+            border-bottom: 1px solid rgba(56, 232, 255, 0.12);
+            box-shadow: 0 8px 24px rgba(5, 12, 24, 0.45);
+        }
+
+        html[data-theme="light"] .navbar {
+            background: rgba(231, 238, 248, 0.86);
+            border-bottom: 1px solid rgba(79, 70, 229, 0.2);
+            box-shadow: 0 12px 28px rgba(70, 90, 140, 0.18);
+        }
+
+        html[data-theme="purple"] .navbar {
+            background: rgba(11, 7, 20, 0.82);
+            border-bottom: 1px solid rgba(184, 108, 255, 0.22);
+            box-shadow: 0 10px 24px rgba(10, 6, 18, 0.6);
+        }
+
+        html[data-theme="gold"] .navbar {
+            background: rgba(11, 11, 11, 0.86);
+            border-bottom: 1px solid rgba(245, 208, 111, 0.3);
+            box-shadow: 0 10px 24px rgba(5, 4, 3, 0.7);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo-img {
+            width: 32px;
+            height: 32px;
+            flex: 0 0 32px;
+            filter: drop-shadow(0 0 12px rgba(56, 232, 255, 0.35));
+        }
+
+        .logo-text {
+            font-size: 1.35rem;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .user-menu {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .user-email {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .user-role-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
+            color: white;
+            letter-spacing: 0.4px;
+        }
+
+        .user-role-badge.standard {
+            background: linear-gradient(135deg, #c07a2b, #8b4f1f);
+            color: #ffffff;
+        }
+
+        .user-role-badge.premium {
+            background: linear-gradient(135deg, #FFD700, #FFA500);
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.4);
+            color: #111111;
+        }
+
+        .user-role-badge.admin {
+            background: linear-gradient(135deg, #f5d06f, #ffd86b);
+            box-shadow: 0 0 18px rgba(245, 208, 111, 0.45);
+            color: #0a0a0a;
+        }
+
+        .hamburger-menu {
+            display: flex;
+            flex-direction: column;
+            background: rgba(13, 168, 232, 0.1);
+            border: 1px solid rgba(13, 168, 232, 0.3);
+            cursor: pointer;
+            padding: 8px;
+            gap: 5px;
+            width: 44px;
+            height: 44px;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .hamburger-menu:hover {
+            background: rgba(13, 168, 232, 0.2);
+            border-color: #0da8e8;
+        }
+
+        .hamburger-menu span {
+            width: 26px;
+            height: 3px;
+            background: #0da8e8;
+            border-radius: 2px;
+            transition: all 0.3s ease;
+            display: block;
+        }
+
+        .hamburger-menu.active span:nth-child(1) {
+            transform: rotate(45deg) translate(8px, 8px);
+        }
+
+        .hamburger-menu.active span:nth-child(2) { opacity: 0; }
+
+        .hamburger-menu.active span:nth-child(3) {
+            transform: rotate(-45deg) translate(7px, -7px);
+        }
+
+        .menu-panel {
+            position: fixed;
+            right: -350px;
+            top: 0;
+            width: 350px;
+            height: 100vh;
+            background: rgba(15, 18, 28, 0.96);
+            border-left: 1px solid rgba(56, 232, 255, 0.18);
+            z-index: 998;
+            transition: right 0.3s ease;
+            overflow-y: auto;
+            backdrop-filter: blur(8px);
+        }
+
+        html[data-theme="light"] .menu-panel {
+            background: rgba(233, 238, 248, 0.96);
+            border-left: 1px solid rgba(79, 70, 229, 0.18);
+        }
+
+        html[data-theme="purple"] .menu-panel {
+            background: rgba(12, 8, 22, 0.96);
+            border-left: 1px solid rgba(184, 108, 255, 0.25);
+        }
+
+        html[data-theme="gold"] .menu-panel {
+            background: rgba(12, 11, 12, 0.96);
+            border-left: 1px solid rgba(245, 208, 111, 0.28);
+        }
+
+        .menu-panel.active { right: 0; }
+
+        .menu-close {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: none;
+            border: none;
+            color: var(--primary);
+            font-size: 32px;
+            cursor: pointer;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .menu-close:hover {
+            color: var(--secondary);
+            transform: rotate(90deg);
+        }
+
+        .menu-content { padding: 80px 24px 24px; }
+
+        .menu-user-info {
+            margin-bottom: 32px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .menu-user-email {
+            color: var(--primary);
+            font-size: 14px;
+            font-weight: 600;
+            word-break: break-all;
+        }
+
+        .menu-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 14px 16px;
+            background: rgba(13, 168, 232, 0.1);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: left;
+            text-decoration: none;
+        }
+
+        .menu-item:hover {
+            background: rgba(13, 168, 232, 0.2);
+            border-color: var(--primary);
+            transform: translateX(4px);
+        }
+
+        .menu-item.logout-item {
+            color: #f44336;
+            background: rgba(244, 67, 54, 0.1);
+            border-color: rgba(244, 67, 54, 0.3);
+        }
+
+        .menu-item.logout-item:hover {
+            background: rgba(244, 67, 54, 0.2);
+            border-color: #f44336;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .header {
+            margin-bottom: 24px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            color: var(--text-secondary);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 18px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 20px;
+            box-shadow: 0 16px 30px rgba(0, 0, 0, 0.15);
+        }
+
+        .card-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: var(--accent);
+        }
+
+        .chip {
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(56, 232, 255, 0.08);
+            border: 1px solid rgba(56, 232, 255, 0.2);
+            font-size: 0.8rem;
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .chip.negative {
+            color: var(--accent-red);
+            background: rgba(255, 77, 109, 0.1);
+            border-color: rgba(255, 77, 109, 0.2);
+        }
+
+        .btn {
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 1px solid transparent;
+            background: linear-gradient(135deg, rgba(56, 232, 255, 0.2), rgba(139, 92, 246, 0.2));
+            color: var(--text-primary);
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            border-color: var(--accent);
+        }
+
+        .input {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .row-between {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .divider {
+            height: 1px;
+            background: var(--border);
+            margin: 12px 0;
+        }
+
+        .list {
+            display: grid;
+            gap: 8px;
+        }
+
+        .list-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: rgba(56, 232, 255, 0.05);
+        }
+
+        .coin-selector-btn {
+            width: 100%;
+            padding: 12px 14px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.2s ease;
+        }
+
+        .coin-selector-btn:hover {
+            border-color: var(--accent);
+        }
+
+        .coin-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            margin-top: 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px;
+            z-index: 30;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.25);
+        }
+
+        .coin-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 12px;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.2s;
+            gap: 10px;
+        }
+
+        .coin-item:hover { background: var(--bg-secondary); }
+
+        .coin-logo {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.7rem;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent));
+            color: white;
+        }
+
+        .coin-logo-img {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .coin-item-name { font-weight: 600; color: var(--text-primary); }
+        .coin-item-symbol { font-size: 0.8rem; color: var(--text-secondary); }
+
+
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .table th,
+        .table td {
+            padding: 10px 8px;
+            border-bottom: 1px solid var(--border);
+            text-align: left;
+            font-size: 0.9rem;
+        }
+
+        .table th {
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .status-pill {
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            background: rgba(56, 232, 255, 0.08);
+            border: 1px solid rgba(56, 232, 255, 0.2);
+            color: var(--text-secondary);
+        }
+
+        .sort-radio {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+
+        .sort-radio input {
+            accent-color: var(--accent);
+        }
+
+        @media (max-width: 768px) {
+            .container { padding: 12px; }
+            .header h1 { font-size: 1.5rem; }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="logo">
+            <img src="logo.svg" alt="Crypto Sentinel Signals" class="logo-img" />
+            <span class="logo-text">Crypto Sentinel Signals</span>
+        </div>
+        <div class="user-menu">
+            <span class="user-email" id="userEmail">Yükleniyor...</span>
+            <span class="user-role-badge" id="userRoleBadge" style="display:none;"></span>
+            <button class="hamburger-menu" id="hamburgerBtn" onclick="window.toggleHamburgerMenu()" title="Menü">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+        </div>
+    </nav>
+    <div class="menu-panel" id="menuPanel">
+        <button class="menu-close" onclick="closeHamburgerMenu()">×</button>
+        <div class="menu-content">
+            <div class="menu-user-info">
+                <div class="menu-user-email" id="menuUserEmail">Yükleniyor...</div>
+            </div>
+            <nav class="menu-nav">
+                <a href="profile.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-user"></i>
+                    Profil
+                </a>
+                <a href="index.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-chart-line"></i>
+                    Dashboard
+                </a>
+                <a href="her-durumda.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-layer-group"></i>
+                    Her Durumda
+                </a>
+                <a href="kazananlar.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-trophy"></i>
+                    Kazananlar
+                </a>
+                <button class="menu-item logout-item" onclick="window.logout()">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                    Çıkış Yap
+                </button>
+            </nav>
+        </div>
+    </div>
+
+    <div class="premium-lock" id="premiumLock" aria-hidden="true">
+        <div class="premium-modal">
+            <h2>Premium gerekli</h2>
+            <p>Her Durumda modülü sadece Premium üyeler için aktif. Premium ile neler açılıyor?</p>
+            <ul class="premium-features">
+                <li><i class="fa-solid fa-check"></i> Strateji karşılaştırma ve sıralama</li>
+                <li><i class="fa-solid fa-check"></i> Özel strateji ekleme</li>
+                <li><i class="fa-solid fa-check"></i> Genişletilmiş backtest sonuçları</li>
+                <li><i class="fa-solid fa-check"></i> Detaylı filtreler ve hızlı akış</li>
+            </ul>
+            <div class="premium-actions">
+                <a href="premium.html" class="premium-btn primary"><i class="fa-solid fa-star"></i> Premium Ol</a>
+                <a href="index.html" class="premium-btn secondary"><i class="fa-solid fa-chart-line"></i> Dashboard'a Dön</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="header">
+            <h1><i class="fa-solid fa-layer-group"></i> Her Durumda</h1>
+            <p>Favoriler, hızlı alarm, strateji kıyaslama ve risk hesaplarını tek merkezde yönetin.</p>
+        </div>
+
+        <div class="grid">
+            <div class="card" style="grid-column: span 2;">
+                <div class="card-title"><i class="fa-solid fa-scale-balanced"></i> Strateji Karşılaştırma</div>
+                <div class="row" style="margin-bottom: 12px;">
+                    <div style="position: relative; flex: 1; min-width: 260px;">
+                        <button class="coin-selector-btn" id="strategyCoinBtn" onclick="toggleStrategyCoinDropdown()">
+                            <img id="strategyCoinLogoImg" class="coin-logo-img" alt="Coin" style="display: none;">
+                            <div class="coin-logo" id="strategyCoinLogo">BTC</div>
+                            <span id="strategyCoinText">BTC/USDT</span>
+                            <span style="margin-left: auto;">▼</span>
+                        </button>
+                        <div class="coin-dropdown" id="strategyCoinDropdown" style="display: none;">
+                            <input type="text" id="strategyCoinSearch" placeholder="Coin ara..."
+                                onkeyup="filterStrategyCoins()" class="input" style="margin-bottom: 8px;">
+                            <div style="max-height: 280px; overflow-y: auto;" id="strategyCoinList"></div>
+                        </div>
+                    </div>
+                    <div style="min-width: 160px;">
+                        <label style="display:block; font-size:0.7rem; color: var(--text-secondary); letter-spacing: 1px; margin-bottom:4px; font-weight: 700; text-align: center;">BINANCE</label>
+                        <select id="strategyMarket" class="input">
+                            <option value="spot">Spot</option>
+                            <option value="futures">Futures</option>
+                        </select>
+                    </div>
+                    <div style="min-width: 140px;">
+                        <label style="display:block; font-size:0.7rem; color: var(--text-secondary); margin-bottom:4px; font-weight: 700; text-align: center;">Time Frame</label>
+                        <select id="strategyTimeframe" class="input">
+                            <option value="5m">5m</option>
+                            <option value="15m">15m</option>
+                            <option value="1h" selected>1h</option>
+                            <option value="4h">4h</option>
+                            <option value="1d">1d</option>
+                        </select>
+                    </div>
+                    <span class="status-pill" id="strategyStatus">Hazır</span>
+                </div>
+                <div class="row" style="margin-bottom: 12px;">
+                    <div style="min-width: 120px;">
+                        <label style="display:block; font-size:0.75rem; color: var(--text-secondary); margin-bottom:4px;">TP</label>
+                        <input id="customTp" class="input" type="number" placeholder="TP %" value="5" min="0.1" step="0.1">
+                    </div>
+                    <div style="min-width: 120px;">
+                        <label style="display:block; font-size:0.75rem; color: var(--text-secondary); margin-bottom:4px;">SL</label>
+                        <input id="customSl" class="input" type="number" placeholder="SL %" value="3" min="0.1" step="0.1">
+                    </div>
+                    <div style="min-width: 120px;">
+                        <label style="display:block; font-size:0.75rem; color: var(--text-secondary); margin-bottom:4px;">Bar</label>
+                        <input id="customBar" class="input" type="number" placeholder="Bar" value="5" min="1" step="1">
+                    </div>
+                    <button id="strategyRun" class="btn"><i class="fa-solid fa-play"></i> Karşılaştır</button>
+                    <button id="strategyAdd" class="btn"><i class="fa-solid fa-plus"></i> Ekle</button>
+                    <span class="status-pill" id="strategyTrades">Test edilen işlem: -</span>
+                </div>
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Strateji</th>
+                            <th>TP / SL / Bar</th>
+                            <th>
+                                Win Rate
+                                <label class="sort-radio"><input type="radio" name="strategySort" value="winRate"> Seç</label>
+                            </th>
+                            <th>
+                                Toplam Kar
+                                <label class="sort-radio"><input type="radio" name="strategySort" value="totalProfit" checked> Seç</label>
+                            </th>
+                            <th>
+                                Profit Factor
+                                <label class="sort-radio"><input type="radio" name="strategySort" value="profitFactor"> Seç</label>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody id="strategyTable">
+                        <tr>
+                            <td colspan="5" style="text-align:center; color: var(--text-secondary);">Karşılaştırma için ayarları seçin.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="legal-footer" style="margin: 18px auto 24px; padding: 0 24px 24px; font-size: 0.65rem; color: rgba(180, 190, 205, 0.7); text-align: center;">
+        Yatırım danışmanlığı değildir; genel bilgilendirme amaçlıdır, sorumluluk kullanıcıya aittir.
+    </div>
+
+    <script src="rate-limiter.js"></script>
+    <script src="indicators.js"></script>
+    <script src="advanced-indicators.js?v=20260129"></script>
+    <script>
+        const originalFetch = window.fetch;
+        window.fetch = function(url, options) {
+            if (USE_CORS_PROXY && typeof url === 'string' && url.includes('api.binance.com')) {
+                const proxyUrl = CORS_PROXY + encodeURIComponent(url);
+                return originalFetch(proxyUrl, options)
+                    .then(response => {
+                        const clonedResponse = response.clone();
+                        return {
+                            ok: response.ok,
+                            status: response.status,
+                            statusText: response.statusText,
+                            headers: response.headers,
+                            json: async () => {
+                                const text = await clonedResponse.text();
+                                try {
+                                    const wrapped = JSON.parse(text);
+                                    if (wrapped.contents) {
+                                        return JSON.parse(wrapped.contents);
+                                    }
+                                    return wrapped;
+                                } catch (e) {
+                                    return JSON.parse(text);
+                                }
+                            }
+                        };
+                    });
+            }
+            return originalFetch.apply(window, arguments);
+        };
+
+        let supabaseClient = null;
+        let currentUser = null;
+        let strategyCoins = [];
+        let filteredStrategyCoins = [];
+        let selectedStrategySymbol = 'BTCUSDT';
+        let extraStrategies = [];
+        let lastStrategyResults = [];
+        const strategyPresets = [
+            { label: 'Agresif', tp: 8, sl: 4, bar: 4 },
+            { label: 'Dengeli', tp: 5, sl: 3, bar: 5 },
+            { label: 'Koruma', tp: 3, sl: 2, bar: 7 },
+            { label: 'Scalper', tp: 2.5, sl: 1.5, bar: 3 },
+            { label: 'Trend', tp: 10, sl: 4, bar: 8 },
+            { label: 'Swing', tp: 6, sl: 3, bar: 10 }
+        ];
+
+        function setStrategyStatus(text, active = false) {
+            const status = document.getElementById('strategyStatus');
+            if (!status) return;
+            status.textContent = text;
+            status.style.color = active ? 'var(--accent)' : 'var(--text-secondary)';
+        }
+
+        async function loadStrategyCoins() {
+            const market = document.getElementById('strategyMarket')?.value || 'spot';
+            const base = market === 'futures' ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
+            const res = await fetch(`${base}/exchangeInfo`);
+            if (!res.ok) throw new Error('Coin listesi alınamadı');
+            const data = await res.json();
+            strategyCoins = (data.symbols || [])
+                .filter(item => item.status === 'TRADING')
+                .filter(item => item.quoteAsset === 'USDT')
+                .filter(item => market === 'futures' ? item.contractType === 'PERPETUAL' : true)
+                .map(item => item.symbol)
+                .sort();
+
+            filteredStrategyCoins = [...strategyCoins];
+            if (!strategyCoins.includes(selectedStrategySymbol)) {
+                selectedStrategySymbol = strategyCoins[0] || 'BTCUSDT';
+            }
+            renderStrategyCoinList();
+            updateSelectedStrategyCoin();
+        }
+
+        function getLogoUrls(symbol) {
+            const coin = symbol.replace('USDT', '').toLowerCase();
+            return [
+                `https://raw.githubusercontent.com/Pymmdrza/Cryptocurrency_Logos/mainx/PNG/${coin}.png`,
+                `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${coin}.png`,
+                `https://assets.coincap.io/assets/icons/${coin}@2x.png`
+            ];
+        }
+
+        window.handleLogoError = function(img) {
+            const urls = img.dataset.fallbacks ? img.dataset.fallbacks.split('|') : [];
+            const index = parseInt(img.dataset.fallbackIndex || '0', 10);
+            if (index + 1 < urls.length) {
+                img.dataset.fallbackIndex = String(index + 1);
+                img.src = urls[index + 1];
+            } else {
+                img.style.display = 'none';
+                const fallback = img.nextElementSibling;
+                if (fallback && fallback.classList.contains('coin-logo')) {
+                    fallback.style.display = 'flex';
+                }
+            }
+        };
+
+        function renderStrategyCoinList() {
+            const list = document.getElementById('strategyCoinList');
+            if (!list) return;
+            list.innerHTML = filteredStrategyCoins.map(symbol => {
+                const short = symbol.replace('USDT', '');
+                const urls = getLogoUrls(symbol);
+                return `
+                    <div class="coin-item" onclick="selectStrategyCoin('${symbol}')">
+                        <img class="coin-logo-img" src="${urls[0]}" alt="${short}" data-fallbacks="${urls.join('|')}" data-fallback-index="0" onerror="handleLogoError(this)">
+                        <div class="coin-logo" style="display:none;">${short.slice(0, 3)}</div>
+                        <div>
+                            <div class="coin-item-name">${short}/USDT</div>
+                            <div class="coin-item-symbol">${symbol}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateSelectedStrategyCoin() {
+            const text = document.getElementById('strategyCoinText');
+            const logo = document.getElementById('strategyCoinLogo');
+            const logoImg = document.getElementById('strategyCoinLogoImg');
+            if (text) {
+                text.textContent = `${selectedStrategySymbol.replace('USDT', '')}/USDT`;
+            }
+            if (logo) {
+                logo.textContent = selectedStrategySymbol.replace('USDT', '').slice(0, 3);
+            }
+            if (logoImg) {
+                const urls = getLogoUrls(selectedStrategySymbol);
+                logoImg.dataset.fallbacks = urls.join('|');
+                logoImg.dataset.fallbackIndex = '0';
+                logoImg.src = urls[0];
+                logoImg.style.display = 'block';
+                logo.style.display = 'none';
+            }
+        }
+
+        window.toggleStrategyCoinDropdown = function() {
+            const dropdown = document.getElementById('strategyCoinDropdown');
+            if (!dropdown) return;
+            dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+            if (dropdown.style.display === 'block') {
+                const search = document.getElementById('strategyCoinSearch');
+                if (search) search.focus();
+            }
+        };
+
+        window.selectStrategyCoin = function(symbol) {
+            selectedStrategySymbol = symbol;
+            updateSelectedStrategyCoin();
+            const dropdown = document.getElementById('strategyCoinDropdown');
+            if (dropdown) dropdown.style.display = 'none';
+        };
+
+        window.filterStrategyCoins = function() {
+            const term = (document.getElementById('strategyCoinSearch')?.value || '').toLowerCase();
+            filteredStrategyCoins = strategyCoins.filter(symbol =>
+                symbol.toLowerCase().includes(term)
+            );
+            renderStrategyCoinList();
+        };
+
+        document.addEventListener('click', (e) => {
+            const dropdown = document.getElementById('strategyCoinDropdown');
+            const btn = document.getElementById('strategyCoinBtn');
+            if (dropdown && btn && !dropdown.contains(e.target) && !btn.contains(e.target)) {
+                dropdown.style.display = 'none';
+            }
+        });
+
+        function formatPercent(value) {
+            if (!Number.isFinite(value)) return '0.00%';
+            const sign = value > 0 ? '+' : '';
+            return `${sign}${value.toFixed(2)}%`;
+        }
+
+        function renderStrategyTable(results) {
+            const table = document.getElementById('strategyTable');
+            if (!table) return;
+            if (!results.length) {
+                table.innerHTML = '<tr><td colspan="5" style="text-align:center; color: var(--text-secondary);">Karşılaştırma için ayarları seçin.</td></tr>';
+                return;
+            }
+
+            const sortMetric = document.querySelector('input[name="strategySort"]:checked')?.value || 'totalProfit';
+            const sorted = [...results].sort((a, b) => (b[sortMetric] || 0) - (a[sortMetric] || 0));
+
+            table.innerHTML = sorted.map(item => `
+                <tr>
+                    <td>${item.label}</td>
+                    <td>${item.tp} / ${item.sl} / ${item.bar}</td>
+                    <td>${item.winRateText}</td>
+                    <td>${item.totalProfitText}</td>
+                    <td>${item.profitFactorText}</td>
+                </tr>
+            `).join('');
+        }
+
+        async function runStrategyComparison() {
+            const symbol = selectedStrategySymbol || 'BTCUSDT';
+            const market = document.getElementById('strategyMarket')?.value || 'spot';
+            const timeframe = document.getElementById('strategyTimeframe')?.value || '1h';
+            const customTp = parseFloat(document.getElementById('customTp')?.value) || 5;
+            const customSl = parseFloat(document.getElementById('customSl')?.value) || 3;
+            const customBar = parseInt(document.getElementById('customBar')?.value, 10) || 5;
+            const tradesEl = document.getElementById('strategyTrades');
+
+            setMarketType(market);
+            setStrategyStatus('Hesaplanıyor...', true);
+            renderStrategyTable([]);
+
+            const presets = [
+                ...strategyPresets,
+                { label: 'Özel', tp: customTp, sl: customSl, bar: customBar },
+                ...extraStrategies
+            ];
+
+            const results = [];
+            let tradesCount = null;
+            for (const preset of presets) {
+                try {
+                    const result = await AdvancedIndicators.runBacktest(
+                        symbol,
+                        timeframe,
+                        7,
+                        40,
+                        preset.tp,
+                        preset.sl,
+                        preset.bar
+                    );
+                    if (result && tradesCount === null) {
+                        tradesCount = result.totalTrades || result.trades?.length || 0;
+                    }
+                    results.push({
+                        label: preset.label,
+                        tp: preset.tp,
+                        sl: preset.sl,
+                        bar: preset.bar,
+                        winRate: parseFloat(result?.winRate) || 0,
+                        totalProfit: parseFloat(result?.totalProfit) || 0,
+                        profitFactor: parseFloat(result?.profitFactor) || 0,
+                        winRateText: result?.winRate || '0%'
+                        ,
+                        totalProfitText: result?.totalProfit || '0%'
+                        ,
+                        profitFactorText: result?.profitFactor || '0.00'
+                    });
+                } catch (error) {
+                    results.push({
+                        label: preset.label,
+                        tp: preset.tp,
+                        sl: preset.sl,
+                        bar: preset.bar,
+                        winRate: 0,
+                        totalProfit: 0,
+                        profitFactor: 0,
+                        winRateText: '0%',
+                        totalProfitText: '0%',
+                        profitFactorText: '0.00'
+                    });
+                }
+            }
+
+            lastStrategyResults = results;
+            renderStrategyTable(lastStrategyResults);
+            if (tradesEl) {
+                tradesEl.textContent = `Test edilen işlem: ${tradesCount ?? '-'} `;
+            }
+            setStrategyStatus('Tamamlandı');
+        }
+
+        function updateUserRoleBadge(membershipType, isAdmin) {
+            const badgeEl = document.getElementById('userRoleBadge');
+            if (!badgeEl) return;
+
+            if (isAdmin) {
+                badgeEl.innerHTML = '<i class="fa-solid fa-shield"></i> Admin';
+                badgeEl.className = 'user-role-badge admin';
+                badgeEl.style.display = 'inline-flex';
+                return;
+            }
+
+            if (membershipType === 'premium') {
+                badgeEl.innerHTML = '<i class="fa-solid fa-star"></i> Premium';
+                badgeEl.className = 'user-role-badge premium';
+                badgeEl.style.display = 'inline-flex';
+                return;
+            }
+
+            badgeEl.innerHTML = '<i class="fa-solid fa-leaf"></i> Free';
+            badgeEl.className = 'user-role-badge standard';
+            badgeEl.style.display = 'inline-flex';
+        }
+
+        function showPremiumLock() {
+            const lockEl = document.getElementById('premiumLock');
+            if (lockEl) {
+                lockEl.style.display = 'flex';
+                lockEl.setAttribute('aria-hidden', 'false');
+            }
+            document.body.classList.add('premium-locked');
+        }
+
+        async function checkAuth() {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            currentUser = session.user;
+            document.getElementById('userEmail').textContent = currentUser.email;
+            document.getElementById('menuUserEmail').textContent = currentUser.email;
+
+            try {
+                await supabaseClient
+                    .from('user_profiles')
+                    .upsert({
+                        id: currentUser.id,
+                        email: currentUser.email,
+                        updated_at: new Date().toISOString()
+                    }, { onConflict: 'id' });
+
+                const { data: userProfile } = await supabaseClient
+                    .from('user_profiles')
+                    .select('membership_type, is_admin')
+                    .eq('id', currentUser.id)
+                    .maybeSingle();
+
+                if (!userProfile) {
+                    updateUserRoleBadge('standard', false);
+                    return { isPremium: false };
+                } else {
+                    updateUserRoleBadge(userProfile.membership_type || 'standard', !!userProfile.is_admin);
+                    const isPremium = userProfile.membership_type === 'premium' || !!userProfile.is_admin;
+                    return { isPremium };
+                }
+            } catch {
+                updateUserRoleBadge('standard', false);
+                return { isPremium: false };
+            }
+        }
+
+        window.toggleHamburgerMenu = function() {
+            const panel = document.getElementById('menuPanel');
+            const btn = document.getElementById('hamburgerBtn');
+            if (!panel || !btn) return;
+            panel.classList.toggle('active');
+            btn.classList.toggle('active');
+        };
+
+        window.closeHamburgerMenu = function() {
+            const panel = document.getElementById('menuPanel');
+            const btn = document.getElementById('hamburgerBtn');
+            if (panel) panel.classList.remove('active');
+            if (btn) btn.classList.remove('active');
+        };
+
+        window.logout = async function() {
+            try {
+                const { error } = await supabaseClient.auth.signOut();
+                if (error) throw error;
+                window.location.replace('login.html');
+            } catch (error) {
+                console.error('Çıkış hatası:', error.message);
+                localStorage.clear();
+                window.location.replace('login.html');
+            }
+        };
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            const { createClient } = window.supabase;
+            supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            const access = await checkAuth();
+            if (!access?.isPremium) {
+                showPremiumLock();
+                return;
+            }
+            await loadStrategyCoins();
+            const marketSelect = document.getElementById('strategyMarket');
+            if (marketSelect) {
+                marketSelect.addEventListener('change', async () => {
+                    setStrategyStatus('Coinler güncelleniyor...', true);
+                    await loadStrategyCoins();
+                    setStrategyStatus('Hazır');
+                });
+            }
+            const runBtn = document.getElementById('strategyRun');
+            if (runBtn) {
+                runBtn.addEventListener('click', runStrategyComparison);
+            }
+
+            document.querySelectorAll('input[name="strategySort"]').forEach(radio => {
+                radio.addEventListener('change', () => {
+                    if (!lastStrategyResults.length) return;
+                    renderStrategyTable(lastStrategyResults);
+                });
+            });
+
+            const addBtn = document.getElementById('strategyAdd');
+            if (addBtn) {
+                addBtn.addEventListener('click', () => {
+                    const tp = parseFloat(document.getElementById('customTp')?.value) || 5;
+                    const sl = parseFloat(document.getElementById('customSl')?.value) || 3;
+                    const bar = parseInt(document.getElementById('customBar')?.value, 10) || 5;
+                    const label = `Özel ${extraStrategies.length + 2}`;
+                    extraStrategies.push({ label, tp, sl, bar });
+                    runStrategyComparison();
+                });
+            }
+        });
+    </script>
+</body>
+</html>

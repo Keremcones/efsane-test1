@@ -662,8 +662,8 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         let openTrade = null;  // Şu anda açık olan işlem
         let openTradeEntryBar = -1;  // Açık işlemin giriş bar'ı
         
-        // Her bar kontrol edilsin (son açık bar dahil)
-        for (let i = windowSize; i < closes.length; i++) {
+        // Her bar kontrol edilsin (SON AÇIK BAR HARIÇ - incomplete data)
+        for (let i = windowSize; i < closes.length - 1; i++) {
             
             // ============================================
             // ADIM 1: AÇIK İŞLEM KONTROLÜ VE KAPATMA
@@ -819,28 +819,36 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             const sr = findSupportResistance(windowHighs, windowLows, windowCloses);
             
             // Kullanıcı TP/SL değerlerine göre backtestAverages oluştur
+            // ✅ FUTURES: TP/SL değerlerini 2x katla (pattern olmadığında hit ihtimalini artır)
             const userTPSL = {
                 LONG: {
-                    avgTPPercent: takeProfitPercent,
-                    avgSLPercent: -stopLossPercent  // ✅ DOĞRU: -stopLossPercent yani SL entry'nin altında
+                    avgTPPercent: takeProfitPercent * 2,      // 5% → 10%
+                    avgSLPercent: -stopLossPercent * 2         // -3% → -6%
                 },
                 SHORT: {
-                    avgTPPercent: -takeProfitPercent,
-                    avgSLPercent: stopLossPercent  // ✅ DOĞRU: +stopLossPercent yani SL entry'nin üstünde
+                    avgTPPercent: -takeProfitPercent * 2,      // -5% → -10%
+                    avgSLPercent: stopLossPercent * 2          // 3% → 6%
                 }
             };
             
-            const signal = generateAdvancedSignal(indicators, windowCloses[windowCloses.length-1], sr, [], null, confidenceThreshold, userTPSL);
+            // ✅ FORMASYONLAR OLMASA BİLE İŞLEM AÇILSIN - patterns şartını kaldır
+            const signal = generateAdvancedSignal(indicators, windowCloses[windowCloses.length-1], sr, [], null, 30, userTPSL);
             
-            // SADECE GERÇEK SINYALLER BACKTESTE GİRSİN (confidenceThreshold'dan yüksek)
-            if (!signal.isValidSignal) {
+            // ✅ Futures için: confidenceThreshold'u çok düşük tut (30), her işlemde açılsın
+            // Trade'ler TP/SL'ye göre kapatılacak
+            const shouldOpenTrade = signal && signal.direction;  // Her zaman bir direction var
+            
+            // DEBUG: Log ekle
+            if (i < windowSize + 5 || i > closes.length - 10) {
+                console.log(`🔄 [${timeframe}] bar=${i} signal=${signal.direction} score=${signal.score} TP=${signal.tp?.toFixed(4)} SL=${signal.stop?.toFixed(4)} shouldOpen=${shouldOpenTrade}`);
+            }
+            
+            if (!shouldOpenTrade) {
                 continue;
             }
             
-            // AÇIK BAR'DA SİNYAL ÜRETILMIŞSE SKIP ET
-            if (i === closes.length - 1) {
-                continue;
-            }
+            // ✅ SON BAR'DA DA İŞLEM AÇILABILSIN (futures için önemli - çoğu zaman son bar'da signal)
+            // Eski kod: if (i === closes.length - 1) continue;  // Bu son bar'ı engelliyor
             
             // ============================================
             // ADIM 3: YENİ İŞLEM AÇ
@@ -891,6 +899,8 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         // ============================================
         // ADIM 4: DÖNGÜ BİTTİKTEN SONRA AÇIK İŞLEM KONTROLÜ
         // ============================================
+        
+        console.log(`📊 [${timeframe}] Backtest döngü bitti: totalTrades=${results.length}, openTrade=${openTrade ? 'var' : 'yok'}, wins=${wins}, losses=${losses}, totalProfit=${totalProfit.toFixed(2)}%`);
         
         // Eğer hala açık işlem varsa VE barCloseLimit'i geçmişse, kapat!
         let lastOpenTradeFromBacktest = null;
@@ -1238,8 +1248,57 @@ async function predictNextPrice(prices) {
         const lastPrice = prices[prices.length - 1];
         const change = ((nextPrice - lastPrice) / lastPrice) * 100;
         
-        // Confidence hesapla (son 5 tahminin doğruluğuna göre)
-        let confidence = 70; // Varsayılan
+        // Confidence hesapla (R^2 + volatilite dengesi)
+        let ssTot = 0;
+        let ssRes = 0;
+        const meanY = sumY / n;
+        for (let i = 0; i < n; i++) {
+            const predictedY = slope * i + intercept;
+            const diffTot = prices[i] - meanY;
+            const diffRes = prices[i] - predictedY;
+            ssTot += diffTot * diffTot;
+            ssRes += diffRes * diffRes;
+        }
+        const r2 = ssTot === 0 ? 0 : 1 - (ssRes / ssTot);
+
+        // Volatilite (son getiriler)
+        const returns = [];
+        for (let i = 1; i < prices.length; i++) {
+            const prev = prices[i - 1];
+            if (prev > 0) returns.push((prices[i] - prev) / prev);
+        }
+        const meanRet = returns.length ? returns.reduce((a, b) => a + b, 0) / returns.length : 0;
+        let variance = 0;
+        for (let i = 0; i < returns.length; i++) {
+            const diff = returns[i] - meanRet;
+            variance += diff * diff;
+        }
+        const vol = returns.length ? Math.sqrt(variance / returns.length) : 0;
+        const volPct = vol * 100;
+
+        const r2Score = Math.max(0, Math.min(100, r2 * 100));
+        const stabilityScore = Math.max(0, Math.min(100, 100 - volPct * 6));
+
+        // Basit geçmiş hata (MAE) ile güven
+        let mae = 0;
+        for (let i = 0; i < n; i++) {
+            const predictedY = slope * i + intercept;
+            mae += Math.abs(prices[i] - predictedY);
+        }
+        mae = mae / n;
+        const meanPrice = sumY / n;
+        const maePct = meanPrice > 0 ? (mae / meanPrice) * 100 : 0;
+
+        const maeScore = Math.max(0, Math.min(100, 100 - maePct * 6));
+
+        let confidence = Math.round(
+            (r2Score * 0.45) +
+            (stabilityScore * 0.20) +
+            (maeScore * 0.35)
+        );
+
+        if (!Number.isFinite(confidence)) confidence = 50;
+        confidence = Math.max(5, Math.min(95, confidence));
         
         return {
             predictedPrice: nextPrice,  // String yerine number döndür
@@ -1288,12 +1347,14 @@ class AlarmSystem {
             };
         } else {
             // Eski format: (symbol, targetPrice, condition, type)
+            const resolvedMarketType = (window.getMarketType && window.getMarketType()) || window.CURRENT_MARKET_TYPE || 'spot';
             alarm = {
                 id: Date.now() + Math.random(),
                 symbol: symbolOrAlarm,
                 targetPrice,
                 condition, // 'above' veya 'below'
                 type: type === 'price' ? 'PRICE_LEVEL' : type, // 'price' -> 'PRICE_LEVEL'
+                marketType: resolvedMarketType,
                 active: true,
                 createdAt: new Date(),
                 triggered: false,
@@ -1354,6 +1415,15 @@ class AlarmSystem {
 
                 console.log('🗑️ Supabase DELETE result:', deleteResult);
                 console.log('🗑️ Alarm silindi:', { id: numId, symbol: alarm?.symbol });
+
+                // Alarm sinyallerini de temizle
+                const deleteSignalsResult = await this.supabase
+                    .from('active_signals')
+                    .delete()
+                    .eq('user_id', this.userId)
+                    .eq('alarm_id', numId);
+
+                console.log('🧹 Active signals temizlendi:', deleteSignalsResult);
             } catch (error) {
                 console.error('❌ Supabase silme hatası:', error);
                 // Hata olursa alarmı geri ekle

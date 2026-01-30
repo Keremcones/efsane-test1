@@ -102,7 +102,7 @@ console.log(i18n.currentLanguage === autoTranslate.currentLanguage);
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                 CRYPTO LAB PRO                          │
+│            CRYPTO SENTINEL SIGNALS                      │
 ├─────────────────────────────────────────────────────────┤
 │                                                         │
 │  ┌────────────────┐      ┌──────────────────────┐     │

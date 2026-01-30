@@ -1,4 +1,4 @@
-# ⚡ CRYPTO LAB PRO - Gelişmiş Teknik Analiz Dashboard
+# ⚡ CRYPTO SENTINEL SIGNALS - Gelişmiş Teknik Analiz Dashboard
 
 Binance kripto para verilerine dayalı otomatik trading stratejisi analiz ve backtesting sistemi.
 
@@ -147,7 +147,7 @@ MIT License - Özgürce kullan, modifiye et, dağıt
 
 ## 👨‍💻 Geliştirici
 
-Crypto Lab Pro - Advanced Technical Analysis
+Crypto Sentinel Signals - Advanced Technical Analysis
 v1.0 - 2026
 
 ---

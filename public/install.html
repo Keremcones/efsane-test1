@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Sentinel Signals • Mobil Kurulum</title>
+    <link rel="icon" type="image/svg+xml" href="logo.svg">
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <script src="config.js"></script>
+    <script>
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.dataset.theme = savedTheme;
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg-primary: #eef2f6;
+            --bg-secondary: #e4eaf2;
+            --bg-card: #f8fafc;
+            --accent: #3a7bd5;
+            --accent-blue: #4f46e5;
+            --text-primary: #1f2a44;
+            --text-secondary: #5c6b87;
+            --border: #d4dde8;
+            --border-color: rgba(79, 70, 229, 0.22);
+        }
+
+        html[data-theme="dark"] {
+            --bg-primary: #0b0f14;
+            --bg-secondary: #0f1621;
+            --bg-card: #141c2a;
+            --accent: #38e8ff;
+            --accent-blue: #8b5cf6;
+            --text-primary: #ffffff;
+            --text-secondary: #9aa4b2;
+            --border: #263044;
+            --border-color: rgba(56, 232, 255, 0.28);
+        }
+
+        html[data-theme="purple"] {
+            --bg-primary: #0b0714;
+            --bg-secondary: #120a1f;
+            --bg-card: #191026;
+            --accent: #c07bff;
+            --accent-blue: #7c5cff;
+            --text-primary: #f6efff;
+            --text-secondary: #c2b4d6;
+            --border: #2a193a;
+            --border-color: rgba(184, 108, 255, 0.32);
+        }
+
+        html[data-theme="gold"] {
+            --bg-primary: #0b0b0b;
+            --bg-secondary: #141214;
+            --bg-card: #1b181a;
+            --accent: #f5d06f;
+            --accent-blue: #f5d06f;
+            --text-primary: #f6f1e7;
+            --text-secondary: #c9bba0;
+            --border: #2a2420;
+            --border-color: rgba(245, 208, 111, 0.3);
+        }
+
+        body {
+            font-family: 'Sora', sans-serif;
+            background: radial-gradient(circle at 12% 18%, rgba(58, 123, 213, 0.16), transparent 46%),
+                        radial-gradient(circle at 88% 12%, rgba(79, 70, 229, 0.14), transparent 42%),
+                        linear-gradient(155deg, var(--bg-primary), var(--bg-secondary));
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 32px 20px 48px;
+            text-align: center;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(56, 232, 255, 0.12);
+            border: 1px solid rgba(56, 232, 255, 0.3);
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            font-size: clamp(2rem, 3.5vw, 3rem);
+            margin-bottom: 12px;
+        }
+
+        p {
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-top: 28px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 20px;
+            text-align: left;
+            box-shadow: 0 16px 32px rgba(0, 0, 0, 0.16);
+        }
+
+        .card h3 {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .steps {
+            display: grid;
+            gap: 10px;
+        }
+
+        .step {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+        }
+
+        .step span {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
+            color: #fff;
+            font-weight: 700;
+            font-size: 0.85rem;
+            flex-shrink: 0;
+        }
+
+        .cta {
+            margin-top: 28px;
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 14px 22px;
+            border-radius: 14px;
+            border: 1px solid transparent;
+            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
+            color: #fff;
+            font-weight: 700;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn.secondary {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+        }
+
+        .note {
+            margin-top: 24px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="badge"><i class="fa-solid fa-mobile-screen"></i> Mobil Kurulum Rehberi</div>
+        <h1>Mobil cihazınıza ekleyin</h1>
+        <p>Crypto Sentinel Signals’i ana ekranınıza ekleyerek uygulama olarak kullanabilirsiniz. Aşağıdaki adımlar iOS ve Android için ayrı ayrı anlatılmıştır.</p>
+
+        <div class="cards">
+            <div class="card">
+                <h3><i class="fa-brands fa-apple"></i> iPhone / iPad (Safari)</h3>
+                <div class="steps">
+                    <div class="step"><span>1</span><div>Safari ile bu sayfayı açın.</div></div>
+                    <div class="step"><span>2</span><div>“Uygulamayı Aç”a bastıktan sonra paylaş ikonuna dokunun (alt ortadaki kare + ok).</div></div>
+                    <div class="step"><span>3</span><div>“Ana Ekrana Ekle” seçeneğini bulun.</div></div>
+                    <div class="step"><span>4</span><div>“Ekle” deyin.</div></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3><i class="fa-brands fa-android"></i> Android (Chrome)</h3>
+                <div class="steps">
+                    <div class="step"><span>1</span><div>Chrome ile bu sayfayı açın.</div></div>
+                    <div class="step"><span>2</span><div>“Uygulamayı Aç”a bastıktan sonra sağ üstteki menüye (⋮) dokunun.</div></div>
+                    <div class="step"><span>3</span><div>“Ana ekrana ekle” veya “Uygulamayı yükle” seçin.</div></div>
+                    <div class="step"><span>4</span><div>Onaylayın ve uygulamayı başlatın.</div></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="cta">
+            <a class="btn" href="login.html"><i class="fa-solid fa-mobile-screen"></i> Uygulamayı Aç</a>
+            <a class="btn secondary" href="home.html"><i class="fa-solid fa-house"></i> Ana Sayfa</a>
+        </div>
+        <div class="note">Not: Ana ekrana ekledikten sonra uygulama tam ekran çalışır ve hızlı erişim sağlar.</div>
+    </div>
+</body>
+</html>

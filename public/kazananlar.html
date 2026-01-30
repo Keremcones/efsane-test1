@@ -1,0 +1,1394 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Sentinel Signals • Kazananlar</title>
+    <link rel="icon" type="image/svg+xml" href="logo.svg">
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="config.js"></script>
+    <script>
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.dataset.theme = savedTheme;
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg-primary: #eef2f6;
+            --bg-secondary: #e4eaf2;
+            --bg-card: #f8fafc;
+            --accent: #3a7bd5;
+            --accent-red: #e15b64;
+            --accent-blue: #4f46e5;
+            --accent-yellow: #c9a227;
+            --primary: var(--accent);
+            --secondary: var(--accent-blue);
+            --text-primary: #1f2a44;
+            --text-secondary: #5c6b87;
+            --border: #d4dde8;
+            --border-color: rgba(79, 70, 229, 0.22);
+        }
+
+        html[data-theme="dark"] {
+            --bg-primary: #0b0f14;
+            --bg-secondary: #0f1621;
+            --bg-card: #141c2a;
+            --accent: #38e8ff;
+            --accent-red: #ff4d6d;
+            --accent-blue: #8b5cf6;
+            --accent-yellow: #f5b75b;
+            --text-primary: #ffffff;
+            --text-secondary: #9aa4b2;
+            --border: #263044;
+            --border-color: rgba(56, 232, 255, 0.28);
+        }
+
+        html[data-theme="purple"] {
+            --bg-primary: #0b0714;
+            --bg-secondary: #120a1f;
+            --bg-card: #191026;
+            --accent: #c07bff;
+            --accent-red: #ff5c7a;
+            --accent-blue: #7c5cff;
+            --accent-yellow: #f2b15b;
+            --text-primary: #f6efff;
+            --text-secondary: #c2b4d6;
+            --border: #2a193a;
+            --border-color: rgba(184, 108, 255, 0.32);
+        }
+
+        html[data-theme="gold"] {
+            --bg-primary: #0b0b0b;
+            --bg-secondary: #141214;
+            --bg-card: #1b181a;
+            --accent: #f5d06f;
+            --accent-red: #ff6b7a;
+            --accent-blue: #f5d06f;
+            --accent-yellow: #ffd86b;
+            --text-primary: #f6f1e7;
+            --text-secondary: #c9bba0;
+            --border: #2a2420;
+            --border-color: rgba(245, 208, 111, 0.3);
+        }
+
+        body {
+            font-family: 'Sora', sans-serif;
+            background: radial-gradient(circle at 12% 18%, rgba(58, 123, 213, 0.16), transparent 46%),
+                        radial-gradient(circle at 88% 12%, rgba(79, 70, 229, 0.14), transparent 42%),
+                        linear-gradient(155deg, var(--bg-primary), var(--bg-secondary));
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        body.premium-locked .container {
+            filter: blur(4px);
+            pointer-events: none;
+            user-select: none;
+        }
+
+        .premium-lock {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(8, 10, 18, 0.6);
+            backdrop-filter: blur(10px);
+            z-index: 2000;
+            padding: 24px;
+        }
+
+        .premium-modal {
+            width: min(560px, 92vw);
+            background: rgba(20, 24, 34, 0.92);
+            border: 1px solid rgba(56, 232, 255, 0.25);
+            border-radius: 18px;
+            padding: 28px;
+            box-shadow: 0 20px 50px rgba(5, 8, 16, 0.55);
+            text-align: center;
+        }
+
+        html[data-theme="light"] .premium-modal {
+            background: rgba(245, 248, 252, 0.96);
+            border-color: rgba(79, 70, 229, 0.25);
+        }
+
+        .premium-modal h2 {
+            font-size: 1.5rem;
+            margin-bottom: 10px;
+        }
+
+        .premium-modal p {
+            color: var(--text-secondary);
+            margin-bottom: 18px;
+            line-height: 1.6;
+        }
+
+        .premium-features {
+            text-align: left;
+            display: grid;
+            gap: 10px;
+            margin: 16px 0 22px;
+        }
+
+        .premium-features li {
+            list-style: none;
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            color: var(--text-secondary);
+        }
+
+        .premium-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: center;
+        }
+
+        .premium-btn {
+            padding: 12px 18px;
+            border-radius: 10px;
+            border: 1px solid transparent;
+            font-weight: 700;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .premium-btn.primary {
+            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
+            color: #fff;
+            border-color: rgba(56, 232, 255, 0.35);
+        }
+
+        .premium-btn.secondary {
+            background: transparent;
+            border-color: var(--border);
+            color: var(--text-primary);
+        }
+
+        .navbar {
+            background: rgba(240, 246, 255, 0.82);
+            border-bottom: 1px solid rgba(124, 92, 255, 0.22);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(14px);
+            box-shadow: 0 10px 28px rgba(86, 110, 170, 0.2);
+            min-height: 72px;
+        }
+
+        html[data-theme="dark"] .navbar {
+            background: rgba(11, 15, 20, 0.78);
+            border-bottom: 1px solid rgba(56, 232, 255, 0.12);
+            box-shadow: 0 8px 24px rgba(5, 12, 24, 0.45);
+        }
+
+        html[data-theme="light"] .navbar {
+            background: rgba(231, 238, 248, 0.86);
+            border-bottom: 1px solid rgba(79, 70, 229, 0.2);
+            box-shadow: 0 12px 28px rgba(70, 90, 140, 0.18);
+        }
+
+        html[data-theme="purple"] .navbar {
+            background: rgba(11, 7, 20, 0.82);
+            border-bottom: 1px solid rgba(184, 108, 255, 0.22);
+            box-shadow: 0 10px 24px rgba(10, 6, 18, 0.6);
+        }
+
+        html[data-theme="gold"] .navbar {
+            background: rgba(11, 11, 11, 0.86);
+            border-bottom: 1px solid rgba(245, 208, 111, 0.3);
+            box-shadow: 0 10px 24px rgba(5, 4, 3, 0.7);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo-img {
+            width: 32px;
+            height: 32px;
+            flex: 0 0 32px;
+            filter: drop-shadow(0 0 12px rgba(56, 232, 255, 0.35));
+        }
+
+        .logo-text {
+            font-size: 1.35rem;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .user-menu {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .user-email {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .user-role-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
+            color: white;
+            letter-spacing: 0.4px;
+        }
+
+        .user-role-badge.standard {
+            background: linear-gradient(135deg, #c07a2b, #8b4f1f);
+            color: #ffffff;
+        }
+
+        .user-role-badge.premium {
+            background: linear-gradient(135deg, #FFD700, #FFA500);
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.4);
+            color: #111111;
+        }
+
+        .user-role-badge.admin {
+            background: linear-gradient(135deg, #f5d06f, #ffd86b);
+            box-shadow: 0 0 18px rgba(245, 208, 111, 0.45);
+            color: #0a0a0a;
+        }
+
+        .hamburger-menu {
+            display: flex;
+            flex-direction: column;
+            background: rgba(13, 168, 232, 0.1);
+            border: 1px solid rgba(13, 168, 232, 0.3);
+            cursor: pointer;
+            padding: 8px;
+            gap: 5px;
+            width: 44px;
+            height: 44px;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .hamburger-menu:hover {
+            background: rgba(13, 168, 232, 0.2);
+            border-color: #0da8e8;
+        }
+
+        .hamburger-menu span {
+            width: 26px;
+            height: 3px;
+            background: #0da8e8;
+            border-radius: 2px;
+            transition: all 0.3s ease;
+            display: block;
+        }
+
+        .hamburger-menu.active span:nth-child(1) {
+            transform: rotate(45deg) translate(8px, 8px);
+        }
+
+        .hamburger-menu.active span:nth-child(2) { opacity: 0; }
+
+        .hamburger-menu.active span:nth-child(3) {
+            transform: rotate(-45deg) translate(7px, -7px);
+        }
+
+        .menu-panel {
+            position: fixed;
+            right: -350px;
+            top: 0;
+            width: 350px;
+            height: 100vh;
+            background: rgba(15, 18, 28, 0.96);
+            border-left: 1px solid rgba(56, 232, 255, 0.18);
+            z-index: 998;
+            transition: right 0.3s ease;
+            overflow-y: auto;
+            backdrop-filter: blur(8px);
+        }
+
+        html[data-theme="light"] .menu-panel {
+            background: rgba(233, 238, 248, 0.96);
+            border-left: 1px solid rgba(79, 70, 229, 0.18);
+        }
+
+        html[data-theme="purple"] .menu-panel {
+            background: rgba(12, 8, 22, 0.96);
+            border-left: 1px solid rgba(184, 108, 255, 0.25);
+        }
+
+        html[data-theme="gold"] .menu-panel {
+            background: rgba(12, 11, 12, 0.96);
+            border-left: 1px solid rgba(245, 208, 111, 0.28);
+        }
+
+        .menu-panel.active { right: 0; }
+
+        .menu-close {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: none;
+            border: none;
+            color: var(--primary);
+            font-size: 32px;
+            cursor: pointer;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .menu-close:hover {
+            color: var(--secondary);
+            transform: rotate(90deg);
+        }
+
+        .menu-content { padding: 80px 24px 24px; }
+
+        .menu-user-info {
+            margin-bottom: 32px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .menu-user-email {
+            color: var(--primary);
+            font-size: 14px;
+            font-weight: 600;
+            word-break: break-all;
+        }
+
+        .menu-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 14px 16px;
+            background: rgba(13, 168, 232, 0.1);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: left;
+            text-decoration: none;
+        }
+
+        .menu-item:hover {
+            background: rgba(13, 168, 232, 0.2);
+            border-color: var(--primary);
+            transform: translateX(4px);
+        }
+
+        .menu-item.logout-item {
+            color: #f44336;
+            background: rgba(244, 67, 54, 0.1);
+            border-color: rgba(244, 67, 54, 0.3);
+        }
+
+        .menu-item.logout-item:hover {
+            background: rgba(244, 67, 54, 0.2);
+            border-color: #f44336;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .header {
+            margin-bottom: 24px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 8px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+        }
+
+        .card.glass {
+            background: linear-gradient(160deg, rgba(20, 28, 42, 0.92), rgba(12, 16, 24, 0.85));
+            border: 1px solid rgba(56, 232, 255, 0.12);
+            box-shadow: 0 18px 35px rgba(0, 0, 0, 0.25);
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+            color: var(--accent);
+        }
+
+        .update-status {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-left: 8px;
+            font-weight: 600;
+        }
+
+        .update-status.active {
+            color: var(--accent);
+        }
+
+        .progress-wrap {
+            margin-top: 12px;
+            background: rgba(56, 232, 255, 0.08);
+            border: 1px solid rgba(56, 232, 255, 0.2);
+            border-radius: 999px;
+            padding: 6px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .progress-bar {
+            position: relative;
+            flex: 1;
+            height: 10px;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 999px;
+            overflow: hidden;
+        }
+
+        .progress-bar span {
+            position: absolute;
+            inset: 0;
+            width: 0;
+            background: linear-gradient(90deg, rgba(56, 232, 255, 0.8), rgba(139, 92, 246, 0.8));
+            border-radius: 999px;
+            transition: width 0.25s ease;
+        }
+
+        .progress-meta {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            min-width: 120px;
+            text-align: right;
+        }
+
+        .sort-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+
+        .sort-select {
+            padding: 8px 12px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            border-radius: 8px;
+            font-weight: 600;
+        }
+
+        .sort-select.compact {
+            min-width: 140px;
+        }
+
+        .exchange-title {
+            text-align: center;
+            font-weight: 800;
+            letter-spacing: 1px;
+            color: var(--accent);
+            margin-bottom: 16px;
+        }
+
+        .market-toggle {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .market-btn {
+            padding: 14px 16px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-weight: 700;
+            letter-spacing: 0.4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .market-btn:hover {
+            border-color: var(--accent);
+            transform: translateY(-1px);
+        }
+
+        .market-btn.active {
+            background: linear-gradient(135deg, rgba(56, 232, 255, 0.2), rgba(139, 92, 246, 0.25));
+            border-color: var(--accent);
+            color: var(--text-primary);
+            box-shadow: 0 10px 24px rgba(56, 232, 255, 0.12);
+        }
+
+        .timeframe-card {
+            border: 1px solid rgba(56, 232, 255, 0.15);
+            background: linear-gradient(180deg, rgba(56, 232, 255, 0.05), rgba(139, 92, 246, 0.05));
+        }
+
+        .timeframe-note {
+            margin-top: 14px;
+            padding: 12px 16px;
+            border-radius: 10px;
+            background: rgba(56, 232, 255, 0.08);
+            border: 1px dashed rgba(56, 232, 255, 0.3);
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            line-height: 1.5;
+            text-align: center;
+        }
+
+        .timeframe-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .timeframe-btn {
+            width: 56px;
+            height: 56px;
+            padding: 0;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            background: linear-gradient(180deg, rgba(20, 28, 42, 0.9), rgba(12, 16, 24, 0.95));
+            color: var(--text-primary);
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: inset 0 0 0 1px rgba(56, 232, 255, 0.08);
+        }
+
+        .timeframe-btn:hover {
+            border-color: var(--accent);
+            transform: translateY(-1px);
+            box-shadow: 0 8px 18px rgba(56, 232, 255, 0.12);
+        }
+
+        .timeframe-btn.active {
+            background: linear-gradient(135deg, rgba(56, 232, 255, 0.25), rgba(139, 92, 246, 0.2));
+            border-color: var(--accent);
+            color: var(--text-primary);
+            box-shadow: 0 8px 18px rgba(56, 232, 255, 0.12);
+        }
+
+        .coin-selector-btn {
+            width: 100%;
+            padding: 14px 16px;
+            background: var(--bg-card);
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            transition: all 0.3s;
+        }
+
+        .coin-selector-btn:hover { border-color: var(--accent); }
+
+        .coin-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            margin-top: 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            z-index: 1000;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+
+        .coin-item {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.2s;
+            gap: 12px;
+        }
+
+        .coin-item:hover { background: var(--bg-secondary); }
+
+        .coin-item img {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+        }
+
+        .coin-item-info { flex: 1; }
+
+        .coin-item-name { font-weight: 600; color: var(--text-primary); }
+
+        .coin-item-symbol { font-size: 0.85rem; color: var(--text-secondary); }
+
+        .coin-item-change {
+            font-weight: 600;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        .coin-item-change.positive { color: var(--accent); background: rgba(0, 255, 136, 0.1); }
+        .coin-item-change.negative { color: var(--accent-red); background: rgba(255, 71, 87, 0.1); }
+
+        .coin-logo {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.8rem;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent));
+            color: white;
+        }
+
+        .tpsl-grid {
+            margin-top: 16px;
+            padding: 12px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .bar-limit-container {
+            margin-top: 12px;
+            padding: 12px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+        }
+
+        .backtest-results {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 24px;
+            margin: 24px 0;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .result-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            cursor: default;
+            transition: all 0.3s;
+        }
+
+        .result-row.clickable {
+            cursor: pointer;
+        }
+
+        .result-row.clickable:hover {
+            background: rgba(56, 232, 255, 0.06);
+            border-left: 3px solid var(--accent);
+        }
+
+        .result-row:hover {
+            background: rgba(0, 255, 136, 0.05);
+            border-left: 3px solid var(--accent);
+        }
+
+        .result-row-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+        }
+
+        .result-coin {
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .result-trades {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-left: 10px;
+        }
+
+        .gain-list {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .gain-pill {
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            background: rgba(56, 232, 255, 0.08);
+            color: var(--accent);
+        }
+
+        .gain-pill.negative {
+            background: rgba(255, 77, 109, 0.12);
+            color: var(--accent-red);
+        }
+
+        .empty-state {
+            padding: 24px;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 768px) {
+            .container { padding: 12px; }
+            .card { padding: 16px; }
+            .navbar { padding: 12px 16px; }
+            .header h1 { font-size: 1.5rem; }
+            .tpsl-grid { grid-template-columns: 1fr; }
+            .coin-dropdown { max-height: 70vh; }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="logo">
+            <img src="logo.svg" alt="Crypto Sentinel Signals" class="logo-img" />
+            <span class="logo-text">Crypto Sentinel Signals</span>
+        </div>
+        <div class="user-menu">
+            <span class="user-email" id="userEmail">Yükleniyor...</span>
+            <span class="user-role-badge" id="userRoleBadge" style="display:none;"></span>
+            <button class="hamburger-menu" id="hamburgerBtn" onclick="window.toggleHamburgerMenu()" title="Menü">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+        </div>
+    </nav>
+    <div class="menu-panel" id="menuPanel">
+        <button class="menu-close" onclick="closeHamburgerMenu()">×</button>
+        <div class="menu-content">
+            <div class="menu-user-info">
+                <div class="menu-user-email" id="menuUserEmail">Yükleniyor...</div>
+            </div>
+            <nav class="menu-nav">
+                <a href="profile.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-user"></i>
+                    Profil
+                </a>
+                <a href="index.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-chart-line"></i>
+                    Dashboard
+                </a>
+                <a href="her-durumda.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-layer-group"></i>
+                    Her Durumda
+                </a>
+                <a href="kazananlar.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-trophy"></i>
+                    Kazananlar
+                </a>
+                <button class="menu-item logout-item" onclick="window.logout()">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                    Çıkış Yap
+                </button>
+            </nav>
+        </div>
+    </div>
+
+    <div class="premium-lock" id="premiumLock" aria-hidden="true">
+        <div class="premium-modal">
+            <h2>Premium gerekli</h2>
+            <p>Kazananlar modülü sadece Premium üyeler için aktif. Premium ile neler açılıyor?</p>
+            <ul class="premium-features">
+                <li><i class="fa-solid fa-check"></i> Tüm coinlerde canlı tarama</li>
+                <li><i class="fa-solid fa-check"></i> Win rate, profit factor ve kâr filtreleri</li>
+                <li><i class="fa-solid fa-check"></i> SPOT/FUTURES karşılaştırması</li>
+                <li><i class="fa-solid fa-check"></i> Hızlı dashboard geçişi</li>
+            </ul>
+            <div class="premium-actions">
+                <a href="premium.html" class="premium-btn primary"><i class="fa-solid fa-star"></i> Premium Ol</a>
+                <a href="index.html" class="premium-btn secondary"><i class="fa-solid fa-chart-line"></i> Dashboard'a Dön</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="header">
+            <h1><i class="fa-solid fa-trophy"></i> Kazananlar</h1>
+            <p style="color: var(--text-secondary);">En kazançlı Coinleri Aramakla zaman kaybetmeyin diye sizin için listeledik...</p>
+        </div>
+
+        <div class="card glass">
+            <div class="card-title">⚙️ TP / SL / Bar Kontrol Merkezi</div>
+            <div class="tpsl-grid">
+                <div>
+                    <label style="display: block; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">TP %</label>
+                    <input id="tpInput" type="number" value="5" min="0.1" max="50" step="0.1" 
+                        style="width: 100%; padding: 8px; background: var(--bg-primary); border: 1px solid var(--border); 
+                        border-radius: 6px; color: var(--text-primary); font-weight: 600;">
+                </div>
+                <div>
+                    <label style="display: block; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">SL %</label>
+                    <input id="slInput" type="number" value="3" min="0.1" max="50" step="0.1" 
+                        style="width: 100%; padding: 8px; background: var(--bg-primary); border: 1px solid var(--border); 
+                        border-radius: 6px; color: var(--text-primary); font-weight: 600;">
+                </div>
+            </div>
+            <div class="bar-limit-container">
+                <label style="display: block; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">Zamana Duyarlı Kapanış (Bar)</label>
+                <input id="barInput" type="number" value="5" min="1" max="100" step="1" 
+                    style="width: 100%; padding: 8px; background: var(--bg-primary); border: 1px solid var(--border); 
+                    border-radius: 6px; color: var(--text-primary); font-weight: 600;">
+            </div>
+        </div>
+
+        <div class="card glass" style="margin-top: 24px;">
+            <div class="exchange-title">BINANCE</div>
+            <div class="market-toggle">
+                <button class="market-btn active" type="button" data-market="spot">SPOT</button>
+                <button class="market-btn" type="button" data-market="futures">FUTURES</button>
+            </div>
+        </div>
+
+        <div class="card timeframe-card" style="margin-top: 16px;">
+            <div class="card-title"><i class="fa-solid fa-clock"></i> Time Frame</div>
+            <div class="timeframe-group">
+                <button class="timeframe-btn active" type="button" data-timeframe="5m">5m</button>
+                <button class="timeframe-btn" type="button" data-timeframe="15m">15m</button>
+                <button class="timeframe-btn" type="button" data-timeframe="1h">1h</button>
+                <button class="timeframe-btn" type="button" data-timeframe="4h">4h</button>
+                <button class="timeframe-btn" type="button" data-timeframe="1d">1d</button>
+            </div>
+            <div class="timeframe-note">
+                Seçtiğiniz zaman diliminde, tüm coinler taranır ve en yüksek toplam kâr sağlayanlar listelenir.
+                TP/SL ve Bar ayarlarıyla sistemin ne kadar agresif veya dengeli çalışacağını belirleyebilirsiniz.
+                Coin’e tıklayarak aynı ayarlarla Dashboard’a geçebilirsiniz.
+            </div>
+        </div>
+
+        <div class="card glass" style="margin-top: 24px;">
+            <div class="card-title"><i class="fa-solid fa-chart-simple"></i> En Çok Kazananlar <span id="winnersStatus" class="update-status"></span></div>
+            <div class="sort-row">
+                <div class="progress-wrap">
+                    <div class="progress-bar"><span id="scanProgress"></span></div>
+                    <div class="progress-meta" id="scanMeta">0%</div>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <select id="sortWinners" class="sort-select">
+                        <option value="totalProfit">Toplam Kâr</option>
+                        <option value="winRate">Win Rate</option>
+                        <option value="profitFactor">Profit Factor</option>
+                    </select>
+                    <select id="sortOrder" class="sort-select compact">
+                        <option value="desc">Yüksek</option>
+                        <option value="asc">Düşük</option>
+                    </select>
+                </div>
+            </div>
+            <div class="backtest-results" id="backtestResults">
+                <div class="empty-state" id="winnersEmpty">Seçimlerinize göre sonuçlar hazırlanıyor.</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="legal-footer" style="margin: 18px auto 24px; padding: 0 24px 24px; font-size: 0.65rem; color: rgba(180, 190, 205, 0.7); text-align: center;">
+        Yatırım danışmanlığı değildir; genel bilgilendirme amaçlıdır, sorumluluk kullanıcıya aittir.
+    </div>
+
+    <script src="rate-limiter.js"></script>
+    <script src="indicators.js"></script>
+    <script src="advanced-indicators.js?v=20260129"></script>
+    <script>
+        // CORS Proxy wrapper - Binance API isteklerini proxy üzerinden yap
+        const originalFetch = window.fetch;
+        window.fetch = function(url, options) {
+            if (USE_CORS_PROXY && typeof url === 'string' && url.includes('api.binance.com')) {
+                const proxyUrl = CORS_PROXY + encodeURIComponent(url);
+                console.log(`Proxy: ${url.substring(0, 60)}...`);
+                return originalFetch(proxyUrl, options)
+                    .then(response => {
+                        const clonedResponse = response.clone();
+                        return {
+                            ok: response.ok,
+                            status: response.status,
+                            statusText: response.statusText,
+                            headers: response.headers,
+                            json: async () => {
+                                const text = await clonedResponse.text();
+                                try {
+                                    const wrapped = JSON.parse(text);
+                                    if (wrapped.contents) {
+                                        return JSON.parse(wrapped.contents);
+                                    }
+                                    return wrapped;
+                                } catch (e) {
+                                    return JSON.parse(text);
+                                }
+                            }
+                        };
+                    });
+            }
+            return originalFetch.apply(window, arguments);
+        };
+
+        let supabaseClient = null;
+        let currentUser = null;
+        let currentTimeframe = localStorage.getItem('winnersTimeframe') || '1h';
+        let currentMarket = getMarketType() || 'spot';
+        let updateToken = 0;
+        let updateTimer = null;
+        let lastResults = [];
+        const confidenceThreshold = 40;
+        const maxDisplay = 40;
+
+        function setLoading(isLoading, text = 'Güncelleniyor...') {
+            const statusEl = document.getElementById('winnersStatus');
+            if (!statusEl) return;
+            if (isLoading) {
+                statusEl.textContent = text;
+                statusEl.classList.add('active');
+            } else {
+                statusEl.textContent = '';
+                statusEl.classList.remove('active');
+            }
+        }
+
+        function setActiveButton(buttons, activeValue, dataAttr) {
+            buttons.forEach(btn => {
+                const value = btn.getAttribute(dataAttr);
+                btn.classList.toggle('active', value === activeValue);
+            });
+        }
+
+        function formatSymbol(symbol) {
+            if (symbol.endsWith('USDT')) {
+                return `${symbol.slice(0, -4)}/USDT`;
+            }
+            return symbol;
+        }
+
+        function formatPercent(value) {
+            if (!Number.isFinite(value)) return '0.00%';
+            const sign = value > 0 ? '+' : '';
+            return `${sign}${value.toFixed(2)}%`;
+        }
+
+        function renderWinners(list) {
+            const container = document.getElementById('backtestResults');
+            if (!container) return;
+
+            if (!list.length) {
+                container.innerHTML = '<div class="empty-state" id="winnersEmpty">Bu ayarlarda sonuç bulunamadı.</div>';
+                return;
+            }
+
+            const rows = list.slice(0, maxDisplay).map(item => {
+                const isNegative = item.totalProfit < 0;
+                const gainClass = isNegative ? 'gain-pill negative' : 'gain-pill';
+                const gainText = formatPercent(item.totalProfit);
+
+                return `
+                    <div class="result-row clickable" onclick="goToDashboard('${item.symbol}')">
+                        <div class="result-row-header">
+                            <div>
+                                <span class="result-coin">${formatSymbol(item.symbol)}</span>
+                                <span class="result-trades">${item.totalTrades} işlem</span>
+                            </div>
+                            <div class="gain-list">
+                                <span class="${gainClass}">${gainText}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            container.innerHTML = rows;
+        }
+
+        function sortResults(list) {
+            const sortValue = document.getElementById('sortWinners')?.value || 'totalProfit';
+            const sortOrder = document.getElementById('sortOrder')?.value || 'desc';
+            const sorted = [...list];
+            if (sortValue === 'winRate') {
+                sorted.sort((a, b) => b.winRate - a.winRate);
+            } else if (sortValue === 'profitFactor') {
+                sorted.sort((a, b) => b.profitFactor - a.profitFactor);
+            } else {
+                sorted.sort((a, b) => b.totalProfit - a.totalProfit);
+            }
+            if (sortOrder === 'asc') {
+                sorted.reverse();
+            }
+            return sorted;
+        }
+
+        function updateProgress(processed, total, startTime) {
+            const progressEl = document.getElementById('scanProgress');
+            const metaEl = document.getElementById('scanMeta');
+            if (!progressEl || !metaEl) return;
+
+            const ratio = total > 0 ? processed / total : 0;
+            const percent = Math.min(100, Math.max(0, ratio * 100));
+            progressEl.style.width = `${percent.toFixed(1)}%`;
+
+            const elapsedMs = Date.now() - startTime;
+            const perItem = processed > 0 ? elapsedMs / processed : 0;
+            const remainingMs = perItem * Math.max(0, total - processed);
+            const remainingSec = Math.max(0, Math.round(remainingMs / 1000));
+            const minutes = Math.floor(remainingSec / 60);
+            const seconds = remainingSec % 60;
+            const eta = processed > 2 ? `${minutes}:${String(seconds).padStart(2, '0')}` : '--:--';
+
+            metaEl.textContent = `${percent.toFixed(0)}% • ${eta}`;
+        }
+
+        async function fetchMarketSymbols(marketType) {
+            const base = marketType === 'futures' ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
+            const url = `${base}/exchangeInfo`;
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error('Piyasa listesi alınamadı');
+            }
+            const data = await response.json();
+            const symbols = (data.symbols || [])
+                .filter(item => item.status === 'TRADING')
+                .filter(item => item.quoteAsset === 'USDT')
+                .filter(item => marketType === 'futures' ? item.contractType === 'PERPETUAL' : true)
+                .map(item => item.symbol);
+            return symbols;
+        }
+
+        async function runBacktestSafe(symbol, timeframe, tp, sl, bar) {
+            try {
+                const backtest = await AdvancedIndicators.runBacktest(
+                    symbol,
+                    timeframe,
+                    7,
+                    confidenceThreshold,
+                    tp,
+                    sl,
+                    bar
+                );
+                if (!backtest) return null;
+
+                const totalProfit = parseFloat(backtest.totalProfit) || 0;
+                const winRate = parseFloat(backtest.winRate) || 0;
+                const profitFactor = parseFloat(backtest.profitFactor) || 0;
+
+                return {
+                    symbol,
+                    totalProfit,
+                    winRate,
+                    profitFactor,
+                    totalTrades: backtest.totalTrades || backtest.trades?.length || 0,
+                };
+            } catch (error) {
+                console.warn(`Backtest hata: ${symbol}`, error.message);
+                return null;
+            }
+        }
+
+        async function loadWinners() {
+            const runId = ++updateToken;
+            const tp = parseFloat(document.getElementById('tpInput')?.value) || 5;
+            const sl = parseFloat(document.getElementById('slInput')?.value) || 3;
+            const bar = parseInt(document.getElementById('barInput')?.value, 10) || 5;
+            const startTime = Date.now();
+
+            setLoading(true, 'Güncelleniyor...');
+            const container = document.getElementById('backtestResults');
+            if (container) {
+                container.innerHTML = '<div class="empty-state">Sonuçlar taranıyor...</div>';
+            }
+            updateProgress(0, 1, startTime);
+
+            try {
+                setMarketType(currentMarket);
+                const symbols = await fetchMarketSymbols(currentMarket);
+                if (runId !== updateToken) return;
+
+                const results = [];
+                let processed = 0;
+                const queue = [...symbols];
+                const concurrency = 4;
+
+                const worker = async () => {
+                    while (queue.length) {
+                        const symbol = queue.shift();
+                        const result = await runBacktestSafe(symbol, currentTimeframe, tp, sl, bar);
+                        if (runId !== updateToken) return;
+                        if (result) {
+                            results.push(result);
+                        }
+                        processed += 1;
+                        if (processed % 6 === 0) {
+                            const statusText = `Güncelleniyor... (${processed}/${symbols.length})`;
+                            setLoading(true, statusText);
+                            updateProgress(processed, symbols.length, startTime);
+                            lastResults = results;
+                            renderWinners(sortResults(lastResults));
+                        }
+                    }
+                };
+
+                await Promise.all(Array.from({ length: concurrency }, worker));
+                if (runId !== updateToken) return;
+
+                updateProgress(symbols.length, symbols.length, startTime);
+                lastResults = results;
+                renderWinners(sortResults(lastResults));
+            } catch (error) {
+                console.error(error);
+                if (container) {
+                    container.innerHTML = '<div class="empty-state">Sonuçlar alınamadı. Lütfen tekrar deneyin.</div>';
+                }
+            } finally {
+                if (runId === updateToken) {
+                    setLoading(false);
+                }
+            }
+        }
+
+        function scheduleUpdate() {
+            if (updateTimer) clearTimeout(updateTimer);
+            updateTimer = setTimeout(() => {
+                loadWinners();
+            }, 400);
+        }
+
+        function setupControls() {
+            const marketButtons = Array.from(document.querySelectorAll('.market-btn'));
+            const timeframeButtons = Array.from(document.querySelectorAll('.timeframe-btn'));
+            const sortSelect = document.getElementById('sortWinners');
+            const sortOrder = document.getElementById('sortOrder');
+
+            setActiveButton(marketButtons, currentMarket, 'data-market');
+            setActiveButton(timeframeButtons, currentTimeframe, 'data-timeframe');
+
+            marketButtons.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const market = btn.getAttribute('data-market');
+                    if (!market || market === currentMarket) return;
+                    currentMarket = market;
+                    localStorage.setItem('marketType', currentMarket);
+                    setActiveButton(marketButtons, currentMarket, 'data-market');
+                    scheduleUpdate();
+                });
+            });
+
+            timeframeButtons.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const timeframe = btn.getAttribute('data-timeframe');
+                    if (!timeframe || timeframe === currentTimeframe) return;
+                    currentTimeframe = timeframe;
+                    localStorage.setItem('winnersTimeframe', currentTimeframe);
+                    setActiveButton(timeframeButtons, currentTimeframe, 'data-timeframe');
+                    scheduleUpdate();
+                });
+            });
+
+            ['tpInput', 'slInput', 'barInput'].forEach(id => {
+                const input = document.getElementById(id);
+                if (!input) return;
+                input.addEventListener('input', scheduleUpdate);
+                input.addEventListener('change', scheduleUpdate);
+            });
+
+            if (sortSelect) {
+                sortSelect.addEventListener('change', () => {
+                    if (!lastResults.length) return;
+                    renderWinners(sortResults(lastResults));
+                });
+            }
+
+            if (sortOrder) {
+                sortOrder.addEventListener('change', () => {
+                    if (!lastResults.length) return;
+                    renderWinners(sortResults(lastResults));
+                });
+            }
+        }
+        function updateUserRoleBadge(membershipType, isAdmin) {
+            const badgeEl = document.getElementById('userRoleBadge');
+            if (!badgeEl) return;
+
+            if (isAdmin) {
+                badgeEl.innerHTML = '<i class="fa-solid fa-shield"></i> Admin';
+                badgeEl.className = 'user-role-badge admin';
+                badgeEl.style.display = 'inline-flex';
+                return;
+            }
+
+            if (membershipType === 'premium') {
+                badgeEl.innerHTML = '<i class="fa-solid fa-star"></i> Premium';
+                badgeEl.className = 'user-role-badge premium';
+                badgeEl.style.display = 'inline-flex';
+                return;
+            }
+
+            badgeEl.innerHTML = '<i class="fa-solid fa-leaf"></i> Free';
+            badgeEl.className = 'user-role-badge standard';
+            badgeEl.style.display = 'inline-flex';
+        }
+
+        function showPremiumLock() {
+            const lockEl = document.getElementById('premiumLock');
+            if (lockEl) {
+                lockEl.style.display = 'flex';
+                lockEl.setAttribute('aria-hidden', 'false');
+            }
+            document.body.classList.add('premium-locked');
+        }
+
+        async function checkAuth() {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            currentUser = session.user;
+            document.getElementById('userEmail').textContent = currentUser.email;
+            document.getElementById('menuUserEmail').textContent = currentUser.email;
+
+            try {
+                await supabaseClient
+                    .from('user_profiles')
+                    .upsert({
+                        id: currentUser.id,
+                        email: currentUser.email,
+                        updated_at: new Date().toISOString()
+                    }, { onConflict: 'id' });
+
+                const { data: userProfile } = await supabaseClient
+                    .from('user_profiles')
+                    .select('membership_type, is_admin')
+                    .eq('id', currentUser.id)
+                    .maybeSingle();
+
+                if (!userProfile) {
+                    updateUserRoleBadge('standard', false);
+                    return { isPremium: false };
+                } else {
+                    updateUserRoleBadge(userProfile.membership_type || 'standard', !!userProfile.is_admin);
+                    const isPremium = userProfile.membership_type === 'premium' || !!userProfile.is_admin;
+                    return { isPremium };
+                }
+            } catch {
+                updateUserRoleBadge('standard', false);
+                return { isPremium: false };
+            }
+        }
+
+        window.toggleHamburgerMenu = function() {
+            const panel = document.getElementById('menuPanel');
+            const btn = document.getElementById('hamburgerBtn');
+            if (!panel || !btn) return;
+            panel.classList.toggle('active');
+            btn.classList.toggle('active');
+        };
+
+        window.closeHamburgerMenu = function() {
+            const panel = document.getElementById('menuPanel');
+            const btn = document.getElementById('hamburgerBtn');
+            if (panel) panel.classList.remove('active');
+            if (btn) btn.classList.remove('active');
+        };
+
+        window.logout = async function() {
+            try {
+                const { error } = await supabaseClient.auth.signOut();
+                if (error) throw error;
+                window.location.replace('login.html');
+            } catch (error) {
+                console.error('Çıkış hatası:', error.message);
+                localStorage.clear();
+                window.location.replace('login.html');
+            }
+        };
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            const { createClient } = window.supabase;
+            supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            const access = await checkAuth();
+            if (!access?.isPremium) {
+                showPremiumLock();
+                return;
+            }
+            setupControls();
+            loadWinners();
+        });
+
+        window.goToDashboard = function(symbol) {
+            const tp = parseFloat(document.getElementById('tpInput')?.value) || 5;
+            const sl = parseFloat(document.getElementById('slInput')?.value) || 3;
+            const bar = parseInt(document.getElementById('barInput')?.value, 10) || 5;
+            const params = new URLSearchParams({
+                symbol,
+                market: currentMarket,
+                tf: currentTimeframe,
+                tp: tp.toString(),
+                sl: sl.toString(),
+                bar: bar.toString()
+            });
+            window.location.href = `index.html?${params.toString()}`;
+        };
+    </script>
+</body>
+</html>

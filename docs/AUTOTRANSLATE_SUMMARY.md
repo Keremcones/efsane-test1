@@ -2,7 +2,7 @@
 
 ## 🎯 Ne Yapıldı?
 
-AutoTranslate modülü başarıyla Crypto Lab Pro projesine entegre edilmiştir. Bu, sisteme **otomatik dinamik çeviri** yetenekleri eklemiştir.
+AutoTranslate modülü başarıyla Crypto Sentinel Signals projesine entegre edilmiştir. Bu, sisteme **otomatik dinamik çeviri** yetenekleri eklemiştir.
 
 ## 📦 Eklenen Dosyalar
 

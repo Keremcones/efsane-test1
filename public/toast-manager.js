@@ -50,12 +50,12 @@ class ToastManager {
             'info': '#3b82f6'
         }[type] || '#3b82f6';
         
-        const icon = {
-            'success': '✅',
-            'error': '❌',
-            'warning': '⚠️',
-            'info': 'ℹ️'
-        }[type] || 'ℹ️';
+        const iconClass = {
+            'success': 'fa-circle-check',
+            'error': 'fa-circle-xmark',
+            'warning': 'fa-triangle-exclamation',
+            'info': 'fa-circle-info'
+        }[type] || 'fa-circle-info';
         
         toast.style.cssText = `
             background-color: ${bgColor};
@@ -74,7 +74,9 @@ class ToastManager {
         `;
         
         toast.innerHTML = `
-            <span style="flex-shrink: 0; font-size: 16px;">${icon}</span>
+            <span style="flex-shrink: 0; font-size: 16px;">
+                <i class="fa-solid ${iconClass}"></i>
+            </span>
             <span style="flex: 1;">${message}</span>
             <button style="
                 background: none;
@@ -181,12 +183,12 @@ async function handleAsync(asyncFn, errorMessage = 'Bir hata oluştu') {
 
 // Global error handler
 window.addEventListener('error', (event) => {
-    console.error('❌ Global error:', event.error);
+    console.error('Global error:', event.error);
     Toast.error(`Beklenmeyen hata: ${event.error?.message || 'Bilinmeyen hata'}`);
 });
 
 window.addEventListener('unhandledrejection', (event) => {
-    console.error('❌ Unhandled promise rejection:', event.reason);
+    console.error('Unhandled promise rejection:', event.reason);
     Toast.error(`Hata: ${event.reason?.message || 'Beklenmeyen bir hata oluştu'}`);
 });
 

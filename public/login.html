@@ -3,9 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Giriş Yap - Kripto Analiz Pro</title>
+    <title>Crypto Sentinel Signals • Giriş Yap</title>
+    <link rel="icon" type="image/svg+xml" href="logo.svg">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.dataset.theme = savedTheme;
+    </script>
     <style>
         * {
             margin: 0;
@@ -13,10 +19,102 @@
             box-sizing: border-box;
         }
 
+        :root {
+            --login-bg-1: #eef2f6;
+            --login-bg-2: #e4eaf2;
+            --login-card-bg: rgba(248, 250, 252, 0.92);
+            --login-border: rgba(79, 70, 229, 0.22);
+            --login-text: #1f2a44;
+            --login-muted: #5c6b87;
+            --login-accent-1: rgba(58, 123, 213, 0.18);
+            --login-accent-2: rgba(79, 70, 229, 0.14);
+            --login-input-bg: rgba(238, 243, 249, 0.9);
+            --login-input-border: rgba(79, 70, 229, 0.2);
+            --login-focus: #3a7bd5;
+            --login-tab: #5c6b87;
+            --login-tab-active: #3a7bd5;
+            --login-divider: rgba(79, 70, 229, 0.2);
+            --login-btn-text: #1f2a44;
+            --login-spinner: #1f2a44;
+        }
+
+        html[data-theme="dark"] {
+            --login-bg-1: #0a0e27;
+            --login-bg-2: #151937;
+            --login-card-bg: rgba(21, 25, 55, 0.8);
+            --login-border: rgba(45, 55, 72, 0.5);
+            --login-text: #ffffff;
+            --login-muted: #a0aec0;
+            --login-accent-1: rgba(0, 255, 136, 0.1);
+            --login-accent-2: rgba(59, 130, 246, 0.1);
+            --login-input-bg: rgba(10, 14, 39, 0.6);
+            --login-input-border: rgba(45, 55, 72, 0.8);
+            --login-focus: #00ff88;
+            --login-tab: #a0aec0;
+            --login-tab-active: #00ff88;
+            --login-divider: rgba(45, 55, 72, 0.5);
+            --login-btn-text: #0a0e27;
+            --login-spinner: #ffffff;
+        }
+
+        html[data-theme="purple"] {
+            --login-bg-1: #0b0714;
+            --login-bg-2: #120a1f;
+            --login-card-bg: rgba(25, 16, 38, 0.85);
+            --login-border: rgba(184, 108, 255, 0.3);
+            --login-text: #f6efff;
+            --login-muted: #c2b4d6;
+            --login-accent-1: rgba(184, 108, 255, 0.18);
+            --login-accent-2: rgba(124, 92, 255, 0.16);
+            --login-input-bg: rgba(18, 10, 31, 0.7);
+            --login-input-border: rgba(184, 108, 255, 0.24);
+            --login-focus: #c07bff;
+            --login-tab: #c2b4d6;
+            --login-tab-active: #c07bff;
+            --login-divider: rgba(184, 108, 255, 0.25);
+            --login-btn-text: #120a1f;
+            --login-spinner: #f6efff;
+        }
+
+        html[data-theme="gold"] {
+            --login-bg-1: #0b0b0b;
+            --login-bg-2: #141214;
+            --login-card-bg: rgba(27, 24, 26, 0.9);
+            --login-border: rgba(245, 208, 111, 0.28);
+            --login-text: #f6f1e7;
+            --login-muted: #c9bba0;
+            --login-accent-1: rgba(245, 208, 111, 0.18);
+            --login-accent-2: rgba(255, 216, 107, 0.16);
+            --login-input-bg: rgba(18, 16, 18, 0.75);
+            --login-input-border: rgba(245, 208, 111, 0.24);
+            --login-focus: #f5d06f;
+            --login-tab: #c9bba0;
+            --login-tab-active: #f5d06f;
+            --login-divider: rgba(245, 208, 111, 0.24);
+            --login-btn-text: #1b1304;
+            --login-spinner: #f6f1e7;
+        }
+
+        html[data-theme="purple"] body {
+            background:
+                radial-gradient(circle at 12% 15%, rgba(184, 108, 255, 0.22), transparent 46%),
+                radial-gradient(circle at 88% 12%, rgba(124, 92, 255, 0.18), transparent 42%),
+                linear-gradient(150deg, var(--login-bg-1) 0%, var(--login-bg-2) 100%);
+        }
+
+        html[data-theme="gold"] body {
+            background:
+                radial-gradient(circle at 12% 15%, rgba(245, 208, 111, 0.18), transparent 46%),
+                radial-gradient(circle at 88% 12%, rgba(255, 216, 107, 0.16), transparent 42%),
+                linear-gradient(150deg, var(--login-bg-1) 0%, var(--login-bg-2) 100%);
+        }
+
         body {
             font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, #0a0e27 0%, #151937 100%);
-            color: #ffffff;
+            background: radial-gradient(circle at 12% 15%, rgba(58, 123, 213, 0.16), transparent 46%),
+                        radial-gradient(circle at 88% 12%, rgba(79, 70, 229, 0.14), transparent 42%),
+                        linear-gradient(150deg, var(--login-bg-1) 0%, var(--login-bg-2) 100%);
+            color: var(--login-text);
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -33,8 +131,8 @@
             width: 100%;
             height: 100%;
             background: 
-                radial-gradient(circle at 20% 50%, rgba(0, 255, 136, 0.1) 0%, transparent 50%),
-                radial-gradient(circle at 80% 80%, rgba(59, 130, 246, 0.1) 0%, transparent 50%);
+                radial-gradient(circle at 20% 50%, var(--login-accent-1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, var(--login-accent-2) 0%, transparent 50%);
             pointer-events: none;
         }
 
@@ -47,8 +145,8 @@
         }
 
         .login-card {
-            background: rgba(21, 25, 55, 0.8);
-            border: 1px solid rgba(45, 55, 72, 0.5);
+            background: var(--login-card-bg);
+            border: 1px solid var(--login-border);
             border-radius: 16px;
             padding: 48px 32px;
             backdrop-filter: blur(10px);
@@ -60,13 +158,32 @@
         }
 
         .login-logo {
-            font-size: 2rem;
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 12px;
+            max-width: 360px;
+            text-align: center;
+        }
+
+        .login-logo-img {
+            width: 48px;
+            height: 48px;
+            flex: 0 0 48px;
+            filter: drop-shadow(0 0 14px rgba(0, 255, 136, 0.4));
+        }
+
+        .login-logo-text {
+            font-size: 1.7rem;
+            line-height: 1.1;
             font-weight: 800;
             background: linear-gradient(135deg, #00ff88, #3b82f6);
             background-clip: text;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            margin-bottom: 12px;
+            text-align: center;
         }
 
         .login-title {
@@ -77,7 +194,105 @@
 
         .login-subtitle {
             font-size: 0.9rem;
-            color: #a0aec0;
+            color: var(--login-muted);
+        }
+
+        .terms-box {
+            margin: 12px 0 16px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            border: 1px solid rgba(56, 232, 255, 0.2);
+            background: rgba(10, 14, 39, 0.45);
+            color: #b8c2d2;
+            font-size: 0.85rem;
+            line-height: 1.5;
+        }
+
+        .terms-link {
+            background: none;
+            border: none;
+            padding: 0;
+            color: #38e8ff;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        .terms-check {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            font-size: 0.9rem;
+            color: #d4dbe7;
+            margin-bottom: 18px;
+        }
+
+        .terms-check input {
+            margin-top: 3px;
+        }
+
+        .terms-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(6, 10, 20, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 999;
+            padding: 20px;
+        }
+
+        .terms-modal.active {
+            display: flex;
+        }
+
+        .terms-modal-content {
+            max-width: 720px;
+            width: 100%;
+            background: #0f1621;
+            border: 1px solid rgba(56, 232, 255, 0.2);
+            border-radius: 16px;
+            padding: 22px;
+            max-height: 80vh;
+            overflow: auto;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+        }
+
+        .terms-modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .terms-modal-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #e6eefc;
+        }
+
+        .terms-modal-close {
+            background: rgba(56, 232, 255, 0.1);
+            border: 1px solid rgba(56, 232, 255, 0.25);
+            color: #38e8ff;
+            border-radius: 10px;
+            padding: 6px 10px;
+            cursor: pointer;
+        }
+
+        .terms-modal-body {
+            color: #c5d0e3;
+            font-size: 0.92rem;
+            line-height: 1.6;
+            white-space: pre-line;
+        }
+
+        .legal-footer {
+            margin-top: 18px;
+            font-size: 0.65rem;
+            color: rgba(180, 190, 205, 0.7);
+            text-align: center;
         }
 
         .form-group {
@@ -89,16 +304,16 @@
             font-size: 0.95rem;
             font-weight: 600;
             margin-bottom: 8px;
-            color: #ffffff;
+            color: var(--login-text);
         }
 
         .form-input {
             width: 100%;
             padding: 12px 16px;
-            background: rgba(10, 14, 39, 0.6);
-            border: 1px solid rgba(45, 55, 72, 0.8);
+            background: var(--login-input-bg);
+            border: 1px solid var(--login-input-border);
             border-radius: 8px;
-            color: #ffffff;
+            color: var(--login-text);
             font-size: 1rem;
             font-family: 'Inter', sans-serif;
             transition: all 0.3s ease;
@@ -106,9 +321,9 @@
 
         .form-input:focus {
             outline: none;
-            border-color: #00ff88;
-            background: rgba(10, 14, 39, 0.9);
-            box-shadow: 0 0 12px rgba(0, 255, 136, 0.2);
+            border-color: var(--login-focus);
+            background: var(--login-input-bg);
+            box-shadow: 0 0 12px rgba(47, 214, 255, 0.2);
         }
 
         .form-input::placeholder {
@@ -121,7 +336,7 @@
             background: linear-gradient(135deg, #00ff88, #3b82f6);
             border: none;
             border-radius: 8px;
-            color: #0a0e27;
+            color: var(--login-btn-text);
             font-weight: 700;
             font-size: 1rem;
             cursor: pointer;
@@ -144,7 +359,7 @@
             display: flex;
             gap: 12px;
             margin-bottom: 32px;
-            border-bottom: 1px solid rgba(45, 55, 72, 0.5);
+            border-bottom: 1px solid var(--login-divider);
         }
 
         .auth-tab {
@@ -152,7 +367,7 @@
             padding: 12px;
             background: none;
             border: none;
-            color: #a0aec0;
+            color: var(--login-tab);
             font-weight: 600;
             cursor: pointer;
             border-bottom: 2px solid transparent;
@@ -160,8 +375,8 @@
         }
 
         .auth-tab.active {
-            color: #00ff88;
-            border-bottom-color: #00ff88;
+            color: var(--login-tab-active);
+            border-bottom-color: var(--login-tab-active);
         }
 
         .auth-content {
@@ -207,7 +422,7 @@
             width: 16px;
             height: 16px;
             border: 2px solid rgba(255, 255, 255, 0.3);
-            border-top-color: #ffffff;
+            border-top-color: var(--login-spinner);
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
             margin-right: 8px;
@@ -220,7 +435,7 @@
         .divider {
             text-align: center;
             margin: 24px 0;
-            color: #a0aec0;
+            color: var(--login-muted);
             position: relative;
         }
 
@@ -231,13 +446,13 @@
             top: 50%;
             width: 100%;
             height: 1px;
-            background: rgba(45, 55, 72, 0.5);
+            background: var(--login-divider);
             z-index: 0;
         }
 
         .divider-text {
             position: relative;
-            background: rgba(21, 25, 55, 0.8);
+            background: var(--login-card-bg);
             padding: 0 12px;
             z-index: 1;
         }
@@ -247,8 +462,14 @@
                 padding: 32px 20px;
             }
 
-            .login-logo {
-                font-size: 1.5rem;
+            .login-logo-img {
+                width: 40px;
+                height: 40px;
+                flex-basis: 40px;
+            }
+
+            .login-logo-text {
+                font-size: 1.45rem;
             }
 
             .login-title {
@@ -261,9 +482,12 @@
     <div class="login-container">
         <div class="login-card">
             <div class="login-header">
-                <div class="login-logo">🚀 Crypto Sentinel</div>
+                <div class="login-logo">
+                    <img src="logo.svg" alt="Crypto Sentinel Signals" class="login-logo-img" />
+                    <span class="login-logo-text">Crypto Sentinel Signals</span>
+                </div>
                 <div class="login-title">Giriş Yap</div>
-                <div class="login-subtitle">Kripto Analiz Pro'ya hoş geldin</div>
+                <div class="login-subtitle">Sentinel Sistemine Hoş Geldin</div>
             </div>
 
             <div class="auth-tabs">
@@ -293,6 +517,11 @@
             <div id="signup-content" class="auth-content">
                 <div id="signupError" class="error-message"></div>
                 <div id="signupSuccess" class="success-message"></div>
+                <div class="terms-box">
+                    Kayıt olmadan önce
+                    <button type="button" class="terms-link" onclick="openTermsModal()">Kullanım Koşulları ve Bilgilendirme Metni</button>
+                    içeriğini okuyup onaylamanız gerekmektedir.
+                </div>
                 <form id="signupForm" onsubmit="handleSignup(event)">
                     <div class="form-group">
                         <label class="form-label">E-posta</label>
@@ -306,6 +535,10 @@
                         <label class="form-label">Şifreyi Onayla</label>
                         <input type="password" id="signupConfirmPassword" class="form-input" placeholder="Şifreyi tekrar gir" required minlength="6">
                     </div>
+                    <label class="terms-check">
+                        <input type="checkbox" id="acceptTerms" required>
+                        <span>Kullanım Koşulları ve Bilgilendirme Metni'ni okudum, anladım ve kabul ediyorum.</span>
+                    </label>
                     <button type="submit" class="login-btn" id="signupBtn">
                         <span>Kayıt Ol</span>
                     </button>
@@ -313,6 +546,29 @@
             </div>
         </div>
     </div>
+
+    <div class="terms-modal" id="termsModal" role="dialog" aria-modal="true" aria-labelledby="termsTitle">
+        <div class="terms-modal-content">
+            <div class="terms-modal-header">
+                <div class="terms-modal-title" id="termsTitle">Kullanım Koşulları ve Bilgilendirme Metni</div>
+                <button class="terms-modal-close" type="button" onclick="closeTermsModal()">Kapat</button>
+            </div>
+            <div class="terms-modal-body">
+Crypto Sentinel Signals bilgilendirme ve analiz amaçlıdır. Bu platform bir alım‑satım platformu değildir, yatırım danışmanlığı, portföy yönetimi veya aracı kurum hizmeti sunmaz.
+
+Paylaşılan içerik, sinyal, analiz, fiyat seviyeleri ve tüm görsel/istatistiksel çıktılar yalnızca eğitim ve genel bilgi amaçlıdır. Buradaki hiçbir ifade, sermaye piyasası mevzuatı kapsamında yatırım tavsiyesi olarak kabul edilemez.
+
+Tüm yatırım kararları kullanıcıya aittir. Piyasalarda oluşabilecek kâr/zarar, beklenmedik volatilite, likidite, gecikme, teknik arıza, veri kesintisi veya üçüncü taraf servislerinden kaynaklı sonuçlardan Crypto Sentinel Signals sorumlu tutulamaz.
+
+Platformu kullanarak; riskleri anladığınızı, kendi araştırmanızı yapacağınızı, yalnızca kaybetmeyi göze alabileceğiniz miktarlarla işlem yapacağınızı ve yasal sorumluluğun tamamen size ait olduğunu kabul etmiş olursunuz.
+
+Burada yer alan yatırım bilgi, yorum ve tavsiyeleri yatırım danışmanlığı kapsamında değildir. Yatırım danışmanlığı hizmeti, kişilerin risk ve getiri tercihleri dikkate alınarak kişiye özel sunulmaktadır. Burada yer alan ve hiçbir şekilde yönlendirici nitelikte olmayan içerik, yorum ve tavsiyeler ise genel niteliktedir. Bu tavsiyeler mali durumunuz ile risk ve getiri tercihlerinize uygun olmayabilir. Bu nedenle, sadece burada yer alan bilgilere dayanılarak yatırım kararı verilmesi beklentilerinize uygun sonuçlar doğurmayabilir.
+
+Bu metni onaylamadan kayıt olamazsınız.
+            </div>
+        </div>
+    </div>
+
 
     <script src="config.js"></script>
     <script>
@@ -373,14 +629,16 @@
 
         function showError(tabId, message) {
             const errorEl = document.getElementById(`${tabId}Error`);
-            errorEl.textContent = '❌ ' + message;
+            errorEl.innerHTML = '<i class="fa-solid fa-circle-xmark"></i><span></span>';
+            errorEl.querySelector('span').textContent = message;
             errorEl.classList.add('show');
         }
 
         // Başarı mesajını göster
         function showSuccess(tabId, message) {
             const successEl = document.getElementById(`${tabId}Success`);
-            successEl.textContent = '✅ ' + message;
+            successEl.innerHTML = '<i class="fa-solid fa-circle-check"></i><span></span>';
+            successEl.querySelector('span').textContent = message;
             successEl.classList.add('show');
         }
 
@@ -442,6 +700,7 @@
             const email = document.getElementById('signupEmail').value;
             const password = document.getElementById('signupPassword').value;
             const confirmPassword = document.getElementById('signupConfirmPassword').value;
+            const acceptTerms = document.getElementById('acceptTerms');
             const signupBtn = document.getElementById('signupBtn');
             
             // Boş alan kontrolü
@@ -458,6 +717,11 @@
             
             if (password.length < 6) {
                 showError('signup', 'Şifre en az 6 karakter olmalı');
+                return;
+            }
+
+            if (!acceptTerms.checked) {
+                showError('signup', 'Kayıt için kullanım koşullarını onaylamanız gerekiyor.');
                 return;
             }
             
@@ -489,6 +753,14 @@
                 signupBtn.innerHTML = '<span>Kayıt Ol</span>';
                 console.error('Kayıt hatası:', error);
             }
+        }
+
+        function openTermsModal() {
+            document.getElementById('termsModal').classList.add('active');
+        }
+
+        function closeTermsModal() {
+            document.getElementById('termsModal').classList.remove('active');
         }
 
         // Sayfayı yükle

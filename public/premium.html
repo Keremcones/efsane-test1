@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Sentinel Signals • Premium</title>
+    <link rel="icon" type="image/svg+xml" href="logo.svg">
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="config.js"></script>
+    <script>
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.dataset.theme = savedTheme;
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg-primary: #eef2f6;
+            --bg-secondary: #e4eaf2;
+            --bg-card: #f8fafc;
+            --accent: #3a7bd5;
+            --accent-blue: #4f46e5;
+            --accent-gold: #f5d06f;
+            --primary: var(--accent);
+            --secondary: var(--accent-blue);
+            --text-primary: #1f2a44;
+            --text-secondary: #5c6b87;
+            --border: #d4dde8;
+        }
+
+        html[data-theme="dark"] {
+            --bg-primary: #0b0f14;
+            --bg-secondary: #0f1621;
+            --bg-card: #141c2a;
+            --accent: #38e8ff;
+            --accent-blue: #8b5cf6;
+            --accent-gold: #f5b75b;
+            --text-primary: #ffffff;
+            --text-secondary: #9aa4b2;
+            --border: #263044;
+        }
+
+        html[data-theme="purple"] {
+            --bg-primary: #0b0714;
+            --bg-secondary: #120a1f;
+            --bg-card: #191026;
+            --accent: #c07bff;
+            --accent-blue: #7c5cff;
+            --accent-gold: #f2b15b;
+            --text-primary: #f6efff;
+            --text-secondary: #c2b4d6;
+            --border: #2a193a;
+        }
+
+        html[data-theme="gold"] {
+            --bg-primary: #0b0b0b;
+            --bg-secondary: #141214;
+            --bg-card: #1b181a;
+            --accent: #f5d06f;
+            --accent-blue: #f5d06f;
+            --accent-gold: #ffd86b;
+            --text-primary: #f6f1e7;
+            --text-secondary: #c9bba0;
+            --border: #2a2420;
+        }
+
+        body {
+            font-family: 'Sora', sans-serif;
+            background: radial-gradient(circle at 12% 18%, rgba(58, 123, 213, 0.16), transparent 46%),
+                        radial-gradient(circle at 88% 12%, rgba(79, 70, 229, 0.14), transparent 42%),
+                        linear-gradient(155deg, var(--bg-primary), var(--bg-secondary));
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        .navbar {
+            background: rgba(240, 246, 255, 0.82);
+            border-bottom: 1px solid rgba(124, 92, 255, 0.22);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(14px);
+            box-shadow: 0 10px 28px rgba(86, 110, 170, 0.2);
+            min-height: 72px;
+        }
+
+        html[data-theme="dark"] .navbar {
+            background: rgba(11, 15, 20, 0.78);
+            border-bottom: 1px solid rgba(56, 232, 255, 0.12);
+            box-shadow: 0 8px 24px rgba(5, 12, 24, 0.45);
+        }
+
+        html[data-theme="light"] .navbar {
+            background: rgba(231, 238, 248, 0.86);
+            border-bottom: 1px solid rgba(79, 70, 229, 0.2);
+            box-shadow: 0 12px 28px rgba(70, 90, 140, 0.18);
+        }
+
+        html[data-theme="purple"] .navbar {
+            background: rgba(11, 7, 20, 0.82);
+            border-bottom: 1px solid rgba(184, 108, 255, 0.22);
+            box-shadow: 0 10px 24px rgba(10, 6, 18, 0.6);
+        }
+
+        html[data-theme="gold"] .navbar {
+            background: rgba(11, 11, 11, 0.86);
+            border-bottom: 1px solid rgba(245, 208, 111, 0.3);
+            box-shadow: 0 10px 24px rgba(5, 4, 3, 0.7);
+        }
+
+        .user-menu {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .user-email {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .user-role-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
+            color: white;
+            letter-spacing: 0.4px;
+        }
+
+        .user-role-badge.standard {
+            background: linear-gradient(135deg, #c07a2b, #8b4f1f);
+            color: #ffffff;
+        }
+
+        .user-role-badge.premium {
+            background: linear-gradient(135deg, #FFD700, #FFA500);
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.4);
+            color: #111111;
+        }
+
+        .user-role-badge.admin {
+            background: linear-gradient(135deg, #f5d06f, #ffd86b);
+            box-shadow: 0 0 18px rgba(245, 208, 111, 0.45);
+            color: #0a0a0a;
+        }
+
+        .hamburger-menu {
+            display: flex;
+            flex-direction: column;
+            background: rgba(13, 168, 232, 0.1);
+            border: 1px solid rgba(13, 168, 232, 0.3);
+            cursor: pointer;
+            padding: 8px;
+            gap: 5px;
+            width: 44px;
+            height: 44px;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .hamburger-menu:hover {
+            background: rgba(13, 168, 232, 0.2);
+            border-color: #0da8e8;
+        }
+
+        .hamburger-menu span {
+            width: 26px;
+            height: 3px;
+            background: #0da8e8;
+            border-radius: 2px;
+            transition: all 0.3s ease;
+            display: block;
+        }
+
+        .hamburger-menu.active span:nth-child(1) {
+            transform: rotate(45deg) translate(8px, 8px);
+        }
+
+        .hamburger-menu.active span:nth-child(2) {
+            opacity: 0;
+        }
+
+        .hamburger-menu.active span:nth-child(3) {
+            transform: rotate(-45deg) translate(7px, -7px);
+        }
+
+        .menu-panel {
+            position: fixed;
+            right: -350px;
+            top: 0;
+            width: 350px;
+            height: 100vh;
+            background: rgba(15, 18, 28, 0.96);
+            border-left: 1px solid rgba(56, 232, 255, 0.18);
+            z-index: 998;
+            transition: right 0.3s ease;
+            overflow-y: auto;
+            backdrop-filter: blur(8px);
+        }
+
+        html[data-theme="light"] .menu-panel {
+            background: rgba(233, 238, 248, 0.96);
+            border-left: 1px solid rgba(79, 70, 229, 0.18);
+        }
+
+        html[data-theme="purple"] .menu-panel {
+            background: rgba(12, 8, 22, 0.96);
+            border-left: 1px solid rgba(184, 108, 255, 0.25);
+        }
+
+        html[data-theme="gold"] .menu-panel {
+            background: rgba(12, 11, 12, 0.96);
+            border-left: 1px solid rgba(245, 208, 111, 0.28);
+        }
+
+        .menu-panel.active { right: 0; }
+
+        .menu-close {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: none;
+            border: none;
+            color: var(--accent);
+            font-size: 32px;
+            cursor: pointer;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .menu-close:hover {
+            color: var(--accent-blue);
+            transform: rotate(90deg);
+        }
+
+        .menu-content { padding: 80px 24px 24px; }
+
+        .menu-user-info {
+            margin-bottom: 32px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .menu-user-email {
+            color: var(--primary);
+            font-size: 14px;
+            font-weight: 600;
+            word-break: break-all;
+        }
+
+        .menu-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 14px 16px;
+            background: rgba(13, 168, 232, 0.1);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+            font-weight: 600;
+            text-align: left;
+        }
+
+        .menu-item:hover {
+            background: rgba(13, 168, 232, 0.2);
+            border-color: var(--accent);
+            transform: translateX(4px);
+        }
+
+        .menu-item.logout-item {
+            color: #f44336;
+            background: rgba(244, 67, 54, 0.1);
+            border-color: rgba(244, 67, 54, 0.3);
+        }
+
+        .menu-item.logout-item:hover {
+            background: rgba(244, 67, 54, 0.2);
+            border-color: #f44336;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo-img {
+            width: 32px;
+            height: 32px;
+            flex: 0 0 32px;
+            filter: drop-shadow(0 0 12px rgba(56, 232, 255, 0.35));
+        }
+
+        .logo-text {
+            font-size: 1.35rem;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 32px 24px 60px;
+        }
+
+        .hero {
+            background: linear-gradient(135deg, rgba(56, 232, 255, 0.12), rgba(139, 92, 246, 0.12));
+            border: 1px solid rgba(56, 232, 255, 0.2);
+            border-radius: 20px;
+            padding: 28px;
+            box-shadow: 0 18px 40px rgba(9, 20, 34, 0.6);
+            display: grid;
+            gap: 12px;
+            text-align: center;
+        }
+
+        .hero h1 {
+            font-size: 1.8rem;
+            font-weight: 800;
+        }
+
+        .hero p {
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        .grid {
+            margin-top: 24px;
+            display: grid;
+            gap: 18px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 18px;
+            text-align: center;
+        }
+
+        .card-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            justify-content: center;
+        }
+
+        .chip-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 8px 16px;
+            font-size: 0.9rem;
+            color: var(--text-primary);
+            justify-items: center;
+            text-align: center;
+        }
+
+        .chip-grid span {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .muted {
+            color: var(--text-secondary);
+        }
+
+        .highlight {
+            color: var(--accent-gold);
+            font-weight: 700;
+        }
+
+        .price-card {
+            text-align: center;
+            background: linear-gradient(135deg, rgba(255, 215, 0, 0.14), rgba(255, 165, 0, 0.08));
+            border: 1px solid rgba(255, 215, 0, 0.35);
+        }
+
+        .price-card .amount {
+            font-size: 2rem;
+            font-weight: 800;
+            color: #FFD700;
+        }
+
+        .cta {
+            display: flex;
+            justify-content: center;
+            margin-top: 18px;
+        }
+
+        .btn-cta {
+            background: linear-gradient(135deg, #FFD700, #FFA500);
+            color: #2b1d00;
+            border: none;
+            padding: 12px 22px;
+            border-radius: 10px;
+            font-weight: 700;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .links {
+            display: grid;
+            gap: 10px;
+            font-size: 0.9rem;
+            color: var(--text-primary);
+            text-align: center;
+        }
+
+        .faq-list {
+            display: grid;
+            gap: 10px;
+            text-align: left;
+        }
+
+        .faq-item {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 10px 14px;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .faq-item summary {
+            list-style: none;
+            cursor: pointer;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .faq-item summary::-webkit-details-marker { display: none; }
+
+        .faq-item summary::after {
+            content: '+';
+            font-weight: 800;
+            color: var(--accent);
+        }
+
+        .faq-item[open] summary::after { content: '−'; }
+
+        .faq-item .answer {
+            margin-top: 8px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        .links a {
+            color: var(--accent);
+            text-decoration: underline;
+        }
+
+        .legal-footer {
+            margin: 18px auto 24px;
+            padding: 0 24px 24px;
+            font-size: 0.65rem;
+            color: rgba(180, 190, 205, 0.7);
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="logo">
+            <img src="logo.svg" alt="Logo" class="logo-img">
+            <span class="logo-text">Crypto Sentinel Signals</span>
+        </div>
+        <div class="user-menu">
+            <span class="user-email" id="userEmail">Yükleniyor...</span>
+            <span class="user-role-badge" id="userRoleBadge" style="display:none;"></span>
+            <button class="hamburger-menu" id="hamburgerBtn" onclick="window.toggleHamburgerMenu()" title="Menü">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+        </div>
+    </nav>
+    <div class="menu-panel" id="menuPanel">
+        <button class="menu-close" onclick="closeHamburgerMenu()">×</button>
+        <div class="menu-content">
+            <div class="menu-user-info">
+                <div class="menu-user-email" id="menuUserEmail">Yükleniyor...</div>
+            </div>
+            <nav class="menu-nav">
+                <a href="profile.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-user"></i>
+                    Profil
+                </a>
+                <a href="index.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-chart-line"></i>
+                    Dashboard
+                </a>
+                <a href="her-durumda.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-layer-group"></i>
+                    Her Durumda
+                </a>
+                <a href="kazananlar.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-trophy"></i>
+                    Kazananlar
+                </a>
+                <button class="menu-item logout-item" onclick="window.logout()">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                    Çıkış Yap
+                </button>
+            </nav>
+        </div>
+    </div>
+
+    <div class="container">
+        <section class="hero">
+            <h1><i class="fa-solid fa-crown"></i> Premium Plan</h1>
+            <p><i class="fa-regular fa-calendar"></i> 2021’den beri teknik analiz ve strateji içerikleri üretiyor, <i class="fa-solid fa-location-dot"></i> İstanbul ve Bursa’da buluşmalar düzenliyoruz.</p>
+            <p><strong class="highlight">Alım-Satım Botu Eğitim Paketi – Crypto Sentinel Sistemi</strong> ile ömür boyu erişim.</p>
+        </section>
+
+        <div class="grid">
+            <div class="card">
+                <div class="card-title"><i class="fa-solid fa-star"></i> Ömür Boyu Kullanım Garantisi</div>
+                <p style="line-height: 1.6;">
+                    Bu sistemi satın aldığınızda tüm içeriklere ve gelecekteki tüm sistemlere, güncellemelere ömür boyu kullanım hakkı elde edersiniz.
+                </p>
+            </div>
+
+            <div class="card">
+                <div class="card-title"><i class="fa-solid fa-box-open"></i> Paket İçeriği</div>
+                <p style="margin-bottom: 10px; font-weight: 700; font-size: 1.02rem;" class="highlight">
+                    Crypto Sentinel Signals + TradingView İndikatör Paketi<br>
+                    Ömür Boyu Premium
+                </p>
+                <div class="chip-grid">
+                    <span><i class="fa-solid fa-chart-column"></i> Rocco İndikatörü</span>
+                    <span><i class="fa-solid fa-gem"></i> Supreme İndikatörü</span>
+                    <span><i class="fa-solid fa-rocket"></i> Multistrada İndikatörü</span>
+                    <span><i class="fa-solid fa-bullseye"></i> Sc Pro İndikatörü</span>
+                    <span><i class="fa-solid fa-chart-line"></i> SuperTrend & Squeeze Momentum</span>
+                    <span><i class="fa-solid fa-robot"></i> Hisse Chart Scan Analyst</span>
+                    <span><i class="fa-solid fa-wave-square"></i> RSI & Hacim Stratejisi</span>
+                    <span><i class="fa-solid fa-dna"></i> Embryo Toolkit</span>
+                    <span><i class="fa-solid fa-sack-dollar"></i> Smart Market Structure & Momentum</span>
+                    <span><i class="fa-solid fa-brain"></i> Anlık al-sat sinyali üreten AI sistemi</span>
+                    <span><i class="fa-solid fa-bolt"></i> FastCalp Otomatik Al-Sat Botu</span>
+                    <span><i class="fa-solid fa-toolbox"></i> Rolin Long Professional MultiTools</span>
+                    <span><i class="fa-solid fa-filter"></i> Professional Screener</span>
+                    <span><i class="fa-solid fa-fire"></i> Premium Trend Master Pro</span>
+                    <span><i class="fa-solid fa-atom"></i> Quantum Trader Pro</span>
+                    <span><i class="fa-solid fa-wand-magic-sparkles"></i> Scalping Pro İndikatörü</span>
+                    <span><i class="fa-solid fa-satellite-dish"></i> ASTRO Profesyonel</span>
+                </div>
+                <p style="margin-top: 12px; font-size: 0.9rem;" class="muted">Satın alır almaz tüm içeriklere anında erişim garantisi.</p>
+            </div>
+
+            <div class="card price-card">
+                <div class="card-title" style="justify-content: center;"><i class="fa-solid fa-tag"></i> Tek Fiyat</div>
+                <div class="amount">230 USD</div>
+                <div class="muted" style="margin-top: 6px;">Ömür Boyu Kullanım</div>
+            </div>
+
+            <div class="card">
+                <div class="card-title"><i class="fa-solid fa-link"></i> Bağlantılar</div>
+                <div class="links">
+                    <div>
+                        <i class="fa-solid fa-play"></i> Tanıtım Videosu:
+                        <a href="https://www.youtube.com/watch?v=XZqcR_oOEQk&t=3s" target="_blank" rel="noopener noreferrer">YouTube</a>
+                    </div>
+                    <div>
+                        <i class="fa-solid fa-globe"></i> Web Sitemiz:
+                        <a href="https://www.rolinlong.com/" target="_blank" rel="noopener noreferrer">rolinlong.com</a>
+                    </div>
+                    <div>
+                        <i class="fa-brands fa-youtube"></i> YouTube Kanalı:
+                        <a href="https://www.youtube.com/@RolinLong" target="_blank" rel="noopener noreferrer">@RolinLong</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cta">
+                <button class="btn-cta" onclick="window.open('https://t.me/keremcones', '_blank')">
+                    <i class="fa-brands fa-telegram"></i> Telegram ile Satın Al
+                </button>
+            </div>
+
+            <div class="card">
+                <div class="card-title"><i class="fa-solid fa-circle-question"></i> S.S.S</div>
+                <div class="faq-list">
+                    <details class="faq-item">
+                        <summary>Premium satın aldığımda ne kadar süre erişimim olacak?</summary>
+                        <div class="answer">Ömür boyu erişim sağlar. Yeni içerik ve güncellemeler de dahildir.</div>
+                    </details>
+                    <details class="faq-item">
+                        <summary>Satın alma sonrası erişim ne zaman açılır?</summary>
+                        <div class="answer">Telegram üzerinden iletişime geçtiğiniz anda süreç başlatılır ve erişim hızlıca açılır.</div>
+                    </details>
+                    <details class="faq-item">
+                        <summary>İçerikler hangi platformlarda kullanılabilir?</summary>
+                        <div class="answer">TradingView indikatörleri ve sistem paketleri için gerekli yönlendirme ve kurulum desteği sağlanır.</div>
+                    </details>
+                    <details class="faq-item">
+                        <summary>Güncellemeler ücretli mi?</summary>
+                        <div class="answer">Hayır. Ömür boyu kullanım kapsamında tüm güncellemeler ücretsizdir.</div>
+                    </details>
+                    <details class="faq-item">
+                        <summary>Satın aldıktan sonra iade mümkün mü?</summary>
+                        <div class="answer">Dijital içerik ve ömür boyu erişim olduğu için iade koşulları iletişim sonrası netleştirilir.</div>
+                    </details>
+                    <details class="faq-item">
+                        <summary>Destek alabilir miyim?</summary>
+                        <div class="answer">Evet. Kurulum ve kullanım için Telegram üzerinden destek verilir.</div>
+                    </details>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="legal-footer">
+        Yatırım danışmanlığı değildir; genel bilgilendirme amaçlıdır, sorumluluk kullanıcıya aittir.
+    </div>
+
+    <script>
+        let supabaseClient = null;
+        let currentUser = null;
+
+        function updateUserRoleBadge(membershipType, isAdmin) {
+            const badgeEl = document.getElementById('userRoleBadge');
+            if (!badgeEl) return;
+
+            if (isAdmin) {
+                badgeEl.innerHTML = '<i class="fa-solid fa-shield"></i> Admin';
+                badgeEl.className = 'user-role-badge admin';
+                badgeEl.style.display = 'inline-flex';
+                return;
+            }
+
+            if (membershipType === 'premium') {
+                badgeEl.innerHTML = '<i class="fa-solid fa-star"></i> Premium';
+                badgeEl.className = 'user-role-badge premium';
+                badgeEl.style.display = 'inline-flex';
+                return;
+            }
+
+            badgeEl.innerHTML = '<i class="fa-solid fa-leaf"></i> Free';
+            badgeEl.className = 'user-role-badge standard';
+            badgeEl.style.display = 'inline-flex';
+        }
+
+        async function checkAuth() {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            currentUser = session.user;
+            document.getElementById('userEmail').textContent = currentUser.email;
+            document.getElementById('menuUserEmail').textContent = currentUser.email;
+
+            try {
+                await supabaseClient
+                    .from('user_profiles')
+                    .upsert({
+                        id: currentUser.id,
+                        email: currentUser.email,
+                        updated_at: new Date().toISOString()
+                    }, { onConflict: 'id' });
+
+                const { data: userProfile } = await supabaseClient
+                    .from('user_profiles')
+                    .select('membership_type, is_admin')
+                    .eq('id', currentUser.id)
+                    .maybeSingle();
+
+                if (!userProfile) {
+                    updateUserRoleBadge('standard', false);
+                } else {
+                    updateUserRoleBadge(userProfile.membership_type || 'standard', !!userProfile.is_admin);
+                }
+            } catch {
+                updateUserRoleBadge('standard', false);
+            }
+        }
+
+        window.toggleHamburgerMenu = function() {
+            const panel = document.getElementById('menuPanel');
+            const btn = document.getElementById('hamburgerBtn');
+            if (!panel || !btn) return;
+            panel.classList.toggle('active');
+            btn.classList.toggle('active');
+        };
+
+        window.closeHamburgerMenu = function() {
+            const panel = document.getElementById('menuPanel');
+            const btn = document.getElementById('hamburgerBtn');
+            if (panel) panel.classList.remove('active');
+            if (btn) btn.classList.remove('active');
+        };
+
+        window.logout = async function() {
+            try {
+                const { error } = await supabaseClient.auth.signOut();
+                if (error) throw error;
+                window.location.replace('login.html');
+            } catch (error) {
+                console.error('Çıkış hatası:', error.message);
+                localStorage.clear();
+                window.location.replace('login.html');
+            }
+        };
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            const { createClient } = window.supabase;
+            supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            await checkAuth();
+        });
+    </script>
+</body>
+</html>

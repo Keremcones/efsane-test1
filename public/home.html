@@ -1,0 +1,1300 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Sentinel Signals • Ana Sayfa</title>
+    <link rel="icon" type="image/svg+xml" href="logo.svg">
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="config.js"></script>
+    <script>
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.dataset.theme = savedTheme;
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg-primary: #eef2f6;
+            --bg-secondary: #e4eaf2;
+            --bg-card: #f8fafc;
+            --accent: #3a7bd5;
+            --accent-red: #e15b64;
+            --accent-blue: #4f46e5;
+            --accent-yellow: #c9a227;
+            --primary: var(--accent);
+            --secondary: var(--accent-blue);
+            --text-primary: #1f2a44;
+            --text-secondary: #5c6b87;
+            --border: #d4dde8;
+            --border-color: rgba(79, 70, 229, 0.22);
+        }
+
+        html[data-theme="dark"] {
+            --bg-primary: #0b0f14;
+            --bg-secondary: #0f1621;
+            --bg-card: #141c2a;
+            --accent: #38e8ff;
+            --accent-red: #ff4d6d;
+            --accent-blue: #8b5cf6;
+            --accent-yellow: #f5b75b;
+            --text-primary: #ffffff;
+            --text-secondary: #9aa4b2;
+            --border: #263044;
+            --border-color: rgba(56, 232, 255, 0.28);
+        }
+
+        h1,
+        .section-title {
+            letter-spacing: 0.4px;
+        }
+
+        html[data-theme="purple"] {
+            --bg-primary: #0b0714;
+            --bg-secondary: #120a1f;
+            --bg-card: #191026;
+            --accent: #c07bff;
+            --accent-red: #ff5c7a;
+            --accent-blue: #7c5cff;
+            --accent-yellow: #f2b15b;
+            --text-primary: #f6efff;
+            --text-secondary: #c2b4d6;
+            --border: #2a193a;
+            --border-color: rgba(184, 108, 255, 0.32);
+        }
+
+        html[data-theme="gold"] {
+            --bg-primary: #0b0b0b;
+            --bg-secondary: #141214;
+            --bg-card: #1b181a;
+            --accent: #f5d06f;
+            --accent-red: #ff6b7a;
+            --accent-blue: #f5d06f;
+            --accent-yellow: #ffd86b;
+            --text-primary: #f6f1e7;
+            --text-secondary: #c9bba0;
+            --border: #2a2420;
+            --border-color: rgba(245, 208, 111, 0.3);
+        }
+
+        body {
+            font-family: 'Sora', sans-serif;
+            background: radial-gradient(circle at 12% 18%, rgba(58, 123, 213, 0.16), transparent 46%),
+                        radial-gradient(circle at 88% 12%, rgba(79, 70, 229, 0.14), transparent 42%),
+                        linear-gradient(155deg, var(--bg-primary), var(--bg-secondary));
+            color: var(--text-primary);
+            min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        .background-effects {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .grid-pattern {
+            position: absolute;
+            inset: -20%;
+            background-image:
+                linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+            background-size: 60px 60px;
+            opacity: 0.18;
+            transform: translate3d(0, 0, 0);
+            animation: gridDrift 20s linear infinite;
+        }
+
+        html[data-theme="light"] .grid-pattern {
+            background-image:
+                linear-gradient(rgba(31, 42, 68, 0.08) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(31, 42, 68, 0.08) 1px, transparent 1px);
+            opacity: 0.22;
+        }
+
+        .orb {
+            position: absolute;
+            width: 420px;
+            height: 420px;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.45;
+            transform: translate3d(0, 0, 0);
+            animation: orbFloat 18s ease-in-out infinite;
+        }
+
+        .orb-1 {
+            top: -120px;
+            left: -80px;
+            background: rgba(56, 232, 255, 0.5);
+        }
+
+        .orb-2 {
+            bottom: -160px;
+            right: -40px;
+            background: rgba(192, 123, 255, 0.45);
+            animation-delay: -6s;
+        }
+
+        .orb-3 {
+            top: 35%;
+            right: 20%;
+            background: rgba(255, 92, 122, 0.4);
+            animation-delay: -12s;
+        }
+
+        @keyframes gridDrift {
+            0% { transform: translate3d(0, 0, 0) rotate(0deg); }
+            100% { transform: translate3d(120px, -120px, 0) rotate(0deg); }
+        }
+
+        @keyframes orbFloat {
+            0%, 100% { transform: translate3d(0, 0, 0); }
+            50% { transform: translate3d(30px, -40px, 0); }
+        }
+
+        .navbar {
+            background: rgba(240, 246, 255, 0.62);
+            border-bottom: 1px solid rgba(124, 92, 255, 0.22);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(14px);
+            box-shadow: 0 10px 28px rgba(86, 110, 170, 0.2);
+            min-height: 72px;
+            transition: all 0.3s ease;
+        }
+
+        .navbar.scrolled {
+            background: rgba(15, 18, 28, 0.92);
+            border-bottom-color: rgba(56, 232, 255, 0.28);
+            padding: 10px 24px;
+            min-height: 60px;
+            box-shadow: 0 12px 30px rgba(5, 12, 24, 0.6);
+        }
+
+        html[data-theme="light"] .navbar.scrolled {
+            background: rgba(231, 238, 248, 0.94);
+            border-bottom-color: rgba(79, 70, 229, 0.28);
+            box-shadow: 0 12px 26px rgba(70, 90, 140, 0.24);
+        }
+
+        html[data-theme="purple"] .navbar.scrolled {
+            background: rgba(12, 8, 22, 0.94);
+            border-bottom-color: rgba(184, 108, 255, 0.3);
+        }
+
+        html[data-theme="gold"] .navbar.scrolled {
+            background: rgba(11, 11, 11, 0.94);
+            border-bottom-color: rgba(245, 208, 111, 0.36);
+        }
+
+        body.home-only .navbar {
+            display: none;
+        }
+
+        html[data-theme="dark"] .navbar {
+            background: rgba(11, 15, 20, 0.78);
+            border-bottom: 1px solid rgba(56, 232, 255, 0.12);
+            box-shadow: 0 8px 24px rgba(5, 12, 24, 0.45);
+        }
+
+        html[data-theme="light"] .navbar {
+            background: rgba(231, 238, 248, 0.86);
+            border-bottom: 1px solid rgba(79, 70, 229, 0.2);
+            box-shadow: 0 12px 28px rgba(70, 90, 140, 0.18);
+        }
+
+        html[data-theme="purple"] .navbar {
+            background: rgba(11, 7, 20, 0.82);
+            border-bottom: 1px solid rgba(184, 108, 255, 0.22);
+            box-shadow: 0 10px 24px rgba(10, 6, 18, 0.6);
+        }
+
+        html[data-theme="gold"] .navbar {
+            background: rgba(11, 11, 11, 0.86);
+            border-bottom: 1px solid rgba(245, 208, 111, 0.3);
+            box-shadow: 0 10px 24px rgba(5, 4, 3, 0.7);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo-img {
+            width: 32px;
+            height: 32px;
+            flex: 0 0 32px;
+            filter: drop-shadow(0 0 16px rgba(56, 232, 255, 0.55));
+        }
+
+        .logo-text {
+            font-size: 1.35rem;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 24px rgba(56, 232, 255, 0.4);
+        }
+
+        .user-menu {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .user-email {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .user-role-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
+            color: white;
+            letter-spacing: 0.4px;
+        }
+
+        .user-role-badge.standard {
+            background: linear-gradient(135deg, #c07a2b, #8b4f1f);
+            color: #ffffff;
+        }
+
+        .user-role-badge.premium {
+            background: linear-gradient(135deg, #FFD700, #FFA500);
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.4);
+            color: #111111;
+        }
+
+        .user-role-badge.admin {
+            background: linear-gradient(135deg, #f5d06f, #ffd86b);
+            box-shadow: 0 0 18px rgba(245, 208, 111, 0.45);
+            color: #0a0a0a;
+        }
+
+        .hamburger-menu {
+            display: flex;
+            flex-direction: column;
+            background: rgba(13, 168, 232, 0.1);
+            border: 1px solid rgba(13, 168, 232, 0.3);
+            cursor: pointer;
+            padding: 8px;
+            gap: 5px;
+            width: 44px;
+            height: 44px;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .hamburger-menu:hover {
+            background: rgba(13, 168, 232, 0.2);
+            border-color: #0da8e8;
+        }
+
+        .hamburger-menu span {
+            width: 26px;
+            height: 3px;
+            background: #0da8e8;
+            border-radius: 2px;
+            transition: all 0.3s ease;
+            display: block;
+        }
+
+        .hamburger-menu.active span:nth-child(1) {
+            transform: rotate(45deg) translate(8px, 8px);
+        }
+
+        .hamburger-menu.active span:nth-child(2) { opacity: 0; }
+
+        .hamburger-menu.active span:nth-child(3) {
+            transform: rotate(-45deg) translate(7px, -7px);
+        }
+
+        .menu-panel {
+            position: fixed;
+            right: -350px;
+            top: 0;
+            width: 350px;
+            height: 100vh;
+            background: rgba(15, 18, 28, 0.96);
+            border-left: 1px solid rgba(56, 232, 255, 0.18);
+            z-index: 998;
+            transition: right 0.3s ease;
+            overflow-y: auto;
+            backdrop-filter: blur(8px);
+        }
+
+        .menu-nav .menu-item {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .menu-nav .menu-item::after {
+            content: "";
+            position: absolute;
+            left: 12px;
+            right: 12px;
+            bottom: 8px;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent), transparent);
+            transform: translateX(-120%);
+            transition: transform 0.4s ease;
+            opacity: 0.7;
+        }
+
+        .menu-nav .menu-item:hover::after {
+            transform: translateX(0%);
+        }
+
+        .menu-nav .menu-item i {
+            transition: color 0.3s ease;
+        }
+
+        .menu-nav .menu-item:hover i {
+            color: var(--accent);
+        }
+
+        .container,
+        .footer,
+        .navbar {
+            position: relative;
+            z-index: 1;
+        }
+
+        h1,
+        .section-title {
+            font-family: 'Orbitron', 'Sora', sans-serif;
+            letter-spacing: 0.6px;
+            position: relative;
+            overflow: hidden;
+        }
+
+
+        .hero-badge {
+            position: relative;
+            padding-left: 28px;
+        }
+
+        .hero-badge::before {
+            content: "";
+            position: absolute;
+            left: 6px;
+            top: 50%;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--accent);
+            transform: translateY(-50%);
+            box-shadow: 0 0 12px rgba(56, 232, 255, 0.8);
+            animation: blink 1.4s ease-in-out infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.35; }
+        }
+
+        .hero-metrics .metric strong,
+        .step-number {
+            font-family: 'Space Mono', monospace;
+        }
+
+        .section {
+            position: relative;
+        }
+
+        .section::before {
+            content: "";
+            position: absolute;
+            inset: -40px 0 auto 0;
+            height: 80px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), transparent);
+            opacity: 0.4;
+            pointer-events: none;
+        }
+
+        html[data-theme="dark"] .section::before,
+        html[data-theme="purple"] .section::before,
+        html[data-theme="gold"] .section::before {
+            background: linear-gradient(180deg, rgba(56, 232, 255, 0.14), transparent);
+        }
+
+        .card,
+        .testimonial,
+        .step,
+        .compare .card,
+        .faq details {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03));
+            backdrop-filter: blur(18px);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 20px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before,
+        .testimonial::before,
+        .step::before,
+        .compare .card::before,
+        .faq details::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, var(--accent), transparent);
+            transform: translateX(-120%);
+            transition: transform 0.4s ease;
+        }
+
+        .card:hover,
+        .testimonial:hover,
+        .step:hover,
+        .compare .card:hover,
+        .faq details:hover {
+            transform: translateY(-5px);
+            border-color: var(--accent);
+            box-shadow: 0 18px 30px rgba(15, 30, 50, 0.35);
+        }
+
+        .card:hover::before,
+        .testimonial:hover::before,
+        .step:hover::before,
+        .compare .card:hover::before,
+        .faq details:hover::before {
+            transform: translateX(0%);
+        }
+
+        .card i,
+        .step i,
+        .compare i,
+        .testimonial i {
+            transition: color 0.3s ease;
+        }
+
+        .card:hover i,
+        .step:hover i,
+        .compare .card:hover i,
+        .testimonial:hover i {
+            color: var(--accent);
+        }
+
+        .cta-duo .btn.primary {
+            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
+            box-shadow: 0 14px 30px rgba(56, 232, 255, 0.25);
+        }
+
+        .cta-duo .btn.secondary {
+            border: 1px solid rgba(255, 255, 255, 0.35);
+            background: transparent;
+        }
+
+        .btn {
+            transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+        }
+
+        .btn.primary:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 18px 36px rgba(56, 232, 255, 0.4);
+        }
+
+        .btn.secondary:hover {
+            transform: translateY(-4px);
+            border-color: var(--accent);
+            box-shadow: 0 16px 30px rgba(56, 232, 255, 0.2);
+        }
+
+        .grid .card:nth-child(1),
+        .grid .card:nth-child(2) {
+            animation: floatCard 6s ease-in-out infinite;
+        }
+
+        @keyframes floatCard {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .reveal {
+            opacity: 0;
+            transform: translate3d(0, 24px, 0);
+            transition: opacity 0.6s ease, transform 0.6s ease;
+            will-change: opacity, transform;
+        }
+
+        .reveal.visible {
+            opacity: 1;
+            transform: translate3d(0, 0, 0);
+        }
+
+        html[data-theme="light"] .menu-panel {
+            background: rgba(233, 238, 248, 0.96);
+            border-left: 1px solid rgba(79, 70, 229, 0.18);
+        }
+
+        html[data-theme="purple"] .menu-panel {
+            background: rgba(12, 8, 22, 0.96);
+            border-left: 1px solid rgba(184, 108, 255, 0.25);
+        }
+
+        html[data-theme="gold"] .menu-panel {
+            background: rgba(12, 11, 12, 0.96);
+            border-left: 1px solid rgba(245, 208, 111, 0.28);
+        }
+
+        .menu-panel.active { right: 0; }
+
+        .menu-close {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: none;
+            border: none;
+            color: var(--primary);
+            font-size: 32px;
+            cursor: pointer;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .menu-close:hover {
+            color: var(--secondary);
+            transform: rotate(90deg);
+        }
+
+        .menu-content { padding: 80px 24px 24px; }
+
+        .menu-user-info {
+            margin-bottom: 32px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .menu-user-email {
+            color: var(--primary);
+            font-size: 14px;
+            font-weight: 600;
+            word-break: break-all;
+        }
+
+        .menu-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 14px 16px;
+            background: rgba(13, 168, 232, 0.1);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: left;
+            text-decoration: none;
+        }
+
+        .menu-item:hover {
+            background: rgba(13, 168, 232, 0.2);
+            border-color: var(--primary);
+            transform: translateX(4px);
+        }
+
+        .menu-item.logout-item {
+            color: #f44336;
+            background: rgba(244, 67, 54, 0.1);
+            border-color: rgba(244, 67, 54, 0.3);
+        }
+
+        .menu-item.logout-item:hover {
+            background: rgba(244, 67, 54, 0.2);
+            border-color: #f44336;
+        }
+
+        .menu-item.login-item {
+            color: var(--accent);
+            background: rgba(56, 232, 255, 0.12);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .container,
+        .hero,
+        .section,
+        .card,
+        .testimonial,
+        .step,
+        .compare,
+        .faq {
+            text-align: center;
+        }
+
+        .hero {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+            align-items: center;
+            padding: 40px 0 16px;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(56, 232, 255, 0.12);
+            border: 1px solid rgba(56, 232, 255, 0.3);
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 14px;
+        }
+
+        .hero h1 {
+            font-size: clamp(2rem, 4vw, 3.2rem);
+            margin-bottom: 16px;
+        }
+
+        .hero p {
+            color: var(--text-secondary);
+            font-size: clamp(1.05rem, 2.2vw, 1.3rem);
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .hero-actions .btn {
+            padding: 18px 28px;
+            font-size: 1.05rem;
+            border-radius: 16px;
+        }
+
+        .hero-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 12px;
+        }
+
+        .metric {
+            background: rgba(56, 232, 255, 0.08);
+            border: 1px solid rgba(56, 232, 255, 0.2);
+            border-radius: 14px;
+            padding: 12px;
+        }
+
+        .metric span {
+            display: block;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .metric strong {
+            font-size: 1.2rem;
+        }
+
+        .hero-visual {
+            display: grid;
+            gap: 14px;
+        }
+
+        .cta-row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 18px;
+            border-radius: 12px;
+            border: 1px solid transparent;
+            background: linear-gradient(135deg, rgba(56, 232, 255, 0.25), rgba(139, 92, 246, 0.25));
+            color: var(--text-primary);
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn.secondary {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+        }
+
+        .btn:hover { transform: translateY(-1px); border-color: var(--accent); }
+
+        .hero-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 18px 32px rgba(0, 0, 0, 0.16);
+        }
+
+        .mini-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+        }
+
+        .mini-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 12px;
+            display: grid;
+            gap: 6px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-top: 14px;
+        }
+
+        .stat {
+            background: rgba(56, 232, 255, 0.08);
+            border: 1px solid rgba(56, 232, 255, 0.2);
+            border-radius: 12px;
+            padding: 12px;
+        }
+
+        .section {
+            margin: 48px 0;
+        }
+
+        .section-title {
+            font-size: 1.6rem;
+            margin-bottom: 8px;
+        }
+
+        .section-sub {
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 18px;
+            box-shadow: 0 16px 30px rgba(0, 0, 0, 0.15);
+        }
+
+        .card h3 {
+            font-size: 1.05rem;
+            margin-bottom: 8px;
+        }
+
+
+        .card p { color: var(--text-secondary); line-height: 1.5; }
+
+        .cta-duo {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin: 88px 0 112px;
+        }
+
+        .cta-duo .btn {
+            padding: 20px 32px;
+            border-radius: 14px;
+            font-size: 1.1rem;
+        }
+
+        .btn.primary {
+            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
+            color: #ffffff;
+            border: 1px solid rgba(56, 232, 255, 0.3);
+            box-shadow: 0 0 18px rgba(56, 232, 255, 0.35);
+        }
+
+        html[data-theme="gold"] .btn.primary {
+            color: #111111;
+        }
+
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+        }
+
+        .step {
+            background: rgba(56, 232, 255, 0.08);
+            border: 1px solid rgba(56, 232, 255, 0.2);
+            border-radius: 16px;
+            padding: 16px;
+        }
+
+        .step-number {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
+            display: grid;
+            place-items: center;
+            color: white;
+            font-weight: 800;
+            margin-bottom: 10px;
+        }
+
+        .compare {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+        }
+
+        .compare ul { list-style: none; display: grid; gap: 10px; }
+        .compare li { display: flex; gap: 10px; align-items: start; color: var(--text-secondary); }
+
+        .testimonials {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+        }
+
+        .testimonial {
+            background: rgba(56, 232, 255, 0.08);
+            border: 1px solid rgba(56, 232, 255, 0.2);
+            border-radius: 16px;
+            padding: 16px;
+        }
+
+        .faq details {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 16px;
+            margin-bottom: 10px;
+        }
+
+        .faq details p {
+            margin-top: 10px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        .footer {
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            padding: 24px 0 40px;
+        }
+
+        @media (max-width: 768px) {
+            .container { padding: 12px; }
+            .hero { padding-top: 24px; }
+        }
+    </style>
+</head>
+<body class="home-only">
+    <div class="background-effects" aria-hidden="true">
+        <div class="grid-pattern"></div>
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+    <nav class="navbar">
+        <div class="logo">
+            <img src="logo.svg" alt="Crypto Sentinel Signals" class="logo-img" />
+            <span class="logo-text">Crypto Sentinel Signals</span>
+        </div>
+        <div class="user-menu">
+            <span class="user-email" id="userEmail">Misafir</span>
+            <span class="user-role-badge" id="userRoleBadge" style="display:none;"></span>
+            <button class="hamburger-menu" id="hamburgerBtn" onclick="window.toggleHamburgerMenu()" title="Menü">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+        </div>
+    </nav>
+    <div class="menu-panel" id="menuPanel">
+        <button class="menu-close" onclick="closeHamburgerMenu()">×</button>
+        <div class="menu-content">
+            <div class="menu-user-info">
+                <div class="menu-user-email" id="menuUserEmail">Misafir</div>
+            </div>
+            <nav class="menu-nav">
+                <a href="profile.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-user"></i>
+                    Profil
+                </a>
+                <a href="index.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-chart-line"></i>
+                    Dashboard
+                </a>
+                <a href="her-durumda.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-layer-group"></i>
+                    Her Durumda
+                </a>
+                <a href="kazananlar.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-trophy"></i>
+                    Kazananlar
+                </a>
+                <a href="login.html" class="menu-item login-item" id="loginMenu" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-right-to-bracket"></i>
+                    Giriş Yap
+                </a>
+                <button class="menu-item logout-item" id="logoutMenu" onclick="window.logout()" style="display:none;">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                    Çıkış Yap
+                </button>
+            </nav>
+        </div>
+    </div>
+
+    <div class="container">
+        <section class="hero">
+            <div>
+                <div class="hero-badge"><i class="fa-solid fa-sparkles"></i> Yeni nesil kripto deneyimi</div>
+                <h1>Veriyle güçlenen net bir görünüm.</h1>
+                <p>Canlı tarama, strateji karşılaştırma ve dashboard kontrolü tek akışta birleşir. Sade, hızlı, güven veren bir deneyim.</p>
+                <div class="hero-metrics">
+                    <div class="metric">
+                        <span>Canlı Tarama</span>
+                        <strong>24/7</strong>
+                    </div>
+                    <div class="metric">
+                        <span>Modül Sayısı</span>
+                        <strong>5+</strong>
+                    </div>
+                    <div class="metric">
+                        <span>Strateji Kıyas</span>
+                        <strong>Çoklu</strong>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div class="cta-duo">
+            <a class="btn primary" href="install.html"><i class="fa-solid fa-mobile-screen"></i> Mobil için Başla</a>
+            <a class="btn secondary" href="login.html"><i class="fa-solid fa-desktop"></i> Masaüstü için Başla</a>
+        </div>
+
+        <section class="section" id="features">
+            <h2 class="section-title">Öne çıkanlar</h2>
+            <p class="section-sub">Hızlı keşif, derin kıyas ve akıcı kontrol. Hepsi tek yerde.</p>
+            <div class="grid">
+                <div class="card">
+                    <h3><i class="fa-solid fa-magnifying-glass-chart"></i> Piyasa Tarayıcı</h3>
+                    <p>Piyasanın en hareketli anlarını tek bakışta yakalayın.</p>
+                </div>
+                <div class="card">
+                    <h3><i class="fa-solid fa-trophy"></i> En Çok Kazananlar</h3>
+                    <p>Kazananları görün, performansı hızla karşılaştırın.</p>
+                </div>
+                <div class="card">
+                    <h3><i class="fa-solid fa-scale-balanced"></i> Strateji Karşılaştırma</h3>
+                    <p>Aynı coin, farklı strateji. Net sonuç, net karar.</p>
+                </div>
+                <div class="card">
+                    <h3><i class="fa-solid fa-stopwatch"></i> Zaman Dilimi Kontrolü</h3>
+                    <p>Dakikadan güne uzanan berrak zaman ölçeği.</p>
+                </div>
+                <div class="card">
+                    <h3><i class="fa-solid fa-bell"></i> Bildirim Hazırlığı</h3>
+                    <p>Sinyal akışına hazır, temiz ve düzenli.</p>
+                </div>
+                <div class="card">
+                    <h3><i class="fa-solid fa-filter"></i> Esnek Filtreler</h3>
+                    <p>Kazanç ve oranlara göre zahmetsiz filtreleme.</p>
+                </div>
+                <div class="card">
+                    <h3><i class="fa-solid fa-sliders"></i> Hızlı Ayar Paneli</h3>
+                    <p>TP/SL/Bar değerleriyle senaryoları anında deneyin.</p>
+                </div>
+                <div class="card">
+                    <h3><i class="fa-solid fa-layer-group"></i> Modül Geçişleri</h3>
+                    <p>Kazananlar, Her Durumda ve Dashboard arasında pürüzsüz geçiş.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="section" id="how">
+            <h2 class="section-title">3 adımda başla</h2>
+            <p class="section-sub">Kurulum hızlı, deneyim akıcı.</p>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <h3>Giriş yap</h3>
+                    <p>Hesabına gir, kişisel ayarlarını birkaç dokunuşta tamamla.</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <h3>Modülü seç</h3>
+                    <p>Kazananlar veya Her Durumda ile keşfe başla.</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <h3>Karşılaştır & uygula</h3>
+                    <p>Sonuçları gör, kararını ver ve dashboard’a geç.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="section" id="compare">
+            <h2 class="section-title">Platform ile manuel takip farkı</h2>
+            <p class="section-sub">Sadelik, hız ve kontrol farkını hisset.</p>
+            <div class="compare">
+                <div class="card">
+                    <h3><i class="fa-solid fa-robot"></i> Platform</h3>
+                    <ul>
+                        <li><i class="fa-solid fa-check"></i> Anlık kazanan görünümü</li>
+                        <li><i class="fa-solid fa-check"></i> Çoklu strateji kıyası</li>
+                        <li><i class="fa-solid fa-check"></i> Tek panelde net kontrol</li>
+                        <li><i class="fa-solid fa-check"></i> Esnek zaman dilimi filtreleri</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h3><i class="fa-solid fa-user"></i> Manuel</h3>
+                    <ul>
+                        <li><i class="fa-solid fa-minus"></i> Parçalı takip</li>
+                        <li><i class="fa-solid fa-minus"></i> Uzayan analiz süresi</li>
+                        <li><i class="fa-solid fa-minus"></i> Tutarsız filtreler</li>
+                        <li><i class="fa-solid fa-minus"></i> Kıyaslamak zor</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="section" id="testimonials">
+            <h2 class="section-title">Kullanıcı notları</h2>
+            <p class="section-sub">Gerçek deneyimler, sade cümleler.</p>
+            <div class="testimonials">
+                <div class="testimonial">
+                    <strong>★★★★★</strong>
+                    <p>"Kazananlar listesi kararımı dakikalara indirdi."</p>
+                    <div style="margin-top: 8px; color: var(--text-secondary);">— A.K.</div>
+                </div>
+                <div class="testimonial">
+                    <strong>★★★★★</strong>
+                    <p>"Aynı coin için farklı stratejileri net görmek harika."</p>
+                    <div style="margin-top: 8px; color: var(--text-secondary);">— E.T.</div>
+                </div>
+                <div class="testimonial">
+                    <strong>★★★★★</strong>
+                    <p>"Arayüz sakin ve hızlı. Her şey tek akışta."</p>
+                    <div style="margin-top: 8px; color: var(--text-secondary);">— S.Y.</div>
+                </div>
+                <div class="testimonial">
+                    <strong>★★★★★</strong>
+                    <p>"Zaman dilimi seçimleri net; kıyaslamak kolay."</p>
+                    <div style="margin-top: 8px; color: var(--text-secondary);">— M.D.</div>
+                </div>
+                <div class="testimonial">
+                    <strong>★★★★★</strong>
+                    <p>"Piyasa tarayıcı her gün en net fırsatları gösteriyor."</p>
+                    <div style="margin-top: 8px; color: var(--text-secondary);">— H.Ö.</div>
+                </div>
+                <div class="testimonial">
+                    <strong>★★★★★</strong>
+                    <p>"Kendi stratejimi eklemek hızlı ve sezgisel."</p>
+                    <div style="margin-top: 8px; color: var(--text-secondary);">— R.K.</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="section" id="faq">
+            <h2 class="section-title">Sık sorulanlar</h2>
+            <div class="faq">
+                <details>
+                    <summary>Platformu kullanmak için hesap gerekli mi?</summary>
+                    <p>Dashboard ve kişisel ayarlar için giriş gerekir. Ana sayfa ise deneyimi keşfetmeniz için açıktır.</p>
+                </details>
+                <details>
+                    <summary>Hangi piyasa tipleri destekleniyor?</summary>
+                    <p>Binance Spot ve Futures desteklenir; seçiminize göre arayüz sizi doğru akışa taşır.</p>
+                </details>
+                <details>
+                    <summary>Sonuçlar nasıl sıralanıyor?</summary>
+                    <p>Toplam kâr, win rate veya profit factor bazında sıralama yapılabilir. İhtiyacınız olanı öne çıkarır.</p>
+                </details>
+            </div>
+        </section>
+
+    </div>
+
+    <div class="footer">
+        Yatırım danışmanlığı değildir; genel bilgilendirme amaçlıdır, sorumluluk kullanıcıya aittir.
+    </div>
+
+    <script>
+        let supabaseClient = null;
+        let currentUser = null;
+
+        function updateUserRoleBadge(membershipType, isAdmin) {
+            const badgeEl = document.getElementById('userRoleBadge');
+            if (!badgeEl) return;
+
+            if (isAdmin) {
+                badgeEl.innerHTML = '<i class="fa-solid fa-shield"></i> Admin';
+                badgeEl.className = 'user-role-badge admin';
+                badgeEl.style.display = 'inline-flex';
+                return;
+            }
+
+            if (membershipType === 'premium') {
+                badgeEl.innerHTML = '<i class="fa-solid fa-star"></i> Premium';
+                badgeEl.className = 'user-role-badge premium';
+                badgeEl.style.display = 'inline-flex';
+                return;
+            }
+
+            badgeEl.innerHTML = '<i class="fa-solid fa-leaf"></i> Free';
+            badgeEl.className = 'user-role-badge standard';
+            badgeEl.style.display = 'inline-flex';
+        }
+
+        async function checkAuth() {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            const loginMenu = document.getElementById('loginMenu');
+            const logoutMenu = document.getElementById('logoutMenu');
+
+            if (!session) {
+                document.getElementById('userEmail').textContent = 'Misafir';
+                document.getElementById('menuUserEmail').textContent = 'Misafir';
+                if (loginMenu) loginMenu.style.display = 'flex';
+                if (logoutMenu) logoutMenu.style.display = 'none';
+                return;
+            }
+
+            currentUser = session.user;
+            document.getElementById('userEmail').textContent = currentUser.email;
+            document.getElementById('menuUserEmail').textContent = currentUser.email;
+            if (loginMenu) loginMenu.style.display = 'none';
+            if (logoutMenu) logoutMenu.style.display = 'flex';
+
+            try {
+                const { data: userProfile } = await supabaseClient
+                    .from('user_profiles')
+                    .select('membership_type, is_admin')
+                    .eq('id', currentUser.id)
+                    .maybeSingle();
+
+                if (!userProfile) {
+                    updateUserRoleBadge('standard', false);
+                } else {
+                    updateUserRoleBadge(userProfile.membership_type || 'standard', !!userProfile.is_admin);
+                }
+            } catch {
+                updateUserRoleBadge('standard', false);
+            }
+        }
+
+        window.toggleHamburgerMenu = function() {
+            const panel = document.getElementById('menuPanel');
+            const btn = document.getElementById('hamburgerBtn');
+            if (!panel || !btn) return;
+            panel.classList.toggle('active');
+            btn.classList.toggle('active');
+        };
+
+        window.closeHamburgerMenu = function() {
+            const panel = document.getElementById('menuPanel');
+            const btn = document.getElementById('hamburgerBtn');
+            if (panel) panel.classList.remove('active');
+            if (btn) btn.classList.remove('active');
+        };
+
+        window.logout = async function() {
+            try {
+                const { error } = await supabaseClient.auth.signOut();
+                if (error) throw error;
+                window.location.replace('login.html');
+            } catch (error) {
+                console.error('Çıkış hatası:', error.message);
+                localStorage.clear();
+                window.location.replace('login.html');
+            }
+        };
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            const { createClient } = window.supabase;
+            supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            await checkAuth();
+
+            const navbar = document.querySelector('.navbar');
+            if (navbar) {
+                const handleScroll = () => {
+                    if (window.scrollY > 20) {
+                        navbar.classList.add('scrolled');
+                    } else {
+                        navbar.classList.remove('scrolled');
+                    }
+                };
+                handleScroll();
+                window.addEventListener('scroll', handleScroll, { passive: true });
+            }
+
+            const revealTargets = document.querySelectorAll('.section, .card, .step, .testimonial, .compare .card, .cta-duo .btn, .hero-metrics .metric');
+            revealTargets.forEach((el) => el.classList.add('reveal'));
+
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach((entry) => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('visible');
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, { threshold: 0.15 });
+
+            revealTargets.forEach((el) => observer.observe(el));
+        });
+    </script>
+</body>
+</html>
