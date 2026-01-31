@@ -1653,8 +1653,12 @@
                     .maybeSingle();
 
                 if (userSettings) {
-                    document.getElementById('telegramUsername').value = userSettings.telegram_username || '';
+                    const savedChatId = userSettings.telegram_chat_id || userSettings.telegram_username || '';
+                    document.getElementById('telegramUsername').value = savedChatId;
                     document.getElementById('notificationsToggle').checked = userSettings.notifications_enabled !== false;
+                    if (savedChatId) {
+                        window.makeTelegramIdReadonly();
+                    }
                 } else {
                     document.getElementById('notificationsToggle').checked = true;
                 }
@@ -1825,6 +1829,7 @@
                     result = await supabaseClient
                         .from('user_settings')
                         .update({
+                            telegram_chat_id: telegramChatId || null,
                             telegram_username: telegramChatId || null,
                             notifications_enabled: notificationsEnabled,
                             updated_at: new Date().toISOString()
@@ -1836,6 +1841,7 @@
                         .from('user_settings')
                         .insert({
                             user_id: currentUser.id,
+                            telegram_chat_id: telegramChatId || null,
                             telegram_username: telegramChatId || null,
                             notifications_enabled: notificationsEnabled,
                             created_at: new Date().toISOString(),
@@ -1909,7 +1915,6 @@
             const originalText = testBtn.textContent;
             testBtn.textContent = 'Kaydediliyor...';
 
-            const botToken = TELEGRAM_BOT_TOKEN;
 
             try {
                 showNotification('Ayarlar kaydediliyor...', 'warning');
@@ -1929,7 +1934,7 @@
                     headers: headers,
                     body: JSON.stringify({
                         telegramUsername: chatId,
-                        botToken: botToken
+                        action: 'test_notification'
                     })
                 });
 

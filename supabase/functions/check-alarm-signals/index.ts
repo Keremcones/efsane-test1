@@ -735,6 +735,25 @@ async function sendTelegramNotification(userId: string, message: string): Promis
   }
 }
 
+async function sendTelegramToChatId(chatId: string, message: string): Promise<{ ok: boolean; description?: string; error_code?: number }> {
+  try {
+    const botUrl = `https://api.telegram.org/bot${telegramBotToken}/sendMessage`;
+    const resp = await fetch(botUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: "HTML" })
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      console.error("❌ Telegram test send failed:", resp.status, data);
+    }
+    return data;
+  } catch (e) {
+    console.error("❌ Telegram test notification error:", e);
+    return { ok: false, description: e instanceof Error ? e.message : "Unknown error" };
+  }
+}
+
 // =====================
 // User alarm trigger logic (WITH SIGNAL GENERATION)
 // =====================
@@ -1487,6 +1506,26 @@ serve(async (req: any) => {
           console.log("📥 [DEBUG] Could not decode JWT token");
         }
       }
+    }
+
+    // ✅ Test notification request
+    if (body?.action === "test_notification") {
+      const chatId = String(body?.telegramUsername || body?.telegram_chat_id || body?.chatId || "").trim();
+      if (!chatId) {
+        return new Response(JSON.stringify({ ok: false, error: "Missing telegram chat id" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      const now = new Date().toLocaleString("tr-TR");
+      const message = `✅ Test bildirimi başarılı!\n\n⏰ Zaman: ${now}`;
+      const result = await sendTelegramToChatId(chatId, message);
+
+      return new Response(JSON.stringify(result), {
+        status: result.ok ? 200 : 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
     }
 
     // ✅ If request includes a new signal, insert it (with duplicate prevention)
