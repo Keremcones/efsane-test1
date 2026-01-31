@@ -2300,7 +2300,7 @@
                      alt="${coin}" 
                      style="width: ${size}px; height: ${size}px; border-radius: 50%;"
                      data-coin-symbol="${coin}"
-                     onerror="if(!this.dataset.fallback){this.dataset.fallback='1'; this.src='${secondaryUrl}';} else if(!this.dataset.fallback2){this.dataset.fallback2='1'; this.src='${tertiaryUrl}';} else {this.style.display='none'; this.nextElementSibling.style.display='flex';}">
+                     onerror="if(!this.dataset.fallback){this.dataset.fallback='1'; this.src='${secondaryUrl}';} else if(!this.dataset.fallback2){this.dataset.fallback2='1'; this.src='${tertiaryUrl}';} else {this.style.display='none'; var sib=this.nextElementSibling; if(sib){sib.style.display='flex';}}">
                 <div class="coin-logo-fallback" style="display: none; width: ${size}px; height: ${size}px; background: linear-gradient(135deg, ${color}, ${color}dd); border-radius: 50%; align-items: center; justify-content: center; font-weight: 700; font-size: ${size * 0.35}px; color: white;">
                     ${coin.substring(0, 3)}
                 </div>
@@ -3915,7 +3915,7 @@
                                <img src="${mappedLogoUrl || primaryLogoUrl}" alt="${coinName}" 
                                    data-coin-symbol="${coinName.toUpperCase()}"
                                    style="width: 48px; height: 48px; border-radius: 50%;"
-                                   onerror="if(!this.dataset.fallback){this.dataset.fallback='1'; this.src='${secondaryLogoUrl}';} else if(!this.dataset.fallback2){this.dataset.fallback2='1'; this.src='${tertiaryLogoUrl}';} else {this.style.display='none'; this.nextElementSibling.style.display='flex';}">
+                                   onerror="if(!this.dataset.fallback){this.dataset.fallback='1'; this.src='${secondaryLogoUrl}';} else if(!this.dataset.fallback2){this.dataset.fallback2='1'; this.src='${tertiaryLogoUrl}';} else {this.style.display='none'; var sib=this.nextElementSibling; if(sib){sib.style.display='flex';}}">
                             <div class="coin-logo" style="display: none; width: 48px; height: 48px; font-size: 16px; background: linear-gradient(135deg, ${coinColor}, ${coinColor}dd);">
                                 ${coinName.substring(0, 3)}
                             </div>
