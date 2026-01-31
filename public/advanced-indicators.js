@@ -819,15 +819,14 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             const sr = findSupportResistance(windowHighs, windowLows, windowCloses);
             
             // Kullanıcı TP/SL değerlerine göre backtestAverages oluştur
-            // ✅ FUTURES: TP/SL değerlerini 2x katla (pattern olmadığında hit ihtimalini artır)
             const userTPSL = {
                 LONG: {
-                    avgTPPercent: takeProfitPercent * 2,      // 5% → 10%
-                    avgSLPercent: -stopLossPercent * 2         // -3% → -6%
+                    avgTPPercent: takeProfitPercent,
+                    avgSLPercent: -stopLossPercent
                 },
                 SHORT: {
-                    avgTPPercent: -takeProfitPercent * 2,      // -5% → -10%
-                    avgSLPercent: stopLossPercent * 2          // 3% → 6%
+                    avgTPPercent: -takeProfitPercent,
+                    avgSLPercent: stopLossPercent
                 }
             };
             
