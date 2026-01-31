@@ -1122,6 +1122,35 @@
             return symbols;
         }
 
+        function calculateMetricsFromTrades(trades) {
+            if (!Array.isArray(trades) || trades.length === 0) {
+                return { totalProfit: 0, winRate: 0, profitFactor: 0, totalTrades: 0 };
+            }
+
+            let totalProfit = 0;
+            let wins = 0;
+            let lossSum = 0;
+            let gainSum = 0;
+
+            trades.forEach(trade => {
+                const profit = Number(trade.profit);
+                if (!Number.isFinite(profit)) return;
+                totalProfit += profit;
+                if (profit >= 0) {
+                    wins += 1;
+                    gainSum += profit;
+                } else {
+                    lossSum += Math.abs(profit);
+                }
+            });
+
+            const totalTrades = trades.length;
+            const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
+            const profitFactor = lossSum > 0 ? (gainSum / lossSum) : (gainSum > 0 ? gainSum : 0);
+
+            return { totalProfit, winRate, profitFactor, totalTrades };
+        }
+
         async function runBacktestSafe(symbol, timeframe, tp, sl, bar) {
             try {
                 const backtest = await AdvancedIndicators.runBacktest(
@@ -1135,16 +1164,28 @@
                 );
                 if (!backtest) return null;
 
-                const totalProfit = parseFloat(backtest.totalProfit) || 0;
-                const winRate = parseFloat(backtest.winRate) || 0;
-                const profitFactor = parseFloat(backtest.profitFactor) || 0;
+                const filteredTrades = Array.isArray(backtest.trades)
+                    ? backtest.trades.filter(trade => {
+                        const score = Number(trade.score);
+                        return Number.isFinite(score) ? score >= confidenceThreshold : false;
+                    })
+                    : [];
+
+                if (filteredTrades.length === 0) {
+                    return null;
+                }
+
+                const metrics = calculateMetricsFromTrades(filteredTrades);
+                const totalProfit = metrics.totalProfit;
+                const winRate = metrics.winRate;
+                const profitFactor = metrics.profitFactor;
 
                 return {
                     symbol,
                     totalProfit,
                     winRate,
                     profitFactor,
-                    totalTrades: backtest.totalTrades || backtest.trades?.length || 0,
+                    totalTrades: metrics.totalTrades,
                 };
             } catch (error) {
                 console.warn(`Backtest hata: ${symbol}`, error.message);

@@ -1034,6 +1034,35 @@
             `).join('');
         }
 
+        function calculateMetricsFromTrades(trades) {
+            if (!Array.isArray(trades) || trades.length === 0) {
+                return { totalProfit: 0, winRate: 0, profitFactor: 0, totalTrades: 0 };
+            }
+
+            let totalProfit = 0;
+            let wins = 0;
+            let lossSum = 0;
+            let gainSum = 0;
+
+            trades.forEach(trade => {
+                const profit = Number(trade.profit);
+                if (!Number.isFinite(profit)) return;
+                totalProfit += profit;
+                if (profit >= 0) {
+                    wins += 1;
+                    gainSum += profit;
+                } else {
+                    lossSum += Math.abs(profit);
+                }
+            });
+
+            const totalTrades = trades.length;
+            const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
+            const profitFactor = lossSum > 0 ? (gainSum / lossSum) : (gainSum > 0 ? gainSum : 0);
+
+            return { totalProfit, winRate, profitFactor, totalTrades };
+        }
+
         async function runStrategyComparison() {
             const symbol = selectedStrategySymbol || 'BTCUSDT';
             const market = document.getElementById('strategyMarket')?.value || 'spot';
@@ -1066,22 +1095,29 @@
                         preset.sl,
                         preset.bar
                     );
+                    const filteredTrades = Array.isArray(result?.trades)
+                        ? result.trades.filter(trade => {
+                            const score = Number(trade.score);
+                            return Number.isFinite(score) ? score >= confidenceThreshold : false;
+                        })
+                        : [];
+
+                    const metrics = calculateMetricsFromTrades(filteredTrades);
+
                     if (result && tradesCount === null) {
-                        tradesCount = result.totalTrades || result.trades?.length || 0;
+                        tradesCount = metrics.totalTrades;
                     }
                     results.push({
                         label: preset.label,
                         tp: preset.tp,
                         sl: preset.sl,
                         bar: preset.bar,
-                        winRate: parseFloat(result?.winRate) || 0,
-                        totalProfit: parseFloat(result?.totalProfit) || 0,
-                        profitFactor: parseFloat(result?.profitFactor) || 0,
-                        winRateText: result?.winRate || '0%'
-                        ,
-                        totalProfitText: result?.totalProfit || '0%'
-                        ,
-                        profitFactorText: result?.profitFactor || '0.00'
+                        winRate: metrics.winRate,
+                        totalProfit: metrics.totalProfit,
+                        profitFactor: metrics.profitFactor,
+                        winRateText: `${metrics.winRate.toFixed(1)}%`,
+                        totalProfitText: `${metrics.totalProfit.toFixed(2)}%`,
+                        profitFactorText: metrics.profitFactor.toFixed(2)
                     });
                 } catch (error) {
                     results.push({

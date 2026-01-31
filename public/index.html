@@ -3562,6 +3562,12 @@
             const coinName = symbol.replace('USDT', '');
             const coinLower = coinName.toLowerCase();
             const coinColor = coinColors[coinName] || '#3b82f6';
+            const filteredBacktestTrades = backtest && Array.isArray(backtest.trades)
+                ? backtest.trades.filter(trade => {
+                    const score = Number(trade.score);
+                    return Number.isFinite(score) ? score >= confidenceThreshold : false;
+                })
+                : [];
 
             const emaTrend = (indicators.ema12 && indicators.ema26)
                 ? (indicators.ema12 > indicators.ema26 ? 'Bullish' : indicators.ema12 < indicators.ema26 ? 'Bearish' : 'Neutral')
