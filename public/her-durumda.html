@@ -810,6 +810,15 @@
                     <button id="strategyAdd" class="btn"><i class="fa-solid fa-plus"></i> Ekle</button>
                     <span class="status-pill" id="strategyTrades">Test edilen işlem: -</span>
                 </div>
+                <div class="row" style="margin-bottom: 12px;">
+                    <div style="flex: 1; min-width: 220px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                            <label style="display:block; font-size:0.75rem; color: var(--text-secondary);">Güven Skoru (%)</label>
+                            <span id="strategyConfidenceValue" style="font-weight: 700;">40%</span>
+                        </div>
+                        <input id="strategyConfidence" class="input" type="range" min="1" max="100" value="40">
+                    </div>
+                </div>
                 <table class="table">
                     <thead>
                         <tr>
@@ -863,6 +872,7 @@
         let selectedStrategySymbol = 'BTCUSDT';
         let extraStrategies = [];
         let lastStrategyResults = [];
+        let confidenceThreshold = parseInt(localStorage.getItem('strategyConfidence') || '40', 10);
         const strategyPresets = [
             { label: 'Agresif', tp: 8, sl: 4, bar: 4 },
             { label: 'Dengeli', tp: 5, sl: 3, bar: 5 },
@@ -1051,7 +1061,7 @@
                         symbol,
                         timeframe,
                         7,
-                        40,
+                        confidenceThreshold,
                         preset.tp,
                         preset.sl,
                         preset.bar
@@ -1203,6 +1213,22 @@
             if (!access?.isPremium) {
                 showPremiumLock();
                 return;
+            }
+            const confidenceInput = document.getElementById('strategyConfidence');
+            const confidenceValue = document.getElementById('strategyConfidenceValue');
+            if (confidenceInput) {
+                if (!Number.isFinite(confidenceThreshold)) confidenceThreshold = 40;
+                confidenceInput.value = String(confidenceThreshold);
+                if (confidenceValue) confidenceValue.textContent = `${confidenceThreshold}%`;
+                confidenceInput.addEventListener('input', () => {
+                    const nextValue = parseInt(confidenceInput.value, 10);
+                    confidenceThreshold = Number.isFinite(nextValue) ? nextValue : 40;
+                    if (confidenceValue) confidenceValue.textContent = `${confidenceThreshold}%`;
+                    localStorage.setItem('strategyConfidence', String(confidenceThreshold));
+                    if (lastStrategyResults.length) {
+                        runStrategyComparison();
+                    }
+                });
             }
             await loadStrategyCoins();
             const marketSelect = document.getElementById('strategyMarket');

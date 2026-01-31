@@ -918,6 +918,14 @@
                     style="width: 100%; padding: 8px; background: var(--bg-primary); border: 1px solid var(--border); 
                     border-radius: 6px; color: var(--text-primary); font-weight: 600;">
             </div>
+            <div class="bar-limit-container" style="margin-top: 12px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                    <label style="display: block; font-size: 0.8rem; color: var(--text-secondary); font-weight: 600;">Güven Skoru (%)</label>
+                    <span id="confidenceValue" style="font-weight: 700; color: var(--text-primary);">40%</span>
+                </div>
+                <input id="confidenceInput" type="range" min="1" max="100" value="40" 
+                    style="width: 100%;">
+            </div>
         </div>
 
         <div class="card glass" style="margin-top: 24px;">
@@ -994,7 +1002,7 @@
         let updateToken = 0;
         let updateTimer = null;
         let lastResults = [];
-        const confidenceThreshold = 40;
+        let confidenceThreshold = parseInt(localStorage.getItem('winnersConfidence') || '40', 10);
         const maxDisplay = 40;
 
         function setLoading(isLoading, text = 'Güncelleniyor...') {
@@ -1217,6 +1225,8 @@
             const timeframeButtons = Array.from(document.querySelectorAll('.timeframe-btn'));
             const sortSelect = document.getElementById('sortWinners');
             const sortOrder = document.getElementById('sortOrder');
+            const confidenceInput = document.getElementById('confidenceInput');
+            const confidenceValue = document.getElementById('confidenceValue');
 
             setActiveButton(marketButtons, currentMarket, 'data-market');
             setActiveButton(timeframeButtons, currentTimeframe, 'data-timeframe');
@@ -1249,6 +1259,19 @@
                 input.addEventListener('input', scheduleUpdate);
                 input.addEventListener('change', scheduleUpdate);
             });
+
+            if (confidenceInput) {
+                if (!Number.isFinite(confidenceThreshold)) confidenceThreshold = 40;
+                confidenceInput.value = String(confidenceThreshold);
+                if (confidenceValue) confidenceValue.textContent = `${confidenceThreshold}%`;
+                confidenceInput.addEventListener('input', () => {
+                    const nextValue = parseInt(confidenceInput.value, 10);
+                    confidenceThreshold = Number.isFinite(nextValue) ? nextValue : 40;
+                    if (confidenceValue) confidenceValue.textContent = `${confidenceThreshold}%`;
+                    localStorage.setItem('winnersConfidence', String(confidenceThreshold));
+                    scheduleUpdate();
+                });
+            }
 
             if (sortSelect) {
                 sortSelect.addEventListener('change', () => {

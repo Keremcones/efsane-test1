@@ -3287,10 +3287,17 @@
                 // Backtest averages'ından yararlanarak sinyal oluştur
                 const backtestAverages = backtest && backtest.averages ? backtest.averages : null;
                 
+                const filteredBacktestTrades = backtest && Array.isArray(backtest.trades)
+                    ? backtest.trades.filter(trade => {
+                        const score = Number(trade.score);
+                        return Number.isFinite(score) ? score >= confidenceThreshold : false;
+                    })
+                    : [];
+
                 // Backtest'in son işlemini al (varsa)
                 // MANTIK: trades[0] = en son işlem (zaten sıralanmış)
                 // Backtest Results bölümündeki son işlem = Trading Signal bölümündeki işlem
-                let lastBacktestTrade = backtest && backtest.trades && backtest.trades.length > 0 ? backtest.trades[0] : null;
+                let lastBacktestTrade = filteredBacktestTrades.length > 0 ? filteredBacktestTrades[0] : null;
                 
                 console.log('Trading Signal için seçilen işlem:', {
                     lastBacktestTrade: lastBacktestTrade ? {
@@ -3832,7 +3839,7 @@
                             <i class="fa-solid fa-hourglass-half"></i> Backtest güncelleniyor...
                         </div>
                         <div class="backtest-results">
-                            ${(backtest.trades && backtest.trades.length > 0) ? backtest.trades.slice(0, 50).map((trade, index) => {
+                            ${(filteredBacktestTrades.length > 0) ? filteredBacktestTrades.slice(0, 50).map((trade, index) => {
                                 const tradeId = 'trade-' + Math.random().toString(36).substr(2, 9);
                                 return `
                                 <div class="result-row result-row-expandable" onclick="toggleTradeDetails(this)" style="cursor: pointer;" data-trade-open="${trade.isOpen || trade.duration === 'AÇIK' ? 'true' : 'false'}" data-trade-entry="${trade.entry}" data-trade-signal="${trade.signal}" data-trade-id="${tradeId}">
@@ -3898,8 +3905,8 @@
                                     </div>
                                 </div>
                             `; }).join('') : `<div style="text-align: center; padding: 24px; color: var(--text-secondary);">
-                                <div style="font-size: 0.9rem; margin-bottom: 8px;"><i class="fa-solid fa-circle-info"></i> Henüz işlem yok</div>
-                                <div style="font-size: 0.85rem;">Backtest henüz işlem tespit etmedi</div>
+                                <div style="font-size: 0.9rem; margin-bottom: 8px;"><i class="fa-solid fa-circle-info"></i> Filtreye uygun işlem yok</div>
+                                <div style="font-size: 0.85rem;">Seçilen güven skoru (${confidenceThreshold}%) için işlem bulunamadı</div>
                             </div>`}
                         </div>
                     </div>
@@ -5754,6 +5761,12 @@ Detaylar:
             }
             
             const backtest = currentAnalysis.backtest;
+            const filteredBacktestTrades = Array.isArray(backtest.trades)
+                ? backtest.trades.filter(trade => {
+                    const score = Number(trade.score);
+                    return Number.isFinite(score) ? score >= confidenceThreshold : false;
+                })
+                : [];
             const backtestContainer = document.querySelector('.backtest-results');
             
             if (!backtestContainer) {
@@ -5762,7 +5775,7 @@ Detaylar:
             }
             
             // Yeni backtest HTML'ini oluştur
-            const newBacktestHtml = backtest.trades.slice(0, 50).map((trade, index) => {
+            const newBacktestHtml = filteredBacktestTrades.length > 0 ? filteredBacktestTrades.slice(0, 50).map((trade, index) => {
                 const tradeId = 'trade-' + Math.random().toString(36).substr(2, 9);
                 return `
                 <div class="result-row result-row-expandable" onclick="toggleTradeDetails(this)" style="cursor: pointer;" data-trade-open="${trade.isOpen || trade.duration === 'AÇIK' ? 'true' : 'false'}" data-trade-entry="${trade.entry}" data-trade-signal="${trade.signal}" data-trade-id="${tradeId}">
@@ -5827,7 +5840,12 @@ Detaylar:
                         </div>
                     </div>
                 </div>
-            `; }).join('');
+            `; }).join('') : `
+                <div style="text-align: center; padding: 24px; color: var(--text-secondary);">
+                    <div style="font-size: 0.9rem; margin-bottom: 8px;"><i class="fa-solid fa-circle-info"></i> Filtreye uygun işlem yok</div>
+                    <div style="font-size: 0.85rem;">Seçilen güven skoru (${confidenceThreshold}%) için işlem bulunamadı</div>
+                </div>
+            `;
             
             // Container içerisindeki HTML'i güncelle
             backtestContainer.innerHTML = newBacktestHtml;
