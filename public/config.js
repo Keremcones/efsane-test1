@@ -73,8 +73,10 @@ var FEAR_GREED_API = window.FEAR_GREED_API || 'https://api.alternative.me/fng';
 window.FEAR_GREED_API = FEAR_GREED_API;
 
 // CORS Proxy - Binance API isteklerini proxy üzerinden yapma
-var USE_CORS_PROXY = window.USE_CORS_PROXY ?? false; // Proxy devre dışı - doğrudan API çağır
+var USE_CORS_PROXY = window.USE_CORS_PROXY ?? true; // Proxy varsayılan açık (CORS engelini aş)
+var CORS_PROXY = window.CORS_PROXY || '/api/binance?url=';
 window.USE_CORS_PROXY = USE_CORS_PROXY;
+window.CORS_PROXY = CORS_PROXY;
 
 // App Configuration
 var APP_CONFIG = window.APP_CONFIG || {
