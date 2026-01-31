@@ -1592,16 +1592,13 @@
         let currentUser = null;
         let notificationCount = 0;
         const ADMIN_EMAIL = 'asd@asd.com';
+        let canUseTelegramChatId = false;
 
         // Profil Ayarlarını Yükle
         async function loadProfileSettings() {
             if (!currentUser) return;
 
             try {
-                if (!TELEGRAM_FUNCTION_URL) {
-                    showNotification('Telegram servis URL bulunamadı. Lütfen yapılandırmayı kontrol edin.', 'error');
-                    return;
-                }
                 const isAdminByEmail = String(currentUser.email || '').toLowerCase() === ADMIN_EMAIL;
                 document.getElementById('profileEmail').value = currentUser.email;
                 document.getElementById('userEmailHeader').textContent = currentUser.email;
@@ -1636,9 +1633,10 @@
                 }
 
                 const isAdmin = isAdminByEmail || !!userProfile?.is_admin;
+                const isPremium = (userProfile?.membership_type || 'standard') === 'premium';
+                canUseTelegramChatId = isAdmin || isPremium;
                 const upgradeBtn = document.getElementById('upgradePremiumBtn');
                 if (upgradeBtn) {
-                    const isPremium = (userProfile?.membership_type || 'standard') === 'premium';
                     upgradeBtn.style.display = (isAdmin || isPremium) ? 'none' : 'inline-flex';
                 }
                 if (isAdmin) {
@@ -1665,6 +1663,15 @@
                     }
                 } else {
                     document.getElementById('notificationsToggle').checked = true;
+                }
+
+                const telegramInput = document.getElementById('telegramUsername');
+                const testBtn = document.getElementById('testNotificationBtn');
+                if (telegramInput) {
+                    telegramInput.disabled = !canUseTelegramChatId;
+                }
+                if (testBtn) {
+                    testBtn.disabled = !canUseTelegramChatId;
                 }
             } catch (error) {
                 console.log('Kullanıcı ayarları yükleniyor...', error.message);
@@ -1807,6 +1814,11 @@
         window.saveProfileSettings = async function() {
             if (!currentUser) {
                 showNotification('Lütfen giriş yapınız!', 'error');
+                return;
+            }
+
+            if (!canUseTelegramChatId) {
+                showNotification('Telegram Chat ID sadece Premium veya Admin üyeler içindir.', 'error');
                 return;
             }
 
