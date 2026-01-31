@@ -1598,6 +1598,10 @@
             if (!currentUser) return;
 
             try {
+                if (!TELEGRAM_FUNCTION_URL) {
+                    showNotification('Telegram servis URL bulunamadı. Lütfen yapılandırmayı kontrol edin.', 'error');
+                    return;
+                }
                 const isAdminByEmail = String(currentUser.email || '').toLowerCase() === ADMIN_EMAIL;
                 document.getElementById('profileEmail').value = currentUser.email;
                 document.getElementById('userEmailHeader').textContent = currentUser.email;
@@ -1939,10 +1943,15 @@
                 });
 
                 const rawText = await response.text();
-                const result = rawText ? JSON.parse(rawText) : {};
+                let result = {};
+                try {
+                    result = rawText ? JSON.parse(rawText) : {};
+                } catch (parseError) {
+                    console.error('Edge Function JSON parse hatası:', parseError, rawText);
+                }
                 console.log('Edge Function Cevabı:', result);
 
-                if (result.ok) {
+                if (response.ok && result.ok) {
                     showNotification('Test bildirimi başarıyla gönderildi! Telegram\'ınızı kontrol edin.', 'success');
                 } else if (result.error_code === 400 && result.description && result.description.includes('chat not found')) {
                     showNotification('Chat ID yanlış veya bot sizin Telegram\'ınızı tanımıyor. @userinfobot\'tan ID\'nizi kontrol edin.', 'warning');
@@ -1951,7 +1960,7 @@
                     showNotification('Hata: ' + result.error, 'warning');
                 } else {
                     console.error('Telegram API Hatası:', result);
-                    showNotification('Hata: ' + (result.description || 'Bilinmeyen hata'), 'warning');
+                    showNotification('Hata: ' + (result.description || `HTTP ${response.status}`), 'warning');
                 }
             } catch (error) {
                 console.error('Hata:', error);
