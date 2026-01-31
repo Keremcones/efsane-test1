@@ -1,7 +1,7 @@
 {
   "name": "Rolin Signal",
-  "short_name": "Rolin",
-  "start_url": "/home.html",
+  "short_name": "Rolin Signal",
+  "start_url": "/index.html",
   "display": "standalone",
   "background_color": "#0b0f14",
   "theme_color": "#0b0f14",
