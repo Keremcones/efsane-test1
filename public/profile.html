@@ -1938,7 +1938,8 @@
                     })
                 });
 
-                const result = await response.json();
+                const rawText = await response.text();
+                const result = rawText ? JSON.parse(rawText) : {};
                 console.log('Edge Function Cevabı:', result);
 
                 if (result.ok) {
