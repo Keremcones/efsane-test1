@@ -856,13 +856,14 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             const takeProfit = signal.tp;
             const stopLoss = signal.stop;
             
-            // Tarih ve saat
+            // Tarih ve saat (Türkiye saati)
             const tradeDate = new Date(klines[i][0]);
-            const tradeHours = tradeDate.getUTCHours() + 3;
-            const tradeMins = tradeDate.getUTCMinutes();
-            const tradeTime = String(tradeHours % 24).padStart(2, '0') + ':' + String(tradeMins).padStart(2, '0');
-            
-            const turkeyDate = new Date(tradeDate.getTime() + (3 * 60 * 60 * 1000));
+            const tradeTime = tradeDate.toLocaleTimeString('tr-TR', {
+                hour: '2-digit',
+                minute: '2-digit',
+                timeZone: 'Europe/Istanbul'
+            });
+            const turkeyDate = tradeDate;
             
             // TP/SL yüzdeleri
             const tpPercent = ((takeProfit - entryPrice) / entryPrice) * 100;
@@ -873,7 +874,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 timestamp: klines[i][0],
                 barIndex: i,
                 exitBarIndex: i,
-                date: turkeyDate.toLocaleDateString('tr-TR'),
+                date: turkeyDate.toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' }),
                 time: tradeTime,
                 signal: signal.direction,
                 entry: entryPrice,
@@ -1090,13 +1091,14 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 
                 if (canShowLastTrade) {
                     const lastBarTimeUTC = new Date(klines[closedBarIndex][0]);
-                    const lastHours = lastBarTimeUTC.getUTCHours() + 3;  // UTC+3 Türkiye saati
-                    const lastMins = lastBarTimeUTC.getUTCMinutes();
-                    const lastSecs = lastBarTimeUTC.getUTCSeconds();
-                    const lastTimeStr = String(lastHours % 24).padStart(2, '0') + ':' + String(lastMins).padStart(2, '0') + ':' + String(lastSecs).padStart(2, '0');
+                    const lastTimeStr = lastBarTimeUTC.toLocaleTimeString('tr-TR', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        timeZone: 'Europe/Istanbul'
+                    });
                     
                     const lastBarDateTurkey = new Date(klines[closedBarIndex][0]);
-                    lastBarDateTurkey.setHours(lastBarDateTurkey.getHours() + 3);  // Sadece tarih için
                     
                     // Kar/Zarar hesapla
                     let lastTradeProfit = 0;
@@ -1109,7 +1111,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                     lastTrade = {
                         timestamp: klines[closedBarIndex][0],
                         barIndex: closedBarIndex,  // Kapalı bar'ı işaret et
-                        date: lastBarDateTurkey.toLocaleDateString('tr-TR'),
+                        date: lastBarDateTurkey.toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' }),
                         time: lastTimeStr,
                         signal: lastSignal.direction,
                         entry: lastSignal.entry,  // ✅ Sinyal alındığında gelen entry fiyatı (closes[closedBarIndex] DEĞİL)

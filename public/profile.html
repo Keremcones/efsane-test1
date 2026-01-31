@@ -984,6 +984,42 @@
             background: rgba(56, 232, 255, 0.08);
         }
 
+        .admin-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+        }
+
+        .admin-search {
+            flex: 1;
+            min-width: 220px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        .admin-stats {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .admin-stat-pill {
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+
         .membership-card:hover {
             border-color: var(--secondary);
             box-shadow: 0 6px 20px rgba(13, 168, 232, 0.2);
@@ -1437,6 +1473,14 @@
 
                 <div class="profile-section" id="adminUsersSection" style="display:none;">
                     <div class="section-title"><i class="fa-solid fa-shield"></i> Admin: Kullanıcı Yönetimi</div>
+                    <div class="admin-toolbar">
+                        <input type="text" id="adminUserSearch" class="admin-search" placeholder="Kullanıcı ara (email veya ID)..." />
+                        <div class="admin-stats">
+                            <span class="admin-stat-pill" id="adminCountPremium">Premium: 0</span>
+                            <span class="admin-stat-pill" id="adminCountFree">Free: 0</span>
+                            <span class="admin-stat-pill" id="adminCountAdmin">Admin: 0</span>
+                        </div>
+                    </div>
                     <div class="admin-list" id="adminUsersList">
                         <div style="color: var(--text-secondary); font-size: 0.85rem;">Yükleniyor...</div>
                     </div>
@@ -1738,6 +1782,10 @@
         async function loadAdminUserList() {
             const section = document.getElementById('adminUsersSection');
             const listEl = document.getElementById('adminUsersList');
+            const searchInput = document.getElementById('adminUserSearch');
+            const premiumCountEl = document.getElementById('adminCountPremium');
+            const freeCountEl = document.getElementById('adminCountFree');
+            const adminCountEl = document.getElementById('adminCountAdmin');
             if (!section || !listEl) return;
 
             section.style.display = 'block';
@@ -1753,25 +1801,68 @@
                 return;
             }
 
-            listEl.innerHTML = (users || []).map(u => {
-                const role = u.is_admin ? 'admin' : (u.membership_type === 'premium' ? 'premium' : 'free');
-                return `
-                    <div class="admin-user-row" data-user-id="${u.id}">
-                        <div class="admin-user-email">${u.email || u.id}</div>
-                        <div class="admin-role-controls">
-                            <label class="admin-role-chip">
-                                <input type="radio" name="role-${u.id}" data-role="free" ${role === 'free' ? 'checked' : ''} /> Free
-                            </label>
-                            <label class="admin-role-chip">
-                                <input type="radio" name="role-${u.id}" data-role="premium" ${role === 'premium' ? 'checked' : ''} /> Premium
-                            </label>
-                            <label class="admin-role-chip">
-                                <input type="radio" name="role-${u.id}" data-role="admin" ${role === 'admin' ? 'checked' : ''} /> Admin
-                            </label>
+            const allUsers = users || [];
+
+            const updateCounts = (list) => {
+                let premiumCount = 0;
+                let freeCount = 0;
+                let adminCount = 0;
+
+                list.forEach(u => {
+                    if (u.is_admin) {
+                        adminCount += 1;
+                    } else if (u.membership_type === 'premium') {
+                        premiumCount += 1;
+                    } else {
+                        freeCount += 1;
+                    }
+                });
+
+                if (premiumCountEl) premiumCountEl.textContent = `Premium: ${premiumCount}`;
+                if (freeCountEl) freeCountEl.textContent = `Free: ${freeCount}`;
+                if (adminCountEl) adminCountEl.textContent = `Admin: ${adminCount}`;
+            };
+
+            const renderList = (list) => {
+                listEl.innerHTML = list.map(u => {
+                    const role = u.is_admin ? 'admin' : (u.membership_type === 'premium' ? 'premium' : 'free');
+                    return `
+                        <div class="admin-user-row" data-user-id="${u.id}">
+                            <div class="admin-user-email">${u.email || u.id}</div>
+                            <div class="admin-role-controls">
+                                <label class="admin-role-chip">
+                                    <input type="radio" name="role-${u.id}" data-role="free" ${role === 'free' ? 'checked' : ''} /> Free
+                                </label>
+                                <label class="admin-role-chip">
+                                    <input type="radio" name="role-${u.id}" data-role="premium" ${role === 'premium' ? 'checked' : ''} /> Premium
+                                </label>
+                                <label class="admin-role-chip">
+                                    <input type="radio" name="role-${u.id}" data-role="admin" ${role === 'admin' ? 'checked' : ''} /> Admin
+                                </label>
+                            </div>
                         </div>
-                    </div>
-                `;
-            }).join('');
+                    `;
+                }).join('');
+            };
+
+            updateCounts(allUsers);
+            renderList(allUsers);
+
+            if (searchInput) {
+                searchInput.value = '';
+                searchInput.oninput = () => {
+                    const query = searchInput.value.trim().toLowerCase();
+                    const filtered = query
+                        ? allUsers.filter(u => {
+                            const email = String(u.email || '').toLowerCase();
+                            const id = String(u.id || '').toLowerCase();
+                            return email.includes(query) || id.includes(query);
+                        })
+                        : allUsers;
+                    updateCounts(filtered);
+                    renderList(filtered);
+                };
+            }
 
             listEl.addEventListener('change', async (event) => {
                 const target = event.target;
