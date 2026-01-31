@@ -5248,26 +5248,30 @@ Detaylar:
 
         // Alarmdan coin seçerek dashboard'da aç
         function selectCoinForDashboard(symbol, timeframe) {
+            const normalizedSymbol = String(symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+            const allowedTimeframes = ['5m', '15m', '1h', '4h', '1d'];
+            const normalizedTimeframe = allowedTimeframes.includes(timeframe) ? timeframe : (currentTimeframe || '1h');
+
             // Değişkenleri ön set et
-            currentSymbol = symbol;
-            currentTimeframe = timeframe;
+            currentSymbol = normalizedSymbol;
+            currentTimeframe = normalizedTimeframe;
             
             // Select öğelerini güncelle
             const coinSelect = document.getElementById('symbolInput');
             if (coinSelect) {
-                coinSelect.value = symbol;
+                coinSelect.value = normalizedSymbol;
             }
             
             const timeframeSelect = document.getElementById('timeframeSelect');
             if (timeframeSelect) {
-                timeframeSelect.value = timeframe;
+                timeframeSelect.value = normalizedTimeframe;
             }
             
             // Biraz sonra dashboard'ı yenile (select'ler set olduktan sonra)
-            setTimeout(() => {
-                analyzeCoinWithAdvancedFeatures(symbol);
+            setTimeout(async () => {
+                await changeTimeframe(normalizedTimeframe);
                 window.scrollTo({ top: 0, behavior: 'smooth' });
-                showUpdateToast(`${symbol} ${timeframe} seçildi`, 'success');
+                showUpdateToast(`${normalizedSymbol} ${normalizedTimeframe} seçildi`, 'success');
             }, 100);
         }
 
