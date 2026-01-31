@@ -1944,9 +1944,6 @@
                 if (SUPABASE_ANON_KEY) {
                     headers['apikey'] = SUPABASE_ANON_KEY;
                 }
-                if (session && session.access_token) {
-                    headers['Authorization'] = 'Bearer ' + session.access_token;
-                }
                 
                 const response = await fetch(TELEGRAM_FUNCTION_URL, {
                     method: 'POST',
