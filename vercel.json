@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/",
+      "destination": "/public/home.html"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },

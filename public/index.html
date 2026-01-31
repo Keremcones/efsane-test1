@@ -2058,9 +2058,13 @@
                     // Telegram chat ID'yi user_settings'den çek
                     const { data: userSettings } = await supabaseClient
                         .from('user_settings')
-                        .select('telegram_chat_id')
+                        .select('telegram_chat_id, theme')
                         .eq('user_id', currentUser.id)
                         .maybeSingle();
+                    if (userSettings?.theme) {
+                        localStorage.setItem('theme', userSettings.theme);
+                        document.documentElement.dataset.theme = userSettings.theme;
+                    }
                     
                     alarmSystem.setSupabaseClient(supabaseClient, currentUser.id, userSettings?.telegram_chat_id);
                     console.log(`Supabase ile bağlantı kuruldu - User: ${currentUser.email}`);
@@ -2079,9 +2083,13 @@
                 (async () => {
                     const { data: userSettings } = await supabaseClient
                         .from('user_settings')
-                        .select('telegram_chat_id')
+                        .select('telegram_chat_id, theme')
                         .eq('user_id', currentUser.id)
                         .maybeSingle();
+                    if (userSettings?.theme) {
+                        localStorage.setItem('theme', userSettings.theme);
+                        document.documentElement.dataset.theme = userSettings.theme;
+                    }
                     
                     if (alarmSystem) {
                         alarmSystem.setSupabaseClient(supabaseClient, currentUser.id, userSettings?.telegram_chat_id);

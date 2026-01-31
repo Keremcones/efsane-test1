@@ -1705,6 +1705,10 @@
                     if (savedChatId) {
                         window.makeTelegramIdReadonly();
                     }
+                    if (userSettings.theme) {
+                        localStorage.setItem('theme', userSettings.theme);
+                        document.documentElement.dataset.theme = userSettings.theme;
+                    }
                 } else {
                     document.getElementById('notificationsToggle').checked = true;
                 }
@@ -2331,6 +2335,21 @@
             const newTheme = allowed.includes(theme) ? theme : 'dark';
             localStorage.setItem('theme', newTheme);
             document.documentElement.dataset.theme = newTheme;
+
+            if (currentUser && supabaseClient) {
+                supabaseClient
+                    .from('user_settings')
+                    .upsert({
+                        user_id: currentUser.id,
+                        theme: newTheme,
+                        updated_at: new Date().toISOString()
+                    })
+                    .then(({ error }) => {
+                        if (error) {
+                            console.error('Tema kaydetme hatası:', error.message);
+                        }
+                    });
+            }
         };
 
         window.toggleHamburgerMenu = function() {
