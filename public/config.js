@@ -74,7 +74,7 @@ window.FEAR_GREED_API = FEAR_GREED_API;
 
 // CORS Proxy - Binance API isteklerini proxy üzerinden yapma
 var USE_CORS_PROXY = window.USE_CORS_PROXY ?? true; // Proxy varsayılan açık (CORS engelini aş)
-var CORS_PROXY = window.CORS_PROXY || '/api/binance?url=';
+var CORS_PROXY = window.CORS_PROXY || window.__ENV_CORS_PROXY || localStorage.getItem('CORS_PROXY') || '/api/binance?url=';
 window.USE_CORS_PROXY = USE_CORS_PROXY;
 window.CORS_PROXY = CORS_PROXY;
 
