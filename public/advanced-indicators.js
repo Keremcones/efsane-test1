@@ -832,11 +832,10 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             };
             
             // ✅ FORMASYONLAR OLMASA BİLE İŞLEM AÇILSIN - patterns şartını kaldır
-            const signal = generateAdvancedSignal(indicators, windowCloses[windowCloses.length-1], sr, [], null, 30, userTPSL);
+            const signal = generateAdvancedSignal(indicators, windowCloses[windowCloses.length-1], sr, [], null, confidenceThreshold, userTPSL);
             
-            // ✅ Futures için: confidenceThreshold'u çok düşük tut (30), her işlemde açılsın
-            // Trade'ler TP/SL'ye göre kapatılacak
-            const shouldOpenTrade = signal && signal.direction;  // Her zaman bir direction var
+            // Seçilen güven eşiğine göre işlem aç
+            const shouldOpenTrade = signal && signal.isValidSignal;
             
             // DEBUG: Log ekle
             if (i < windowSize + 5 || i > closes.length - 10) {
