@@ -406,7 +406,16 @@ async function placeTakeProfitStopLoss(
   } else {
     const tpErr = await tpResponse.text();
     console.error("❌ TP order failed:", tpErr);
-    tpError = tpErr;
+    if (tpErr.includes("\"code\":-4120")) {
+      const algoTp = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "TAKE_PROFIT_MARKET", tpPrice);
+      if (algoTp.ok) {
+        tpOrderId = algoTp.orderId;
+      } else {
+        tpError = algoTp.error || tpErr;
+      }
+    } else {
+      tpError = tpErr;
+    }
   }
 
   const slTimestamp = Date.now();
@@ -423,10 +432,47 @@ async function placeTakeProfitStopLoss(
   } else {
     const slErr = await slResponse.text();
     console.error("❌ SL order failed:", slErr);
-    slError = slErr;
+    if (slErr.includes("\"code\":-4120")) {
+      const algoSl = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "STOP_MARKET", slPrice);
+      if (algoSl.ok) {
+        slOrderId = algoSl.orderId;
+      } else {
+        slError = algoSl.error || slErr;
+      }
+    } else {
+      slError = slErr;
+    }
   }
 
   return { tpOrderId, slOrderId, tpError, slError };
+}
+
+async function placeFuturesAlgoOrder(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  side: "BUY" | "SELL",
+  type: "TAKE_PROFIT_MARKET" | "STOP_MARKET",
+  stopPrice: string
+): Promise<{ ok: boolean; orderId?: string; error?: string }> {
+  const timestamp = Date.now();
+  const query = `symbol=${symbol}&side=${side}&type=${type}&stopPrice=${stopPrice}&closePosition=true&workingType=MARK_PRICE&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(query, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v1/algo/order?${query}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    console.error("❌ Algo order failed:", text);
+    return { ok: false, error: text };
+  }
+
+  const data = await response.json();
+  return { ok: true, orderId: String(data?.orderId || data?.algoId || "") };
 }
 
 async function setFuturesMarginType(apiKey: string, apiSecret: string, symbol: string, marginType: "CROSS" | "ISOLATED"): Promise<void> {
