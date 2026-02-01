@@ -1571,6 +1571,8 @@ ${barClose === null ? "" : `⏱️ Bar Sınırı: <b>${barClose}</b>\n`}
 
 ⏰ Zaman: <b>${formattedDateTime}</b>
 ${tradeNotificationText}
+
+<i>Not:</i> Otomatik al-sat işlemleri market fiyatından anlık alındığı için, sinyalin giriş fiyatına göre farklılık gösterebilir.
 `;
 
         // 🚀 INSERT active signal INTO DATABASE
