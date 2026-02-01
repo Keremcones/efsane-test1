@@ -1987,7 +1987,8 @@
         // CORS Proxy wrapper - Binance API isteklerini proxy üzerinden yap
         const originalFetch = window.fetch;
         window.fetch = function(url, options) {
-            if (USE_CORS_PROXY && typeof url === 'string' && (url.includes('api.binance.com') || url.includes('fapi.binance.com'))) {
+            const useProxy = USE_CORS_PROXY && typeof CORS_PROXY === 'string' && CORS_PROXY.trim().length > 0;
+            if (useProxy && typeof url === 'string' && (url.includes('api.binance.com') || url.includes('fapi.binance.com'))) {
                 const proxyUrl = CORS_PROXY + encodeURIComponent(url);
                 return originalFetch(proxyUrl, options);
             }
@@ -2017,6 +2018,105 @@
         let wsConnection = null;
         let currentMembershipType = 'standard';
         let currentIsAdmin = false;
+        let isApplyingDashboardFilters = false;
+        const DASHBOARD_FILTERS_KEY = 'dashboard_filters_v1';
+
+        function getDashboardFiltersFromStorage() {
+            try {
+                const raw = localStorage.getItem(DASHBOARD_FILTERS_KEY);
+                if (!raw) return null;
+                const parsed = JSON.parse(raw);
+                return parsed && typeof parsed === 'object' ? parsed : null;
+            } catch (e) {
+                console.warn('[FILTERS] localStorage parse error:', e);
+                return null;
+            }
+        }
+
+        function saveDashboardFilters() {
+            try {
+                if (isApplyingDashboardFilters) return;
+                const marketType = (typeof CURRENT_MARKET_TYPE !== 'undefined' && CURRENT_MARKET_TYPE)
+                    ? CURRENT_MARKET_TYPE
+                    : (document.getElementById('marketTypeFilter')?.value || 'spot');
+                const sortValue = document.getElementById('sortFilter')?.value || 'volume';
+                const searchValue = document.getElementById('coinSearch')?.value || '';
+
+                const payload = {
+                    symbol: currentSymbol || 'BTCUSDT',
+                    timeframe: currentTimeframe || '1h',
+                    confidenceThreshold: Number(confidenceThreshold),
+                    takeProfitPercent: Number(takeProfitPercent),
+                    stopLossPercent: Number(stopLossPercent),
+                    barCloseLimit: Number(barCloseLimit),
+                    marketType,
+                    sort: sortValue,
+                    search: searchValue
+                };
+
+                localStorage.setItem(DASHBOARD_FILTERS_KEY, JSON.stringify(payload));
+            } catch (e) {
+                console.warn('[FILTERS] localStorage save error:', e);
+            }
+        }
+
+        function applyDashboardFilters(filters) {
+            if (!filters) return;
+            const wasApplying = isApplyingDashboardFilters;
+            isApplyingDashboardFilters = true;
+
+            const allowedTimeframes = ['5m', '15m', '1h', '4h', '1d'];
+            const normalizedMarket = (String(filters.marketType || '').toLowerCase() === 'futures') ? 'futures' : 'spot';
+            const normalizedTimeframe = allowedTimeframes.includes(filters.timeframe) ? filters.timeframe : '1h';
+
+            setMarketType(normalizedMarket);
+            const marketSelect = document.getElementById('marketTypeFilter');
+            if (marketSelect) {
+                marketSelect.value = normalizedMarket;
+            }
+
+            currentTimeframe = normalizedTimeframe;
+            document.querySelectorAll('.timeframe-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tf === normalizedTimeframe);
+            });
+            document.querySelectorAll('.mtf-card').forEach(card => {
+                card.classList.toggle('active', card.dataset.tf === normalizedTimeframe);
+            });
+
+            if (Number.isFinite(Number(filters.confidenceThreshold))) {
+                confidenceThreshold = Math.min(100, Math.max(1, Number(filters.confidenceThreshold)));
+                const confDisplay = document.getElementById('confidenceDisplay');
+                const confSlider = document.getElementById('confidenceSlider');
+                if (confDisplay) confDisplay.textContent = `${confidenceThreshold}%`;
+                if (confSlider) confSlider.value = String(confidenceThreshold);
+            }
+
+            if (Number.isFinite(Number(filters.takeProfitPercent))) {
+                takeProfitPercent = Number(filters.takeProfitPercent);
+            }
+            if (Number.isFinite(Number(filters.stopLossPercent))) {
+                stopLossPercent = Number(filters.stopLossPercent);
+            }
+            if (Number.isFinite(Number(filters.barCloseLimit))) {
+                barCloseLimit = Number(filters.barCloseLimit);
+            }
+
+            if (filters.symbol) {
+                currentSymbol = String(filters.symbol).toUpperCase();
+            }
+
+            const sortSelect = document.getElementById('sortFilter');
+            if (sortSelect && filters.sort) {
+                sortSelect.value = filters.sort;
+            }
+
+            const searchInput = document.getElementById('coinSearch');
+            if (searchInput && typeof filters.search === 'string') {
+                searchInput.value = filters.search;
+            }
+
+            isApplyingDashboardFilters = wasApplying;
+        }
         
         // Supabase Client'ini başlat
         let supabaseClient = null;
@@ -2497,6 +2597,7 @@
             renderCoinList();
             
             stopLiveUpdates();
+            saveDashboardFilters();
             
             await analyzeCoinWithAdvancedFeatures(symbol);
         }
@@ -2550,6 +2651,7 @@
             );
             
             renderCoinList();
+            saveDashboardFilters();
         }
         
         
@@ -2598,6 +2700,8 @@
             if (currentSymbol) {
                 await analyzeCoinWithAdvancedFeatures(currentSymbol);
             }
+
+            saveDashboardFilters();
             
             // Belirgin uyarı mesajı
             showUpdateToast(`${marketName} seçildi • ${allCoins.length} coin`, 'success');
@@ -2623,6 +2727,7 @@
             }
             
             renderCoinList();
+            saveDashboardFilters();
         }
         
         // Dropdown dışına tıklanınca kapat
@@ -2654,6 +2759,7 @@
             });
             
             stopLiveUpdates();
+            saveDashboardFilters();
             await analyzeCoinWithAdvancedFeatures(currentSymbol);
         }
         
@@ -2661,6 +2767,7 @@
         async function changeConfidenceThresholdFinal(value) {
             confidenceThreshold = parseInt(value);
             document.getElementById('confidenceDisplay').textContent = confidenceThreshold + '%';
+            saveDashboardFilters();
             
             // Backtest güncelle
             triggerBacktestUpdate();
@@ -3548,6 +3655,9 @@
                 alarmSystem.loadAlarms();
 
             } catch (error) {
+                if (error && (error.name === 'AbortError' || error.message === 'Aborted')) {
+                    return;
+                }
                 console.error('Detaylı hata:', error);
                 // Mevcut analysisContent'i koru, sadece warning ekle (tamamen sil etme)
                 const analysisContent = document.getElementById('analysisContent');
@@ -4171,14 +4281,14 @@
                                 <input type="number" id="tpInput" value="${takeProfitPercent}" min="0.1" max="50" step="0.1" 
                                     style="width: 100%; padding: 8px; background: var(--bg-primary); border: 1px solid var(--border); 
                                     border-radius: 6px; color: var(--text-primary); font-weight: 600;"
-                                    onchange="takeProfitPercent = parseFloat(this.value); triggerBacktestUpdate();">
+                                    onchange="takeProfitPercent = parseFloat(this.value); saveDashboardFilters(); triggerBacktestUpdate();">
                             </div>
                             <div>
                                 <label style="display: block; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;"><i class="fa-solid fa-circle-stop"></i> Stop Loss %</label>
                                 <input type="number" id="slInput" value="${stopLossPercent}" min="0.1" max="50" step="0.1" 
                                     style="width: 100%; padding: 8px; background: var(--bg-primary); border: 1px solid var(--border); 
                                     border-radius: 6px; color: var(--text-primary); font-weight: 600;"
-                                    onchange="stopLossPercent = parseFloat(this.value); triggerBacktestUpdate();">
+                                    onchange="stopLossPercent = parseFloat(this.value); saveDashboardFilters(); triggerBacktestUpdate();">
                             </div>
                         </div>
                         <!-- Zamana Duyarlı Kapanış Ayarı -->
@@ -4187,7 +4297,7 @@
                             <input type="number" id="barLimitInput" value="${barCloseLimit}" min="1" max="100" step="1" 
                                 style="width: 100%; padding: 8px; background: var(--bg-primary); border: 1px solid var(--border); 
                                 border-radius: 6px; color: var(--text-primary); font-weight: 600;"
-                                onchange="barCloseLimit = parseInt(this.value); console.log('barCloseLimit değiştirildi:', barCloseLimit); triggerBacktestUpdate();">
+                                onchange="barCloseLimit = parseInt(this.value); saveDashboardFilters(); console.log('barCloseLimit değiştirildi:', barCloseLimit); triggerBacktestUpdate();">
                             <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 6px; margin-bottom: 0; line-height: 1.4;">TP/SL vurmayan işlemler kaç bar içinde kapanacağını belirler. Örnek: 5 bar = 5 bardan sonra işlem otomatik kapanır.</p>
                         </div>
 
@@ -5077,6 +5187,13 @@
             const urlTp = urlParams.get('tp');
             const urlSl = urlParams.get('sl');
             const urlBar = urlParams.get('bar');
+            const savedFilters = getDashboardFiltersFromStorage();
+            const savedSymbol = savedFilters?.symbol;
+
+            isApplyingDashboardFilters = true;
+            if (savedFilters) {
+                applyDashboardFilters(savedFilters);
+            }
 
             if (urlMarket === 'spot' || urlMarket === 'futures') {
                 setMarketType(urlMarket);
@@ -5110,17 +5227,38 @@
 
             if (urlSymbol) {
                 currentSymbol = urlSymbol.toUpperCase();
+            } else if (savedSymbol) {
+                currentSymbol = String(savedSymbol).toUpperCase();
             }
 
             await checkAuth();
             await loadAllCoins();
-            if (urlSymbol) {
+
+            const coinExists = allCoins.some(coin => coin.symbol === currentSymbol);
+            if (!coinExists && allCoins.length > 0) {
+                currentSymbol = allCoins[0].symbol;
+                const coinName = currentSymbol.replace('USDT', '');
+                const selectedText = document.getElementById('selectedCoinText');
+                if (selectedText) {
+                    selectedText.textContent = `${coinName}/USDT`;
+                }
+                updateSelectedCoinLogo(coinName);
+            }
+
+            if (document.getElementById('coinSearch')?.value) {
+                filterCoins();
+            }
+
+            if (urlSymbol || savedSymbol) {
                 await selectCoin(currentSymbol);
             } else {
                 setTimeout(() => {
                     analyzeCoinWithAdvancedFeatures(currentSymbol);
                 }, 500);
             }
+
+            isApplyingDashboardFilters = false;
+            saveDashboardFilters();
         });
 
         // Sayfa kapatılırken temizle
@@ -5287,6 +5425,7 @@ Detaylar:
             // Değişkenleri ön set et
             currentSymbol = normalizedSymbol;
             currentTimeframe = normalizedTimeframe;
+            saveDashboardFilters();
             
             // Select öğelerini güncelle
             const coinSelect = document.getElementById('symbolInput');
