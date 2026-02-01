@@ -1467,6 +1467,7 @@ ${tradeNotificationText}
 `;
 
         // 🚀 INSERT active signal INTO DATABASE
+        let signalInserted = false;
         try {
           const marketTypeNorm = normalizeMarketType(alarm.market_type || "spot");
           const newActiveSignal = {
@@ -1489,15 +1490,22 @@ ${tradeNotificationText}
           const { error: insertError } = await supabase.from("active_signals").insert(newActiveSignal);
           if (insertError) {
             console.error(`❌ Failed to insert signal for ${symbol}:`, insertError);
+            signalInserted = false;
           } else {
             console.log(`✅ Signal created in active_signals for ${symbol}`);
+            signalInserted = true;
           }
         } catch (e) {
           console.error(`❌ Error creating signal for ${symbol}:`, e);
+          signalInserted = false;
         }
 
-        telegramPromises.push(sendTelegramNotification(alarm.user_id, telegramMessage));
-        console.log(`✅ User alarm triggered for ${symbol}: ${triggerMessage}`);
+        if (signalInserted) {
+          telegramPromises.push(sendTelegramNotification(alarm.user_id, telegramMessage));
+          console.log(`✅ User alarm triggered for ${symbol}: ${triggerMessage}`);
+        } else {
+          console.warn(`⚠️ Skipping Telegram for ${symbol} because active_signals insert failed`);
+        }
       }
     } catch (e) {
       console.error(`❌ Error checking user alarm ${alarms[i]?.id}:`, e);
@@ -1543,7 +1551,6 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
     const prices = await Promise.all(pricePromises);
 
     const closedSignals: ClosedSignal[] = [];
-    const updatePromises: Promise<any>[] = [];
 
     for (let idx = 0; idx < signals.length; idx++) {
       try {
@@ -1621,26 +1628,22 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           ? ((currentPrice - Number(signal.entry_price)) / Number(signal.entry_price)) * 100
           : ((Number(signal.entry_price) - currentPrice) / Number(signal.entry_price)) * 100;
 
-        // Update signal status to CLOSED (instead of deleting)
-        updatePromises.push(
-          supabase
-            .from("active_signals")
-            .update({
-              status: "CLOSED",
-              close_reason: closeReason,
-              closed_at: new Date().toISOString()
-            })
-            .eq("id", signal.id)
-            .eq("status", "ACTIVE") // avoid race condition
-            .then(result => {
-              if (result.error) {
-                console.error(`❌ updateError for signal ${signal.id}:`, result.error);
-                return null;
-              }
-              console.log(`✅ Signal ${signal.id} (${signal.symbol}) CLOSED: ${closeReason} | P&L: ${profitLoss.toFixed(2)}%`);
-              return { signal, direction, closeReason, currentPrice, profitLoss };
-            })
-        );
+        const updateResult = await supabase
+          .from("active_signals")
+          .update({
+            status: "CLOSED",
+            close_reason: closeReason,
+            closed_at: new Date().toISOString()
+          })
+          .eq("id", signal.id)
+          .eq("status", "ACTIVE");
+
+        if (updateResult.error) {
+          console.error(`❌ updateError for signal ${signal.id}:`, updateResult.error);
+          continue;
+        }
+
+        console.log(`✅ Signal ${signal.id} (${signal.symbol}) CLOSED: ${closeReason} | P&L: ${profitLoss.toFixed(2)}%`);
 
         closedSignals.push({
           id: signal.id,
@@ -1658,9 +1661,6 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         console.error(`❌ Error checking signal ${signals[idx]?.id}:`, e);
       }
     }
-
-    // 🚀 PARALLELIZED: Execute all database updates in parallel
-    await Promise.all(updatePromises);
 
     return closedSignals;
   } catch (e) {
