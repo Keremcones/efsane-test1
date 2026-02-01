@@ -381,7 +381,7 @@ async function placeTakeProfitStopLoss(
   takeProfit: number,
   stopLoss: number,
   pricePrecision: number
-): Promise<{ tpOrderId?: string; slOrderId?: string }> {
+): Promise<{ tpOrderId?: string; slOrderId?: string; tpError?: string; slError?: string }> {
   const closeSide = direction === "LONG" ? "SELL" : "BUY";
 
   const tpPrice = takeProfit.toFixed(pricePrecision);
@@ -389,6 +389,8 @@ async function placeTakeProfitStopLoss(
 
   let tpOrderId: string | undefined;
   let slOrderId: string | undefined;
+  let tpError: string | undefined;
+  let slError: string | undefined;
 
   const tpTimestamp = Date.now();
   const tpQuery = `symbol=${symbol}&side=${closeSide}&type=TAKE_PROFIT_MARKET&stopPrice=${tpPrice}&closePosition=true&timestamp=${tpTimestamp}`;
@@ -401,6 +403,10 @@ async function placeTakeProfitStopLoss(
   if (tpResponse.ok) {
     const tpData = await tpResponse.json();
     tpOrderId = String(tpData.orderId);
+  } else {
+    const tpErr = await tpResponse.text();
+    console.error("❌ TP order failed:", tpErr);
+    tpError = tpErr;
   }
 
   const slTimestamp = Date.now();
@@ -414,9 +420,33 @@ async function placeTakeProfitStopLoss(
   if (slResponse.ok) {
     const slData = await slResponse.json();
     slOrderId = String(slData.orderId);
+  } else {
+    const slErr = await slResponse.text();
+    console.error("❌ SL order failed:", slErr);
+    slError = slErr;
   }
 
-  return { tpOrderId, slOrderId };
+  return { tpOrderId, slOrderId, tpError, slError };
+}
+
+async function setFuturesMarginType(apiKey: string, apiSecret: string, symbol: string, marginType: "CROSS" | "ISOLATED"): Promise<void> {
+  const timestamp = Date.now();
+  const queryString = `symbol=${symbol}&marginType=${marginType}&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v1/marginType?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    if (text.includes("No need to change margin type")) {
+      return;
+    }
+    throw new Error(text || "Margin type update failed");
+  }
 }
 
 async function placeSpotOco(
@@ -523,7 +553,7 @@ async function executeAutoTrade(
       return { success: false, message: "Spot auto-trade not enabled" };
     }
 
-    const { api_key, api_secret, futures_leverage, futures_position_size_percent, spot_position_size_percent } = userKeys;
+    const { api_key, api_secret, futures_leverage, futures_position_size_percent, spot_position_size_percent, futures_margin_type } = userKeys;
 
     if (marketType === "spot" && direction === "SHORT") {
       return { success: false, message: "Spot SHORT not supported" };
@@ -575,6 +605,13 @@ async function executeAutoTrade(
       if (positionMode === "HEDGE") {
         return { success: false, message: "Futures Hedge mode is not supported. Use One-Way." };
       }
+      const resolvedMarginType = String(futures_margin_type || "CROSS").toUpperCase() === "ISOLATED" ? "ISOLATED" : "CROSS";
+      try {
+        await setFuturesMarginType(api_key, api_secret, symbol, resolvedMarginType as "CROSS" | "ISOLATED");
+      } catch (e) {
+        console.error("❌ Margin type set failed:", e);
+        return { success: false, message: "Marjin türü ayarlanamadı. İşlem açılmadı." };
+      }
       await setLeverage(api_key, api_secret, symbol, leverage);
     }
 
@@ -584,7 +621,21 @@ async function executeAutoTrade(
     }
 
     if (marketType === "futures") {
-      await placeTakeProfitStopLoss(api_key, api_secret, symbol, direction, takeProfit, stopLoss, symbolInfo.pricePrecision);
+      const tpSlResult = await placeTakeProfitStopLoss(api_key, api_secret, symbol, direction, takeProfit, stopLoss, symbolInfo.pricePrecision);
+      let warningText = "";
+      if (!tpSlResult.tpOrderId && tpSlResult.tpError) {
+        warningText += ` TP oluşturulamadı: ${tpSlResult.tpError}`;
+      }
+      if (!tpSlResult.slOrderId && tpSlResult.slError) {
+        warningText += ` SL oluşturulamadı: ${tpSlResult.slError}`;
+      }
+      if (warningText) {
+        return {
+          success: true,
+          message: `✅ ${direction} ${quantity} ${symbol} (${leverage}x) @ $${entryPrice.toFixed(symbolInfo.pricePrecision)}\n⚠️ ${warningText.trim()}`,
+          orderId: orderResult.orderId
+        };
+      }
     } else {
       const ocoResult = await placeSpotOco(api_key, api_secret, symbol, quantity, takeProfit, stopLoss, symbolInfo.pricePrecision);
       if (!ocoResult.success) {
