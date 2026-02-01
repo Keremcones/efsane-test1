@@ -448,9 +448,10 @@ async function placeFuturesAlgoOrder(
   stopPrice: string
 ): Promise<{ ok: boolean; orderId?: string; error?: string }> {
   const timestamp = Date.now();
-  const query = `symbol=${symbol}&side=${side}&type=${type}&stopPrice=${stopPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true&timestamp=${timestamp}`;
+  const query = `algoType=CONDITIONAL&symbol=${symbol}&side=${side}&type=${type}&triggerPrice=${stopPrice}`
+    + `&closePosition=true&workingType=MARK_PRICE&priceProtect=TRUE&timestamp=${timestamp}`;
   const signature = await createBinanceSignature(query, apiSecret);
-  const url = `https://fapi.binance.com/fapi/v1/algo/order?${query}&signature=${signature}`;
+  const url = `https://fapi.binance.com/fapi/v1/algoOrder?${query}&signature=${signature}`;
 
   const response = await fetch(url, {
     method: "POST",
@@ -468,7 +469,7 @@ async function placeFuturesAlgoOrder(
   }
 
   const data = await response.json();
-  return { ok: true, orderId: String(data?.orderId || data?.algoId || "") };
+  return { ok: true, orderId: String(data?.orderId || data?.algoId || data?.clientAlgoId || "") };
 }
 
 function escapeTelegram(text: string): string {
