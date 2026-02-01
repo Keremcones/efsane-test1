@@ -458,13 +458,24 @@ async function placeFuturesAlgoOrder(
   });
 
   if (!response.ok) {
+    const contentType = response.headers.get("content-type") || "";
     const text = await response.text();
     console.error("❌ Algo order failed:", text);
+    if (contentType.includes("text/html") || text.trim().startsWith("<!DOCTYPE")) {
+      return { ok: false, error: "Algo endpoint HTML yanıtı döndü (erişim/engel olabilir)." };
+    }
     return { ok: false, error: text };
   }
 
   const data = await response.json();
   return { ok: true, orderId: String(data?.orderId || data?.algoId || "") };
+}
+
+function escapeTelegram(text: string): string {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 async function setFuturesMarginType(apiKey: string, apiSecret: string, symbol: string, marginType: "CROSS" | "ISOLATED"): Promise<void> {
@@ -662,10 +673,10 @@ async function executeAutoTrade(
       const tpSlResult = await placeTakeProfitStopLoss(api_key, api_secret, symbol, direction, takeProfit, stopLoss, symbolInfo.pricePrecision);
       let warningText = "";
       if (!tpSlResult.tpOrderId && tpSlResult.tpError) {
-        warningText += ` TP oluşturulamadı: ${tpSlResult.tpError}`;
+        warningText += ` TP oluşturulamadı: ${escapeTelegram(tpSlResult.tpError)}`;
       }
       if (!tpSlResult.slOrderId && tpSlResult.slError) {
-        warningText += ` SL oluşturulamadı: ${tpSlResult.slError}`;
+        warningText += ` SL oluşturulamadı: ${escapeTelegram(tpSlResult.slError)}`;
       }
       if (warningText) {
         return {
