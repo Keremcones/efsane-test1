@@ -674,7 +674,8 @@ Bu metni onaylamadan kayıt olamazsınız.
         let supabaseClient;
 
         function isRecoveryFlow() {
-            return window.location.hash.includes('type=recovery');
+            return window.location.hash.includes('type=recovery')
+                || new URLSearchParams(window.location.search).get('type') === 'recovery';
         }
 
         // Supabase'i başlat
@@ -784,7 +785,7 @@ Bu metni onaylamadan kayıt olamazsınız.
             }
             try {
                 const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
-                    redirectTo: `${window.location.origin}/login.html#type=recovery`
+                    redirectTo: `${window.location.origin}/login.html?type=recovery`
                 });
                 if (error) throw error;
                 showCustomMessage('resetSuccess', 'Şifre sıfırlama linki e-postanıza gönderildi.', 'success');
