@@ -397,7 +397,7 @@ async function placeTakeProfitStopLoss(
   if (algoTp.ok) {
     tpOrderId = algoTp.orderId;
   } else {
-    const tpQuery = `symbol=${symbol}&side=${closeSide}&type=TAKE_PROFIT_MARKET&stopPrice=${tpPrice}&closePosition=true&timestamp=${tpTimestamp}`;
+    const tpQuery = `symbol=${symbol}&side=${closeSide}&type=TAKE_PROFIT_MARKET&stopPrice=${tpPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true&timestamp=${tpTimestamp}`;
     const tpSignature = await createBinanceSignature(tpQuery, apiSecret);
     const tpResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${tpQuery}&signature=${tpSignature}`, {
       method: "POST",
@@ -419,7 +419,7 @@ async function placeTakeProfitStopLoss(
   if (algoSl.ok) {
     slOrderId = algoSl.orderId;
   } else {
-    const slQuery = `symbol=${symbol}&side=${closeSide}&type=STOP_MARKET&stopPrice=${slPrice}&closePosition=true&timestamp=${slTimestamp}`;
+    const slQuery = `symbol=${symbol}&side=${closeSide}&type=STOP_MARKET&stopPrice=${slPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true&timestamp=${slTimestamp}`;
     const slSignature = await createBinanceSignature(slQuery, apiSecret);
     const slResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${slQuery}&signature=${slSignature}`, {
       method: "POST",
@@ -448,7 +448,7 @@ async function placeFuturesAlgoOrder(
   stopPrice: string
 ): Promise<{ ok: boolean; orderId?: string; error?: string }> {
   const timestamp = Date.now();
-  const query = `symbol=${symbol}&side=${side}&type=${type}&stopPrice=${stopPrice}&closePosition=true&workingType=MARK_PRICE&timestamp=${timestamp}`;
+  const query = `symbol=${symbol}&side=${side}&type=${type}&stopPrice=${stopPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true&timestamp=${timestamp}`;
   const signature = await createBinanceSignature(query, apiSecret);
   const url = `https://fapi.binance.com/fapi/v1/algo/order?${query}&signature=${signature}`;
 
