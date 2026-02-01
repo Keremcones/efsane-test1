@@ -4309,6 +4309,11 @@
                             <button class="btn btn-primary save-analysis-btn" onclick="createAlarmFromAnalysis()" style="margin-top: 16px;" ${!signal ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}>
                                 <i class="fa-solid fa-bell"></i> Alarm Kur
                             </button>
+                            <div style="margin-top: 10px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-secondary); font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5;">
+                                <i class="fa-solid fa-circle-info"></i>
+                                Otomatik trade açıkken alarm tetiklenirse Binance'te işlem açılır. Kapalıysa sadece Telegram bildirimi gelir.
+                                Otomatik trade'i <a href="binance.html" style="color: var(--accent); font-weight: 600;">Binance Bağlantısı</a> sayfasından açabilirsiniz.
+                            </div>
                         ` : `
                             <button class="btn-premium" onclick="window.location.href='premium.html'" style="margin-top: 16px; width: 100%; justify-content: center;">
                                 <i class="fa-solid fa-star"></i> Premium'a Yükselt

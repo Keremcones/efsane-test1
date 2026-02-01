@@ -367,6 +367,63 @@
         .btn { border: 1px solid var(--border-color); border-radius: 10px; padding: 12px 16px; background: rgba(255, 255, 255, 0.08); color: var(--text-primary); cursor: pointer; }
         .btn-primary { background: linear-gradient(135deg, #38e8ff, #8b5cf6); color: #0b0f14; border: none; }
         .btn-secondary { background: transparent; }
+        .status-panel {
+            margin-top: 12px;
+            padding: 14px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            background: rgba(56, 232, 255, 0.06);
+            display: grid;
+            gap: 8px;
+            font-size: 0.92rem;
+        }
+        .status-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 8px 10px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .status-label { color: var(--text-secondary); font-weight: 600; }
+        .status-value {
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: rgba(56, 232, 255, 0.16);
+            color: var(--primary);
+            min-width: 90px;
+            text-align: center;
+        }
+        .status-note {
+            margin-top: 8px;
+            font-size: 0.82rem;
+            color: var(--warning);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .guide-section {
+            margin-top: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 20px;
+        }
+        .guide-section h3 { margin-bottom: 8px; }
+        .guide-section p { color: var(--text-secondary); font-size: 0.92rem; }
+        .guide-steps { margin-top: 12px; padding-left: 18px; color: var(--text-secondary); line-height: 1.65; font-size: 0.92rem; }
+        .guide-steps li { margin-bottom: 8px; }
+        .guide-callout {
+            margin-top: 12px;
+            padding: 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(245, 183, 91, 0.28);
+            background: rgba(245, 183, 91, 0.08);
+            color: var(--warning);
+            font-size: 0.9rem;
+        }
         .notification { position: fixed; right: 20px; top: 20px; background: var(--surface-dark); border: 1px solid var(--border-color); padding: 12px 16px; border-radius: 10px; display: flex; align-items: center; gap: 10px; z-index: 999; animation: slideInRight 0.3s ease; }
         @keyframes slideInRight { from { transform: translateX(50px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
         @keyframes slideOutRight { from { transform: translateX(0); opacity: 1; } to { transform: translateX(50px); opacity: 0; } }
@@ -574,10 +631,23 @@
                     <button class="btn btn-primary" id="saveBinanceBtn" onclick="window.saveBinanceSettings()"><i class="fa-solid fa-floppy-disk"></i> Kaydet</button>
                 </div>
 
-                <div style="margin-top: 12px; font-size: 0.9rem; color: var(--text-secondary);">
-                    <div>Bağlantı durumu: <strong id="binanceConnectionStatus">Bilinmiyor</strong></div>
-                    <div>Futures Bakiye: <strong id="binanceFuturesBalance">-</strong></div>
-                    <div>Spot Bakiye: <strong id="binanceSpotBalance">-</strong></div>
+                <div class="status-panel">
+                    <div class="status-row">
+                        <span class="status-label">Bağlantı durumu</span>
+                        <strong id="binanceConnectionStatus" class="status-value">Bilinmiyor</strong>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">Futures Bakiye</span>
+                        <strong id="binanceFuturesBalance" class="status-value">-</strong>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">Spot Bakiye</span>
+                        <strong id="binanceSpotBalance" class="status-value">-</strong>
+                    </div>
+                    <div class="status-note">
+                        <i class="fa-solid fa-circle-exclamation"></i>
+                        Otomatik trade kapalıyken test başlatılamaz. Önce Otomatik Trade'i açın.
+                    </div>
                 </div>
 
                 <div style="background: rgba(245, 183, 91, 0.08); border: 1px solid rgba(245, 183, 91, 0.2); border-radius: 8px; padding: 12px; margin-top: 12px;">
@@ -592,6 +662,29 @@
                         <li>Spot TP/SL OCO kullanır; fiyat koşulları uygunsa Binance kabul eder.</li>
                         <li>Minimum miktar/precision nedeniyle küçük bakiyelerde işlem açılmayabilir.</li>
                     </ul>
+                </div>
+
+                <div class="guide-section">
+                    <h3 class="section-title"><i class="fa-solid fa-key"></i> Binance API Key nasıl alınır?</h3>
+                    <p>API anahtarınızı oluşturup gerekli izinleri doğru seçmeniz gerekir. Aşağıdaki adımları sırayla uygulayın.</p>
+                    <ol class="guide-steps">
+                        <li>Binance hesabınıza giriş yapın ve sağ üstten <strong>Profil → API Management</strong> bölümüne girin.</li>
+                        <li><strong>Create API</strong> (veya <strong>API Oluştur</strong>) butonuna tıklayın, bir etiket adı yazın.</li>
+                        <li>Güvenlik doğrulamalarını tamamlayın (SMS/E‑posta/2FA).</li>
+                        <li><strong>API Key Permissions</strong> bölümünde:
+                            <ul>
+                                <li><strong>Enable Spot & Margin Trading</strong> açın.</li>
+                                <li><strong>Enable Futures</strong> açın.</li>
+                                <li><strong>Withdraw</strong> iznini kesinlikle <strong>kapalı</strong> bırakın.</li>
+                            </ul>
+                        </li>
+                        <li><strong>IP Access Restrictions</strong> kısmında <strong>Unrestricted (Less Secure)</strong> seçin.</li>
+                        <li>Değişiklikleri kaydedin ve size gösterilen <strong>API Key</strong> ile <strong>Secret Key</strong> değerlerini kopyalayın. (Secret yalnızca bir kez gösterilir.)</li>
+                        <li>Bu sayfadaki alanlara yapıştırıp <strong>Kaydet</strong> butonuna basın, ardından <strong>API Bağlantısını Test Et</strong> butonuyla doğrulayın.</li>
+                    </ol>
+                    <div class="guide-callout">
+                        <strong>Not:</strong> Platform isteği sabit IP kullanmadığı için <strong>IP Restriction</strong> seçerseniz bağlantı testinde hata alabilirsiniz. Güvenlik için 2FA aktif olsun ve <strong>Withdraw</strong> iznini kapalı tutun.
+                    </div>
                 </div>
             </div>
         </div>

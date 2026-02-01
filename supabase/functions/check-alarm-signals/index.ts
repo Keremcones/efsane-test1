@@ -455,6 +455,46 @@ async function placeSpotOco(
   return { success: true };
 }
 
+async function hasOpenFuturesPosition(apiKey: string, apiSecret: string, symbol: string): Promise<boolean> {
+  const timestamp = Date.now();
+  const queryString = `symbol=${symbol}&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v2/positionRisk?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    console.error("❌ Binance futures position check failed:", await response.text());
+    throw new Error("Futures position check failed");
+  }
+
+  const data = await response.json();
+  const position = Array.isArray(data) ? data[0] : data;
+  const positionAmt = Number(position?.positionAmt || 0);
+  return Math.abs(positionAmt) > 0;
+}
+
+async function hasOpenSpotOrders(apiKey: string, apiSecret: string, symbol: string): Promise<boolean> {
+  const timestamp = Date.now();
+  const queryString = `symbol=${symbol}&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://api.binance.com/api/v3/openOrders?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    console.error("❌ Binance spot open orders check failed:", await response.text());
+    throw new Error("Spot open orders check failed");
+  }
+
+  const data = await response.json();
+  return Array.isArray(data) && data.length > 0;
+}
+
 async function executeAutoTrade(
   userId: string,
   symbol: string,
@@ -487,6 +527,22 @@ async function executeAutoTrade(
 
     if (marketType === "spot" && direction === "SHORT") {
       return { success: false, message: "Spot SHORT not supported" };
+    }
+
+    try {
+      if (marketType === "futures") {
+        const hasOpen = await hasOpenFuturesPosition(api_key, api_secret, symbol);
+        if (hasOpen) {
+          return { success: false, message: `Açık futures pozisyonu var (${symbol}). Yeni işlem açılmadı.` };
+        }
+      } else {
+        const hasOpen = await hasOpenSpotOrders(api_key, api_secret, symbol);
+        if (hasOpen) {
+          return { success: false, message: `Açık spot emri var (${symbol}). Yeni işlem açılmadı.` };
+        }
+      }
+    } catch (e) {
+      return { success: false, message: "Açık pozisyon kontrolü başarısız. İşlem açılmadı." };
     }
 
     const leverage = marketType === "futures" ? Number(futures_leverage || 10) : 1;
