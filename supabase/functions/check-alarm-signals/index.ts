@@ -393,54 +393,46 @@ async function placeTakeProfitStopLoss(
   let slError: string | undefined;
 
   const tpTimestamp = Date.now();
-  const tpQuery = `symbol=${symbol}&side=${closeSide}&type=TAKE_PROFIT_MARKET&stopPrice=${tpPrice}&closePosition=true&timestamp=${tpTimestamp}`;
-  const tpSignature = await createBinanceSignature(tpQuery, apiSecret);
-  const tpResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${tpQuery}&signature=${tpSignature}`, {
-    method: "POST",
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
-
-  if (tpResponse.ok) {
-    const tpData = await tpResponse.json();
-    tpOrderId = String(tpData.orderId);
+  const algoTp = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "TAKE_PROFIT_MARKET", tpPrice);
+  if (algoTp.ok) {
+    tpOrderId = algoTp.orderId;
   } else {
-    const tpErr = await tpResponse.text();
-    console.error("❌ TP order failed:", tpErr);
-    if (tpErr.includes("\"code\":-4120")) {
-      const algoTp = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "TAKE_PROFIT_MARKET", tpPrice);
-      if (algoTp.ok) {
-        tpOrderId = algoTp.orderId;
-      } else {
-        tpError = algoTp.error || tpErr;
-      }
+    const tpQuery = `symbol=${symbol}&side=${closeSide}&type=TAKE_PROFIT_MARKET&stopPrice=${tpPrice}&closePosition=true&timestamp=${tpTimestamp}`;
+    const tpSignature = await createBinanceSignature(tpQuery, apiSecret);
+    const tpResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${tpQuery}&signature=${tpSignature}`, {
+      method: "POST",
+      headers: { "X-MBX-APIKEY": apiKey }
+    });
+
+    if (tpResponse.ok) {
+      const tpData = await tpResponse.json();
+      tpOrderId = String(tpData.orderId);
     } else {
-      tpError = tpErr;
+      const tpErr = await tpResponse.text();
+      console.error("❌ TP order failed:", tpErr);
+      tpError = algoTp.error || tpErr;
     }
   }
 
   const slTimestamp = Date.now();
-  const slQuery = `symbol=${symbol}&side=${closeSide}&type=STOP_MARKET&stopPrice=${slPrice}&closePosition=true&timestamp=${slTimestamp}`;
-  const slSignature = await createBinanceSignature(slQuery, apiSecret);
-  const slResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${slQuery}&signature=${slSignature}`, {
-    method: "POST",
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
-
-  if (slResponse.ok) {
-    const slData = await slResponse.json();
-    slOrderId = String(slData.orderId);
+  const algoSl = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "STOP_MARKET", slPrice);
+  if (algoSl.ok) {
+    slOrderId = algoSl.orderId;
   } else {
-    const slErr = await slResponse.text();
-    console.error("❌ SL order failed:", slErr);
-    if (slErr.includes("\"code\":-4120")) {
-      const algoSl = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "STOP_MARKET", slPrice);
-      if (algoSl.ok) {
-        slOrderId = algoSl.orderId;
-      } else {
-        slError = algoSl.error || slErr;
-      }
+    const slQuery = `symbol=${symbol}&side=${closeSide}&type=STOP_MARKET&stopPrice=${slPrice}&closePosition=true&timestamp=${slTimestamp}`;
+    const slSignature = await createBinanceSignature(slQuery, apiSecret);
+    const slResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${slQuery}&signature=${slSignature}`, {
+      method: "POST",
+      headers: { "X-MBX-APIKEY": apiKey }
+    });
+
+    if (slResponse.ok) {
+      const slData = await slResponse.json();
+      slOrderId = String(slData.orderId);
     } else {
-      slError = slErr;
+      const slErr = await slResponse.text();
+      console.error("❌ SL order failed:", slErr);
+      slError = algoSl.error || slErr;
     }
   }
 
@@ -1280,11 +1272,14 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       .eq("status", "ACTIVE")
 
   const openSignalKeys = new Set();
+  const openSignalSymbols = new Set();
   if (openAutoSignals && !openAutoSignalsError) {
     openAutoSignals.forEach((sig: any) => {
       // user_id + symbol kombinasyonu key oluştur
-        const key = `${sig.user_id}:${String(sig.alarm_id || "")}`;
+      const key = `${sig.user_id}:${String(sig.alarm_id || "")}`;
       openSignalKeys.add(key);
+      const symbolKey = `${sig.user_id}:${String(sig.symbol || "").toUpperCase()}`;
+      openSignalSymbols.add(symbolKey);
     });
   }
   console.log(`📌 Open auto_signal count: ${openSignalKeys.size}`);
@@ -1341,10 +1336,11 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       if (alarm.type === "user_alarm") {
         const symbol = String(alarm.symbol || "").toUpperCase();
         const signalKey = `${alarm.user_id}:${String(alarm.id || "")}`;
+        const symbolKey = `${alarm.user_id}:${symbol}`;
         
         // 🔴 ÖNEMLİ: Aynı user'ın aynı symbol'ü için açık sinyal varsa SKIP!
-        if (openSignalKeys.has(signalKey)) {
-          console.log(`⏹️ Skipping user_alarm for ${symbol}: signal already active for this alarm (user: ${alarm.user_id}, alarm: ${alarm.id})`);
+        if (openSignalSymbols.has(symbolKey)) {
+          console.log(`⏹️ Skipping user_alarm for ${symbol}: signal already active for this symbol (user: ${alarm.user_id})`);
         } else {
           const tpPercent = Number(alarm.tp_percent || 5);
           const slPercent = Number(alarm.sl_percent || 3);
@@ -1400,8 +1396,14 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       if (!shouldTrigger && (alarm.type === "PRICE_LEVEL" || alarm.condition)) {
         const targetPrice = Number(alarm.target_price || alarm.targetPrice);
         const condition = String(alarm.condition || "").toLowerCase();
+        const symbol = String(alarm.symbol || "").toUpperCase();
+        const symbolKey = `${alarm.user_id}:${symbol}`;
 
-        if (Number.isFinite(targetPrice)) {
+        if (openSignalSymbols.has(symbolKey)) {
+          console.log(`⏹️ Skipping PRICE_LEVEL alarm for ${symbol}: signal already active for this symbol (user: ${alarm.user_id})`);
+        }
+
+        if (Number.isFinite(targetPrice) && !openSignalSymbols.has(symbolKey)) {
           if (condition === "above" && indicators.price >= targetPrice) {
             shouldTrigger = true;
             triggerMessage = `🚀 Price ${formatPriceWithPrecision(targetPrice, alarmPricePrecision)}$ reached! (Current: $${formatPriceWithPrecision(indicators.price, alarmPricePrecision)})`;
@@ -1433,12 +1435,13 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       if (!shouldTrigger && alarm.type === "SIGNAL") {
         const symbol = String(alarm.symbol || "").toUpperCase();
         const signalKey = `${alarm.user_id}:${String(alarm.id || "")}`;
+        const symbolKey = `${alarm.user_id}:${symbol}`;
 
         if (openTradeSymbols.has(symbol)) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: ACTIVE_TRADE in progress`);
-        } else if (openSignalKeys.has(signalKey)) {
-          // 🔴 ÖNEMLI: Aynı alarm için açık auto_signal varsa skip!
-          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: auto_signal already active for this alarm (user: ${alarm.user_id}, alarm: ${alarm.id})`);
+        } else if (openSignalSymbols.has(symbolKey)) {
+          // 🔴 ÖNEMLI: Aynı symbol için açık auto_signal varsa skip!
+          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: auto_signal already active for this symbol (user: ${alarm.user_id})`);
         } else {
           const userConfidenceThreshold = Number(alarm.confidence_score || 70);
           const signal = generateSignalScore(indicators, userConfidenceThreshold);
@@ -1597,7 +1600,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         const userConfidenceThreshold = Number(alarm.confidence_score || 70);
         const signalAnalysis = generateSignalScore(indicators, userConfidenceThreshold);
 
-        const telegramMessage = `
+        let telegramMessage = `
 🔔 <b>ALARM AKTİVE!</b> 🔔
 
 💰 Çift: <b>${symbol}</b>
@@ -1659,7 +1662,11 @@ ${tradeNotificationText}
           telegramPromises.push(sendTelegramNotification(alarm.user_id, telegramMessage));
           console.log(`✅ User alarm triggered for ${symbol}: ${triggerMessage}`);
         } else {
-          console.warn(`⚠️ Skipping Telegram for ${symbol} because active_signals insert failed`);
+          console.warn(`⚠️ active_signals insert failed for ${symbol}`);
+          if (tradeResult.success) {
+            telegramMessage += `\n\n⚠️ <b>Not:</b> Sinyal kaydı oluşturulamadı. Sistem yöneticisine bildirin.`;
+            telegramPromises.push(sendTelegramNotification(alarm.user_id, telegramMessage));
+          }
         }
       }
     } catch (e) {
