@@ -1313,6 +1313,10 @@
                     <i class="fa-solid fa-trophy"></i>
                     Kazananlar
                 </a>
+                <a href="binance.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-brands fa-bitcoin"></i>
+                    Binance Bağlantısı
+                </a>
                 <button class="menu-item logout-item" onclick="window.logout()">
                     <i class="fa-solid fa-right-from-bracket"></i>
                     Çıkış Yap
@@ -1402,6 +1406,17 @@
             </div>
 
             <div class="profile-col">
+                <!-- Hızlı İşlemler -->
+                <div class="profile-section">
+                    <div class="section-title"><i class="fa-solid fa-gear"></i> Hızlı İşlemler</div>
+                    <div class="button-group">
+                        <button class="btn btn-secondary" onclick="window.goBack()"><i class="fa-solid fa-arrow-left"></i> Geri Dön</button>
+                        <button class="btn btn-primary" onclick="window.saveProfileSettings()"><i class="fa-solid fa-floppy-disk"></i> Kaydet</button>
+                        <button class="btn btn-secondary" onclick="window.location.href='install.html'"><i class="fa-solid fa-download"></i> Uygulamayı indir</button>
+                    </div>
+                    <button type="button" class="logout-btn" onclick="window.logout()"><i class="fa-solid fa-right-from-bracket"></i> Çıkış Yap</button>
+                </div>
+
                 <!-- Telegram Bölümü -->
                 <div class="profile-section">
                     <div class="section-title">
@@ -1460,17 +1475,6 @@
                     <button class="btn-test" id="testNotificationBtn" onclick="window.handleTestNotification()">
                         <i class="fa-solid fa-paper-plane"></i> Test Bildirimi Gönder
                     </button>
-                </div>
-
-                <!-- Hızlı İşlemler -->
-                <div class="profile-section">
-                    <div class="section-title"><i class="fa-solid fa-gear"></i> Hızlı İşlemler</div>
-                    <div class="button-group">
-                        <button class="btn btn-secondary" onclick="window.goBack()"><i class="fa-solid fa-arrow-left"></i> Geri Dön</button>
-                        <button class="btn btn-primary" onclick="window.saveProfileSettings()"><i class="fa-solid fa-floppy-disk"></i> Kaydet</button>
-                        <button class="btn btn-secondary" onclick="window.location.href='install.html'"><i class="fa-solid fa-download"></i> Uygulamayı indir</button>
-                    </div>
-                    <button type="button" class="logout-btn" onclick="window.logout()"><i class="fa-solid fa-right-from-bracket"></i> Çıkış Yap</button>
                 </div>
 
                 <div class="profile-section" id="adminUsersSection" style="display:none;">
@@ -1723,11 +1727,48 @@
                 if (testBtn) {
                     testBtn.disabled = !canUseTelegramChatId;
                 }
+
+                await loadBinanceSettings();
+                window.updateAutoTradeUI();
             } catch (error) {
                 console.log('Kullanıcı ayarları yükleniyor...', error.message);
                 document.getElementById('notificationsToggle').checked = true;
                 updateMembershipBadge('standard', null, false);
                 document.getElementById('lastPasswordChange').textContent = 'Bilgi alınamadı';
+            }
+        }
+
+        async function loadBinanceSettings() {
+            if (!currentUser) return;
+            try {
+                const { data } = await supabaseClient
+                    .from('user_binance_keys')
+                    .select('*')
+                    .eq('user_id', currentUser.id)
+                    .maybeSingle();
+
+                if (!data) return;
+
+                const apiKeyInput = document.getElementById('binanceApiKey');
+                const apiSecretInput = document.getElementById('binanceApiSecret');
+                if (apiKeyInput) apiKeyInput.value = data.api_key || '';
+                if (apiSecretInput) apiSecretInput.value = data.api_secret || '';
+
+                const autoToggle = document.getElementById('autoTradeToggle');
+                const futuresToggle = document.getElementById('futuresEnabledToggle');
+                const spotToggle = document.getElementById('spotEnabledToggle');
+                const leverageSelect = document.getElementById('futuresLeverage');
+                const futuresSize = document.getElementById('futuresPositionSize');
+                const spotSize = document.getElementById('spotPositionSize');
+
+                if (autoToggle) autoToggle.checked = !!data.auto_trade_enabled;
+                if (futuresToggle) futuresToggle.checked = !!data.futures_enabled;
+                if (spotToggle) spotToggle.checked = !!data.spot_enabled;
+                if (leverageSelect && data.futures_leverage) leverageSelect.value = String(data.futures_leverage);
+                if (futuresSize && data.futures_position_size_percent) futuresSize.value = String(data.futures_position_size_percent);
+                if (spotSize && data.spot_position_size_percent) spotSize.value = String(data.spot_position_size_percent);
+            } catch (e) {
+                console.error('Binance ayarları yükleme hatası:', e);
             }
         }
 
@@ -1971,6 +2012,120 @@
                 showNotification('Kaydetme başarısız: ' + error.message, 'error');
             }
         }
+
+        window.updateAutoTradeUI = function() {
+            const autoToggle = document.getElementById('autoTradeToggle');
+            const enabled = autoToggle ? autoToggle.checked : false;
+            const ids = [
+                'binanceApiKey',
+                'binanceApiSecret',
+                'futuresEnabledToggle',
+                'spotEnabledToggle',
+                'futuresLeverage',
+                'futuresPositionSize',
+                'spotPositionSize',
+                'testBinanceBtn'
+            ];
+            ids.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.disabled = !enabled;
+                }
+            });
+        };
+
+        window.saveBinanceSettings = async function() {
+            if (!currentUser) {
+                showNotification('Lütfen giriş yapınız!', 'error');
+                return;
+            }
+
+            const apiKey = document.getElementById('binanceApiKey')?.value.trim();
+            const apiSecret = document.getElementById('binanceApiSecret')?.value.trim();
+            const autoTradeEnabled = document.getElementById('autoTradeToggle')?.checked;
+            const futuresEnabled = document.getElementById('futuresEnabledToggle')?.checked;
+            const spotEnabled = document.getElementById('spotEnabledToggle')?.checked;
+            const futuresLeverage = Number(document.getElementById('futuresLeverage')?.value || 10);
+            const futuresPositionSize = Number(document.getElementById('futuresPositionSize')?.value || 5);
+            const spotPositionSize = Number(document.getElementById('spotPositionSize')?.value || 5);
+
+            if (autoTradeEnabled) {
+                if (!apiKey || apiKey.length < 20) {
+                    showNotification('API Key geçersiz.', 'error');
+                    return;
+                }
+                if (!apiSecret || apiSecret.length < 20) {
+                    showNotification('API Secret geçersiz.', 'error');
+                    return;
+                }
+            }
+
+            try {
+                const payload = {
+                    user_id: currentUser.id,
+                    api_key: apiKey || '',
+                    api_secret: apiSecret || '',
+                    auto_trade_enabled: !!autoTradeEnabled,
+                    futures_enabled: !!futuresEnabled,
+                    futures_leverage: futuresLeverage,
+                    futures_position_size_percent: futuresPositionSize,
+                    spot_enabled: !!spotEnabled,
+                    spot_position_size_percent: spotPositionSize,
+                    updated_at: new Date().toISOString()
+                };
+
+                const { error } = await supabaseClient
+                    .from('user_binance_keys')
+                    .upsert(payload, { onConflict: 'user_id' });
+
+                if (error) throw error;
+                showNotification('Binance ayarları kaydedildi.', 'success');
+            } catch (e) {
+                console.error('Binance ayarları kaydetme hatası:', e);
+                showNotification('Binance ayarları kaydedilemedi: ' + (e?.message || 'Hata'), 'error');
+            }
+        };
+
+        window.testBinanceConnection = async function() {
+            const apiKey = document.getElementById('binanceApiKey')?.value.trim();
+            const apiSecret = document.getElementById('binanceApiSecret')?.value.trim();
+
+            if (!apiKey || !apiSecret) {
+                showNotification('API Key ve Secret gerekli.', 'error');
+                return;
+            }
+
+            const statusEl = document.getElementById('binanceConnectionStatus');
+            const futuresEl = document.getElementById('binanceFuturesBalance');
+            const spotEl = document.getElementById('binanceSpotBalance');
+
+            if (statusEl) statusEl.textContent = 'Test ediliyor...';
+            try {
+                const response = await fetch(TELEGRAM_FUNCTION_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'test_binance_connection',
+                        api_key: apiKey,
+                        api_secret: apiSecret
+                    })
+                });
+
+                const result = await response.json();
+                if (response.ok && result.success) {
+                    if (statusEl) statusEl.textContent = 'Bağlı';
+                    if (futuresEl) futuresEl.textContent = `$${Number(result.futures_balance || 0).toFixed(2)}`;
+                    if (spotEl) spotEl.textContent = `$${Number(result.spot_balance || 0).toFixed(2)}`;
+                    showNotification('Binance bağlantısı başarılı.', 'success');
+                } else {
+                    if (statusEl) statusEl.textContent = 'Bağlı Değil';
+                    showNotification(result.error || 'Bağlantı başarısız.', 'warning');
+                }
+            } catch (e) {
+                if (statusEl) statusEl.textContent = 'Bağlı Değil';
+                showNotification('Bağlantı başarısız.', 'error');
+            }
+        };
 
         // Geri Git
         window.goBack = function() {

@@ -213,6 +213,342 @@ async function getCurrentPrice(symbol: string, marketType: "spot" | "futures"): 
 }
 
 // =====================
+// BINANCE TRADE EXECUTION
+// =====================
+async function createBinanceSignature(queryString: string, apiSecret: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = encoder.encode(apiSecret);
+  const message = encoder.encode(queryString);
+
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    key,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  const signature = await crypto.subtle.sign("HMAC", cryptoKey, message);
+  return Array.from(new Uint8Array(signature))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function getBinanceBalance(apiKey: string, apiSecret: string, marketType: "spot" | "futures"): Promise<number> {
+  const timestamp = Date.now();
+  const queryString = `timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+
+  const baseUrl = marketType === "futures"
+    ? "https://fapi.binance.com/fapi/v2/balance"
+    : "https://api.binance.com/api/v3/account";
+
+  const url = `${baseUrl}?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    console.error("❌ Binance balance error:", await response.text());
+    return 0;
+  }
+
+  const data = await response.json();
+
+  if (marketType === "futures") {
+    const usdtBalance = data.find((b: any) => b.asset === "USDT");
+    return parseFloat(usdtBalance?.availableBalance || "0");
+  }
+
+  const usdtBalance = data.balances?.find((b: any) => b.asset === "USDT");
+  return parseFloat(usdtBalance?.free || "0");
+}
+
+async function getSymbolInfo(symbol: string, marketType: "spot" | "futures"): Promise<{ quantityPrecision: number; minQty: number; pricePrecision: number } | null> {
+  const baseUrl = marketType === "futures"
+    ? "https://fapi.binance.com/fapi/v1/exchangeInfo"
+    : "https://api.binance.com/api/v3/exchangeInfo";
+
+  const response = await fetch(baseUrl);
+  if (!response.ok) return null;
+
+  const data = await response.json();
+  const symbolInfo = data.symbols?.find((s: any) => s.symbol === symbol);
+  if (!symbolInfo) return null;
+
+  const lotSizeFilter = symbolInfo.filters?.find((f: any) => f.filterType === "LOT_SIZE");
+  const priceFilter = symbolInfo.filters?.find((f: any) => f.filterType === "PRICE_FILTER");
+
+  const minQty = parseFloat(lotSizeFilter?.minQty || "0.001");
+  const stepSize = lotSizeFilter?.stepSize || "0.001";
+  const tickSize = priceFilter?.tickSize || "0.01";
+
+  const quantityPrecision = stepSize.includes(".")
+    ? stepSize.split(".")[1].replace(/0+$/, "").length
+    : 0;
+
+  const pricePrecision = tickSize.includes(".")
+    ? tickSize.split(".")[1].replace(/0+$/, "").length
+    : 0;
+
+  return { quantityPrecision, minQty, pricePrecision };
+}
+
+async function setLeverage(apiKey: string, apiSecret: string, symbol: string, leverage: number): Promise<boolean> {
+  const timestamp = Date.now();
+  const queryString = `symbol=${symbol}&leverage=${leverage}&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+
+  const url = `https://fapi.binance.com/fapi/v1/leverage?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error(`❌ Set leverage error for ${symbol}:`, error);
+    return false;
+  }
+
+  return true;
+}
+
+async function getFuturesPositionMode(apiKey: string, apiSecret: string): Promise<"ONE_WAY" | "HEDGE" | "UNKNOWN"> {
+  const timestamp = Date.now();
+  const queryString = `timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v1/positionSide/dual?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    return "UNKNOWN";
+  }
+
+  const data = await response.json();
+  return data?.dualSidePosition ? "HEDGE" : "ONE_WAY";
+}
+
+async function openBinanceTrade(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  direction: "LONG" | "SHORT",
+  quantity: number,
+  marketType: "spot" | "futures"
+): Promise<{ success: boolean; orderId?: string; error?: string }> {
+  const timestamp = Date.now();
+  const side = direction === "LONG" ? "BUY" : "SELL";
+
+  let queryString: string;
+  let baseUrl: string;
+
+  if (marketType === "futures") {
+    queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
+    baseUrl = "https://fapi.binance.com/fapi/v1/order";
+  } else {
+    queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
+    baseUrl = "https://api.binance.com/api/v3/order";
+  }
+
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `${baseUrl}?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    return { success: false, error: data?.msg || "Order failed" };
+  }
+
+  return { success: true, orderId: String(data.orderId) };
+}
+
+async function placeTakeProfitStopLoss(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  direction: "LONG" | "SHORT",
+  takeProfit: number,
+  stopLoss: number,
+  pricePrecision: number
+): Promise<{ tpOrderId?: string; slOrderId?: string }> {
+  const closeSide = direction === "LONG" ? "SELL" : "BUY";
+
+  const tpPrice = takeProfit.toFixed(pricePrecision);
+  const slPrice = stopLoss.toFixed(pricePrecision);
+
+  let tpOrderId: string | undefined;
+  let slOrderId: string | undefined;
+
+  const tpTimestamp = Date.now();
+  const tpQuery = `symbol=${symbol}&side=${closeSide}&type=TAKE_PROFIT_MARKET&stopPrice=${tpPrice}&closePosition=true&timestamp=${tpTimestamp}`;
+  const tpSignature = await createBinanceSignature(tpQuery, apiSecret);
+  const tpResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${tpQuery}&signature=${tpSignature}`, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (tpResponse.ok) {
+    const tpData = await tpResponse.json();
+    tpOrderId = String(tpData.orderId);
+  }
+
+  const slTimestamp = Date.now();
+  const slQuery = `symbol=${symbol}&side=${closeSide}&type=STOP_MARKET&stopPrice=${slPrice}&closePosition=true&timestamp=${slTimestamp}`;
+  const slSignature = await createBinanceSignature(slQuery, apiSecret);
+  const slResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${slQuery}&signature=${slSignature}`, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (slResponse.ok) {
+    const slData = await slResponse.json();
+    slOrderId = String(slData.orderId);
+  }
+
+  return { tpOrderId, slOrderId };
+}
+
+async function placeSpotOco(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  quantity: number,
+  takeProfit: number,
+  stopLoss: number,
+  pricePrecision: number
+): Promise<{ success: boolean; error?: string }> {
+  const timestamp = Date.now();
+  const tpPrice = takeProfit.toFixed(pricePrecision);
+  const slPrice = stopLoss.toFixed(pricePrecision);
+  const slValue = Number(stopLoss);
+  const offset = Math.max(slValue * 0.001, 1 / Math.pow(10, pricePrecision));
+  const stopLimitValue = Math.max(0, slValue - offset);
+  const stopLimitPrice = stopLimitValue.toFixed(pricePrecision);
+
+  const queryString = `symbol=${symbol}&side=SELL&type=OCO&quantity=${quantity}`
+    + `&price=${tpPrice}&stopPrice=${slPrice}&stopLimitPrice=${stopLimitPrice}`
+    + `&stopLimitTimeInForce=GTC&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://api.binance.com/api/v3/order/oco?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    return { success: false, error: errorText };
+  }
+
+  return { success: true };
+}
+
+async function executeAutoTrade(
+  userId: string,
+  symbol: string,
+  direction: "LONG" | "SHORT",
+  entryPrice: number,
+  takeProfit: number,
+  stopLoss: number,
+  marketType: "spot" | "futures"
+): Promise<{ success: boolean; message: string; orderId?: string }> {
+  try {
+    const { data: userKeys, error: keysError } = await supabase
+      .from("user_binance_keys")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("auto_trade_enabled", true)
+      .maybeSingle();
+
+    if (keysError || !userKeys) {
+      return { success: false, message: "Auto-trade not enabled" };
+    }
+
+    if (marketType === "futures" && !userKeys.futures_enabled) {
+      return { success: false, message: "Futures auto-trade not enabled" };
+    }
+    if (marketType === "spot" && !userKeys.spot_enabled) {
+      return { success: false, message: "Spot auto-trade not enabled" };
+    }
+
+    const { api_key, api_secret, futures_leverage, futures_position_size_percent, spot_position_size_percent } = userKeys;
+
+    if (marketType === "spot" && direction === "SHORT") {
+      return { success: false, message: "Spot SHORT not supported" };
+    }
+
+    const leverage = marketType === "futures" ? Number(futures_leverage || 10) : 1;
+    const positionSizePercent = marketType === "futures" ? Number(futures_position_size_percent || 5) : Number(spot_position_size_percent || 5);
+
+    const balance = await getBinanceBalance(api_key, api_secret, marketType);
+    if (balance <= 0) {
+      return { success: false, message: "Insufficient balance" };
+    }
+
+    const tradeAmount = balance * (positionSizePercent / 100);
+    const symbolInfo = await getSymbolInfo(symbol, marketType);
+    if (!symbolInfo) {
+      return { success: false, message: "Symbol info not found" };
+    }
+
+    let quantity = tradeAmount / entryPrice;
+    if (marketType === "futures") {
+      quantity = (tradeAmount * leverage) / entryPrice;
+    }
+
+    quantity = Math.floor(quantity * Math.pow(10, symbolInfo.quantityPrecision)) / Math.pow(10, symbolInfo.quantityPrecision);
+
+    if (quantity < symbolInfo.minQty) {
+      return { success: false, message: `Quantity too small: ${quantity} < ${symbolInfo.minQty}` };
+    }
+
+    if (marketType === "futures") {
+      const positionMode = await getFuturesPositionMode(api_key, api_secret);
+      if (positionMode === "HEDGE") {
+        return { success: false, message: "Futures Hedge mode is not supported. Use One-Way." };
+      }
+      await setLeverage(api_key, api_secret, symbol, leverage);
+    }
+
+    const orderResult = await openBinanceTrade(api_key, api_secret, symbol, direction, quantity, marketType);
+    if (!orderResult.success) {
+      return { success: false, message: orderResult.error || "Order failed" };
+    }
+
+    if (marketType === "futures") {
+      await placeTakeProfitStopLoss(api_key, api_secret, symbol, direction, takeProfit, stopLoss, symbolInfo.pricePrecision);
+    } else {
+      const ocoResult = await placeSpotOco(api_key, api_secret, symbol, quantity, takeProfit, stopLoss, symbolInfo.pricePrecision);
+      if (!ocoResult.success) {
+        return { success: false, message: `Spot TP/SL OCO failed: ${ocoResult.error || "unknown"}` };
+      }
+    }
+
+    const leverageText = marketType === "futures" ? ` (${leverage}x)` : "";
+    return {
+      success: true,
+      message: `✅ ${direction} ${quantity} ${symbol}${leverageText} @ $${entryPrice.toFixed(symbolInfo.pricePrecision)}`,
+      orderId: orderResult.orderId
+    };
+  } catch (e) {
+    console.error(`❌ Auto-trade error for ${userId}:`, e);
+    return { success: false, message: e instanceof Error ? e.message : "Unknown error" };
+  }
+}
+
+// =====================
 // Technical Indicators (Simple)
 // =====================
 function calculateRSI(prices: number[], period: number = 14): number {
@@ -1044,7 +1380,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         const timeframe = String(alarm.timeframe || "1h");
         const tpPercent = Number(alarm.tp_percent || 5);
         const slPercent = Number(alarm.sl_percent || 3);
-        const barClose = Number(alarm.bar_close_limit || 5);
+        const barClose = alarm.bar_close_limit === null ? null : Number(alarm.bar_close_limit || 5);
         const direction = detectedSignal?.direction || "LONG";
         const directionTR = direction === "LONG" ? "🟢 LONG" : "🔴 SHORT";
         
@@ -1059,6 +1395,39 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
           : indicators.price * (1 - slPercent / 100);
         const tpPrice = rawTpPrice;
         const slPrice = rawSlPrice;
+
+        // 🚀 AUTO TRADE EXECUTION
+        let tradeResult = { success: false, message: "Auto-trade not triggered" } as { success: boolean; message: string; orderId?: string };
+        let tradeNotificationText = "";
+        const autoTradeEnabled = alarm.auto_trade_enabled === true;
+
+        if (autoTradeEnabled && !alarm.binance_order_id) {
+          tradeResult = await executeAutoTrade(
+            alarm.user_id,
+            symbol,
+            direction,
+            indicators.price,
+            tpPrice,
+            slPrice,
+            normalizeMarketType(alarm.market_type || "spot")
+          );
+
+          if (tradeResult.success) {
+            tradeNotificationText = `\n\n🤖 <b>OTOMATİK İŞLEM:</b>\n${tradeResult.message}`;
+            if (tradeResult.orderId) {
+              await supabase
+                .from("alarms")
+                .update({ binance_order_id: tradeResult.orderId })
+                .eq("id", alarm.id);
+            }
+          } else if (
+            tradeResult.message !== "Auto-trade not enabled" &&
+            tradeResult.message !== "Futures auto-trade not enabled" &&
+            tradeResult.message !== "Spot auto-trade not enabled"
+          ) {
+            tradeNotificationText = `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${tradeResult.message}`;
+          }
+        }
         
         // Format date as DD.MM.YYYY HH:MM:SS in GMT+3 (Turkey timezone)
         const now = new Date();
@@ -1091,9 +1460,10 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
   TP: <b>$${formatPriceWithPrecision(tpPrice, decimals)}</b> (<b>+${tpPercent}%</b>)
   SL: <b>$${formatPriceWithPrecision(slPrice, decimals)}</b> (<b>-${slPercent}%</b>)
 
-⏱️ Bar Sınırı: <b>${barClose}</b>
+${barClose === null ? "" : `⏱️ Bar Sınırı: <b>${barClose}</b>\n`}
 
 ⏰ Zaman: <b>${formattedDateTime}</b>
+${tradeNotificationText}
 `;
 
         // 🚀 INSERT active signal INTO DATABASE
@@ -1526,6 +1896,44 @@ serve(async (req: any) => {
         status: result.ok ? 200 : 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
+    }
+
+    // ✅ Test Binance connection request
+    if (body?.action === "test_binance_connection") {
+      const apiKey = String(body?.api_key || "").trim();
+      const apiSecret = String(body?.api_secret || "").trim();
+
+      if (!apiKey || !apiSecret) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: "Missing API key or secret"
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      try {
+        const futuresBalance = await getBinanceBalance(apiKey, apiSecret, "futures");
+        const spotBalance = await getBinanceBalance(apiKey, apiSecret, "spot");
+
+        return new Response(JSON.stringify({
+          success: true,
+          futures_balance: futuresBalance,
+          spot_balance: spotBalance
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: e instanceof Error ? e.message : "Connection failed"
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
     }
 
     // ✅ If request includes a new signal, insert it (with duplicate prevention)

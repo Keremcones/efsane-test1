@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-title" content="Rolin Signal">
+    <title>Rolin Signal • Binance Bağlantısı</title>
+    <meta name="description" content="Binance API bağlantınızı yönetin, otomatik trade ayarlarını yapın ve bakiyenizi doğrulayın." />
+    <link rel="canonical" href="https://www.rolinsignal.com/binance.html" />
+    <script>
+        if (localStorage.getItem('DEBUG_CONSOLE') !== 'true') {
+            console.log = () => {};
+            console.info = () => {};
+            console.warn = () => {};
+            console.debug = () => {};
+        }
+    </script>
+    <link rel="icon" type="image/svg+xml" href="/logo.svg">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="apple-touch-icon" sizes="167x167" href="/apple-touch-icon-167.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="/apple-touch-icon-152.png">
+    <link rel="apple-touch-icon" sizes="120x120" href="/apple-touch-icon-120.png">
+    <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+    <link rel="manifest" href="/site.webmanifest">
+    <meta name="theme-color" content="#0b0f14">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <script src="/api/env.js"></script>
+    <script src="config.js"></script>
+    <script>
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.dataset.theme = savedTheme;
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: #3a7bd5;
+            --secondary: #4f46e5;
+            --surface-dark: #f8fafc;
+            --bg-surface: #eef2f6;
+            --border-color: rgba(79, 70, 229, 0.22);
+            --text-primary: #1f2a44;
+            --text-secondary: #5c6b87;
+            --success: #2f8f7a;
+            --error: #e15b64;
+            --warning: #c9a227;
+        }
+        html[data-theme="dark"] {
+            --primary: #38e8ff;
+            --secondary: #8b5cf6;
+            --surface-dark: #141c2a;
+            --bg-surface: #0b0f14;
+            --border-color: rgba(56, 232, 255, 0.28);
+            --text-primary: #ffffff;
+            --text-secondary: #9aa4b2;
+            --success: #35d28c;
+            --error: #ff4d6d;
+            --warning: #f5b75b;
+        }
+        html[data-theme="purple"] {
+            --primary: #b86cff;
+            --secondary: #7c5cff;
+            --surface-dark: #191026;
+            --bg-surface: #0b0714;
+            --border-color: rgba(184, 108, 255, 0.32);
+            --text-primary: #f6efff;
+            --text-secondary: #c2b4d6;
+            --success: #35d28c;
+            --error: #ff5c7a;
+            --warning: #f5b75b;
+        }
+        html[data-theme="gold"] {
+            --primary: #f5d06f;
+            --secondary: #ffd86b;
+            --surface-dark: #1b181a;
+            --bg-surface: #0b0b0b;
+            --border-color: rgba(245, 208, 111, 0.3);
+            --text-primary: #f6f1e7;
+            --text-secondary: #c9bba0;
+            --success: #35d28c;
+            --error: #ff6b7a;
+            --warning: #f5d06f;
+        }
+        body {
+            background: radial-gradient(circle at 12% 15%, rgba(58, 123, 213, 0.16), transparent 46%),
+                        radial-gradient(circle at 88% 10%, rgba(79, 70, 229, 0.14), transparent 42%),
+                        linear-gradient(150deg, var(--bg-surface) 0%, var(--surface-dark) 100%);
+            color: var(--text-primary);
+            font-family: 'Sora', sans-serif;
+            min-height: 100vh;
+            padding: 0;
+        }
+        .navbar {
+            background: rgba(240, 246, 255, 0.82);
+            border-bottom: 1px solid rgba(124, 92, 255, 0.24);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            backdrop-filter: blur(14px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 12px 30px rgba(86, 110, 170, 0.22);
+            min-height: 72px;
+        }
+        html[data-theme="dark"] .navbar {
+            background: rgba(11, 15, 20, 0.78);
+            border-bottom: 1px solid rgba(56, 232, 255, 0.16);
+            box-shadow: 0 10px 24px rgba(5, 12, 24, 0.5);
+        }
+        html[data-theme="purple"] .navbar {
+            background: rgba(11, 7, 20, 0.82);
+            border-bottom: 1px solid rgba(184, 108, 255, 0.22);
+            box-shadow: 0 10px 24px rgba(10, 6, 18, 0.6);
+        }
+        html[data-theme="gold"] .navbar {
+            background: rgba(11, 11, 11, 0.86);
+            border-bottom: 1px solid rgba(245, 208, 111, 0.3);
+            box-shadow: 0 10px 24px rgba(5, 4, 3, 0.7);
+        }
+        .navbar-left { display: flex; align-items: center; gap: 12px; }
+        .logo { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text-primary); font-weight: 700; }
+        .logo-img { width: 36px; height: 36px; border-radius: 10px; }
+        .logo-text { font-weight: 700; }
+        .back-btn { background: transparent; border: none; color: var(--text-secondary); font-size: 18px; cursor: pointer; }
+        .hamburger-menu { width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--border-color); background: transparent; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 5px; cursor: pointer; }
+        .hamburger-menu span { width: 22px; height: 2px; background: var(--text-primary); display: block; transition: 0.3s ease; }
+        .menu-panel { position: fixed; top: 0; right: 0; height: 100%; width: 300px; background: var(--surface-dark); border-left: 1px solid var(--border-color); transform: translateX(100%); transition: transform 0.3s ease; z-index: 200; box-shadow: -12px 0 24px rgba(0, 0, 0, 0.2); }
+        .menu-panel.active { transform: translateX(0); }
+        .menu-close { position: absolute; top: 16px; right: 16px; background: transparent; border: none; font-size: 24px; color: var(--text-secondary); cursor: pointer; }
+        .menu-content { padding: 24px; }
+        .menu-user-email { font-size: 14px; color: var(--text-secondary); margin-bottom: 12px; }
+        .menu-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; text-decoration: none; color: var(--text-primary); transition: 0.2s ease; }
+        .menu-item:hover { background: rgba(58, 123, 213, 0.12); }
+        .menu-item.logout-item { background: transparent; border: none; width: 100%; text-align: left; cursor: pointer; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 32px 24px 64px; }
+        .profile-hero { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+        .hero-badge { background: rgba(58, 123, 213, 0.16); color: var(--text-secondary); padding: 6px 12px; border-radius: 999px; font-size: 12px; }
+        .profile-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+        .profile-section { background: rgba(255, 255, 255, 0.06); border: 1px solid var(--border-color); border-radius: 16px; padding: 20px; box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12); }
+        .section-title { font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+        .form-group { margin-bottom: 16px; }
+        .form-label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+        .form-input { width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.06); color: var(--text-primary); }
+        .toggle-group { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+        .toggle-switch { position: relative; width: 52px; height: 28px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255, 255, 255, 0.2); border-radius: 999px; transition: 0.2s; }
+        .toggle-slider:before { position: absolute; content: ""; height: 22px; width: 22px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.2s; }
+        .toggle-switch input:checked + .toggle-slider { background: var(--primary); }
+        .toggle-switch input:checked + .toggle-slider:before { transform: translateX(24px); }
+        .btn { border: 1px solid var(--border-color); border-radius: 10px; padding: 12px 16px; background: rgba(255, 255, 255, 0.08); color: var(--text-primary); cursor: pointer; }
+        .btn-primary { background: linear-gradient(135deg, #38e8ff, #8b5cf6); color: #0b0f14; border: none; }
+        .btn-secondary { background: transparent; }
+        .notification { position: fixed; right: 20px; top: 20px; background: var(--surface-dark); border: 1px solid var(--border-color); padding: 12px 16px; border-radius: 10px; display: flex; align-items: center; gap: 10px; z-index: 999; animation: slideInRight 0.3s ease; }
+        @keyframes slideInRight { from { transform: translateX(50px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes slideOutRight { from { transform: translateX(0); opacity: 1; } to { transform: translateX(50px); opacity: 0; } }
+        .legal-footer { text-align: center; padding: 24px; font-size: 12px; color: var(--text-secondary); }
+        @media (max-width: 768px) {
+            .profile-hero { flex-direction: column; align-items: flex-start; }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="navbar-left">
+            <button class="back-btn" onclick="window.goBack()"><i class="fa-solid fa-arrow-left"></i></button>
+            <a href="index.html" class="logo">
+                <img src="logo.svg" alt="Rolin Signal" class="logo-img" />
+                <span class="logo-text">Rolin Signal</span>
+            </a>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <div class="user-email-header" id="userEmailHeader"></div>
+            <span class="user-role-badge" id="userRoleBadge" style="display:none;"></span>
+            <button class="hamburger-menu" id="hamburgerBtn" onclick="window.toggleHamburgerMenu()" title="Menü">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+        </div>
+    </nav>
+
+    <div class="menu-panel" id="menuPanel">
+        <button class="menu-close" onclick="closeHamburgerMenu()">×</button>
+        <div class="menu-content">
+            <div class="menu-user-info">
+                <div class="menu-user-email" id="menuUserEmail">Yükleniyor...</div>
+            </div>
+            <nav class="menu-nav">
+                <a href="profile.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-user"></i>
+                    Profil
+                </a>
+                <a href="index.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-chart-line"></i>
+                    Dashboard
+                </a>
+                <a href="her-durumda.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-layer-group"></i>
+                    Her Durumda
+                </a>
+                <a href="kazananlar.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-trophy"></i>
+                    Kazananlar
+                </a>
+                <a href="binance.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-brands fa-bitcoin"></i>
+                    Binance Bağlantısı
+                </a>
+                <button class="menu-item logout-item" onclick="window.logout()">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                    Çıkış Yap
+                </button>
+            </nav>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="profile-hero">
+            <div>
+                <h1><i class="fa-brands fa-bitcoin"></i> Binance Bağlantısı</h1>
+                <p>Binance API anahtarlarınızı ve otomatik trade ayarlarınızı yönetin</p>
+            </div>
+            <div class="hero-badge">Premium Özellik</div>
+        </div>
+
+        <div class="profile-grid">
+            <div class="profile-section">
+                <div class="section-title">
+                    <i class="fa-brands fa-bitcoin"></i> Binance Bağlantısı
+                </div>
+
+                <div class="info-box" style="margin-bottom: 12px; color: var(--text-secondary); font-size: 13px;">
+                    API anahtarınızı Binance'den alırken sadece <strong>Enable Spot Trading</strong> ve <strong>Enable Futures</strong> izinlerini verin. <strong>Withdrawal</strong> izni vermeyin.
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">API Key</label>
+                    <input type="text" id="binanceApiKey" class="form-input" placeholder="API Key" autocomplete="off" />
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">API Secret</label>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <input type="password" id="binanceApiSecret" class="form-input" placeholder="API Secret" autocomplete="off" style="flex: 1;" />
+                        <button class="btn btn-secondary" style="padding: 12px 16px; min-width: auto;" onclick="window.togglePasswordVisibility('binanceApiSecret')"><i class="fa-solid fa-eye"></i></button>
+                    </div>
+                </div>
+
+                <div class="toggle-group">
+                    <label class="toggle-label"><i class="fa-solid fa-robot"></i> Otomatik Trade'i Aktif Et</label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="autoTradeToggle" onchange="window.updateAutoTradeUI()" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+
+                <div style="border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-top: 12px;">
+                    <div style="font-weight: 600; margin-bottom: 10px; color: var(--text-primary);">Futures Ayarları</div>
+                    <div class="toggle-group" style="margin-top: 0;">
+                        <label class="toggle-label">Futures Otomatik Trade</label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="futuresEnabledToggle" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Kaldıraç</label>
+                        <select id="futuresLeverage" class="form-input">
+                            <option value="1">1x</option>
+                            <option value="2">2x</option>
+                            <option value="3">3x</option>
+                            <option value="5">5x</option>
+                            <option value="10" selected>10x</option>
+                            <option value="20">20x</option>
+                            <option value="25">25x</option>
+                            <option value="50">50x</option>
+                            <option value="75">75x</option>
+                            <option value="100">100x</option>
+                            <option value="125">125x</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Pozisyon Büyüklüğü</label>
+                        <select id="futuresPositionSize" class="form-input">
+                            <option value="1">%1</option>
+                            <option value="2">%2</option>
+                            <option value="3">%3</option>
+                            <option value="5" selected>%5</option>
+                            <option value="10">%10</option>
+                            <option value="15">%15</option>
+                            <option value="20">%20</option>
+                            <option value="25">%25</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-top: 12px;">
+                    <div style="font-weight: 600; margin-bottom: 10px; color: var(--text-primary);">Spot Ayarları</div>
+                    <div class="toggle-group" style="margin-top: 0;">
+                        <label class="toggle-label">Spot Otomatik Trade</label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="spotEnabledToggle" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Pozisyon Büyüklüğü</label>
+                        <select id="spotPositionSize" class="form-input">
+                            <option value="1">%1</option>
+                            <option value="2">%2</option>
+                            <option value="3">%3</option>
+                            <option value="5" selected>%5</option>
+                            <option value="10">%10</option>
+                            <option value="15">%15</option>
+                            <option value="20">%20</option>
+                            <option value="25">%25</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 12px; margin-top: 12px;">
+                    <button class="btn btn-secondary" id="testBinanceBtn" onclick="window.testBinanceConnection()"><i class="fa-solid fa-plug"></i> API Bağlantısını Test Et</button>
+                    <button class="btn btn-primary" id="saveBinanceBtn" onclick="window.saveBinanceSettings()"><i class="fa-solid fa-floppy-disk"></i> Kaydet</button>
+                </div>
+
+                <div style="margin-top: 12px; font-size: 0.9rem; color: var(--text-secondary);">
+                    <div>Bağlantı durumu: <strong id="binanceConnectionStatus">Bilinmiyor</strong></div>
+                    <div>Futures Bakiye: <strong id="binanceFuturesBalance">-</strong></div>
+                    <div>Spot Bakiye: <strong id="binanceSpotBalance">-</strong></div>
+                </div>
+
+                <div style="background: rgba(245, 183, 91, 0.08); border: 1px solid rgba(245, 183, 91, 0.2); border-radius: 8px; padding: 12px; margin-top: 12px;">
+                    <p style="color: var(--warning); font-size: 12px;">
+                        <i class="fa-solid fa-triangle-exclamation"></i> Otomatik trade işlemleri tamamen sizin sorumluluğunuzdadır. Kayıp riski vardır.
+                    </p>
+                    <p style="color: var(--text-secondary); font-size: 12px; margin-top: 6px;">
+                        <i class="fa-solid fa-circle-info"></i> Bar kapanışı hesaplaması Binance otomatik trade'de desteklenmiyor.
+                    </p>
+                    <ul style="color: var(--text-secondary); font-size: 12px; margin-top: 8px; padding-left: 18px; line-height: 1.6;">
+                        <li>Futures için <strong>One‑Way</strong> pozisyon modu kullanın (Hedge kapalı olmalı).</li>
+                        <li>Spot TP/SL OCO kullanır; fiyat koşulları uygunsa Binance kabul eder.</li>
+                        <li>Minimum miktar/precision nedeniyle küçük bakiyelerde işlem açılmayabilir.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="legal-footer">
+        Yatırım danışmanlığı değildir; genel bilgilendirme amaçlıdır, sorumluluk kullanıcıya aittir.
+    </div>
+
+    <script>
+        let supabaseClient = null;
+        let currentUser = null;
+        let notificationCount = 0;
+        const ADMIN_EMAIL = 'asd@asd.com';
+
+        function updateNotificationPositions() {
+            const notifications = Array.from(document.querySelectorAll('.notification'));
+            notifications.forEach((notification, index) => {
+                notification.dataset.index = index;
+                const topPosition = 20 + (index * 110);
+                notification.style.top = topPosition + 'px';
+            });
+        }
+
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            const iconClass = {
+                success: 'fa-circle-check',
+                error: 'fa-circle-xmark',
+                warning: 'fa-triangle-exclamation',
+                info: 'fa-circle-info'
+            }[type] || 'fa-circle-info';
+            notification.innerHTML = `<span class="notification-icon"><i class="fa-solid ${iconClass}"></i></span><span class="notification-text"></span>`;
+            notification.querySelector('.notification-text').textContent = message;
+            notification.dataset.index = notificationCount;
+            notificationCount++;
+
+            document.body.appendChild(notification);
+            const topPosition = 20 + (notification.dataset.index * 110);
+            notification.style.top = topPosition + 'px';
+
+            setTimeout(() => {
+                notification.style.animation = 'slideOutRight 0.3s ease';
+                setTimeout(() => {
+                    notification.remove();
+                    updateNotificationPositions();
+                }, 300);
+            }, 4000);
+        }
+
+        window.toggleHamburgerMenu = function() {
+            document.getElementById('menuPanel').classList.toggle('active');
+            document.getElementById('hamburgerBtn').classList.toggle('active');
+        };
+        window.closeHamburgerMenu = function() {
+            document.getElementById('menuPanel').classList.remove('active');
+            document.getElementById('hamburgerBtn').classList.remove('active');
+        };
+        window.goBack = function() { window.history.back(); };
+
+        window.logout = async function() {
+            try {
+                if (supabaseClient) {
+                    await supabaseClient.auth.signOut();
+                }
+            } catch {}
+            localStorage.clear();
+            sessionStorage.clear();
+            window.location.href = 'index.html';
+        };
+
+        window.togglePasswordVisibility = function(fieldId) {
+            const field = document.getElementById(fieldId);
+            if (field.type === 'password') field.type = 'text';
+            else field.type = 'password';
+        };
+
+        window.updateAutoTradeUI = function() {
+            const autoToggle = document.getElementById('autoTradeToggle');
+            const enabled = autoToggle ? autoToggle.checked : false;
+            const ids = [
+                'binanceApiKey',
+                'binanceApiSecret',
+                'futuresEnabledToggle',
+                'spotEnabledToggle',
+                'futuresLeverage',
+                'futuresPositionSize',
+                'spotPositionSize',
+                'testBinanceBtn'
+            ];
+            ids.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.disabled = !enabled;
+            });
+        };
+
+        async function loadBinanceSettings() {
+            if (!currentUser) return;
+            try {
+                const { data } = await supabaseClient
+                    .from('user_binance_keys')
+                    .select('*')
+                    .eq('user_id', currentUser.id)
+                    .maybeSingle();
+
+                if (!data) return;
+
+                document.getElementById('binanceApiKey').value = data.api_key || '';
+                document.getElementById('binanceApiSecret').value = data.api_secret || '';
+                document.getElementById('autoTradeToggle').checked = !!data.auto_trade_enabled;
+                document.getElementById('futuresEnabledToggle').checked = !!data.futures_enabled;
+                document.getElementById('spotEnabledToggle').checked = !!data.spot_enabled;
+                document.getElementById('futuresLeverage').value = String(data.futures_leverage || 10);
+                document.getElementById('futuresPositionSize').value = String(data.futures_position_size_percent || 5);
+                document.getElementById('spotPositionSize').value = String(data.spot_position_size_percent || 5);
+            } catch (e) {
+                console.error('Binance ayarları yükleme hatası:', e);
+            }
+        }
+
+        window.saveBinanceSettings = async function() {
+            if (!currentUser) {
+                showNotification('Lütfen giriş yapınız!', 'error');
+                return;
+            }
+
+            const apiKey = document.getElementById('binanceApiKey').value.trim();
+            const apiSecret = document.getElementById('binanceApiSecret').value.trim();
+            const autoTradeEnabled = document.getElementById('autoTradeToggle').checked;
+            const futuresEnabled = document.getElementById('futuresEnabledToggle').checked;
+            const spotEnabled = document.getElementById('spotEnabledToggle').checked;
+            const futuresLeverage = Number(document.getElementById('futuresLeverage').value || 10);
+            const futuresPositionSize = Number(document.getElementById('futuresPositionSize').value || 5);
+            const spotPositionSize = Number(document.getElementById('spotPositionSize').value || 5);
+
+            if (autoTradeEnabled) {
+                if (!apiKey || apiKey.length < 20) {
+                    showNotification('API Key geçersiz.', 'error');
+                    return;
+                }
+                if (!apiSecret || apiSecret.length < 20) {
+                    showNotification('API Secret geçersiz.', 'error');
+                    return;
+                }
+            }
+
+            try {
+                const payload = {
+                    user_id: currentUser.id,
+                    api_key: apiKey || '',
+                    api_secret: apiSecret || '',
+                    auto_trade_enabled: !!autoTradeEnabled,
+                    futures_enabled: !!futuresEnabled,
+                    futures_leverage: futuresLeverage,
+                    futures_position_size_percent: futuresPositionSize,
+                    spot_enabled: !!spotEnabled,
+                    spot_position_size_percent: spotPositionSize,
+                    updated_at: new Date().toISOString()
+                };
+
+                const { error } = await supabaseClient
+                    .from('user_binance_keys')
+                    .upsert(payload, { onConflict: 'user_id' });
+
+                if (error) throw error;
+                showNotification('Binance ayarları kaydedildi.', 'success');
+            } catch (e) {
+                console.error('Binance ayarları kaydetme hatası:', e);
+                showNotification('Binance ayarları kaydedilemedi: ' + (e?.message || 'Hata'), 'error');
+            }
+        };
+
+        window.testBinanceConnection = async function() {
+            const apiKey = document.getElementById('binanceApiKey').value.trim();
+            const apiSecret = document.getElementById('binanceApiSecret').value.trim();
+
+            if (!apiKey || !apiSecret) {
+                showNotification('API Key ve Secret gerekli.', 'error');
+                return;
+            }
+
+            const statusEl = document.getElementById('binanceConnectionStatus');
+            const futuresEl = document.getElementById('binanceFuturesBalance');
+            const spotEl = document.getElementById('binanceSpotBalance');
+
+            if (statusEl) statusEl.textContent = 'Test ediliyor...';
+            try {
+                const response = await fetch(TELEGRAM_FUNCTION_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'test_binance_connection',
+                        api_key: apiKey,
+                        api_secret: apiSecret
+                    })
+                });
+
+                const result = await response.json();
+                if (response.ok && result.success) {
+                    if (statusEl) statusEl.textContent = 'Bağlı';
+                    if (futuresEl) futuresEl.textContent = `$${Number(result.futures_balance || 0).toFixed(2)}`;
+                    if (spotEl) spotEl.textContent = `$${Number(result.spot_balance || 0).toFixed(2)}`;
+                    showNotification('Binance bağlantısı başarılı.', 'success');
+                } else {
+                    if (statusEl) statusEl.textContent = 'Bağlı Değil';
+                    showNotification(result.error || 'Bağlantı başarısız.', 'warning');
+                }
+            } catch (e) {
+                if (statusEl) statusEl.textContent = 'Bağlı Değil';
+                showNotification('Bağlantı başarısız.', 'error');
+            }
+        };
+
+        async function loadAccess() {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) {
+                window.location.replace('login.html');
+                return;
+            }
+
+            currentUser = session.user;
+            document.getElementById('userEmailHeader').textContent = currentUser.email;
+            document.getElementById('menuUserEmail').textContent = currentUser.email;
+
+            const isAdminByEmail = String(currentUser.email || '').toLowerCase() === ADMIN_EMAIL;
+            const { data: userProfile } = await supabaseClient
+                .from('user_profiles')
+                .select('membership_type, is_admin')
+                .eq('id', currentUser.id)
+                .maybeSingle();
+
+            const isAdmin = isAdminByEmail || !!userProfile?.is_admin;
+            const isPremium = (userProfile?.membership_type || 'standard') === 'premium' || isAdmin;
+
+            if (!isPremium) {
+                window.location.replace('premium.html');
+                return;
+            }
+
+            await loadBinanceSettings();
+            window.updateAutoTradeUI();
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            await loadAccess();
+        });
+    </script>
+</body>
+</html>

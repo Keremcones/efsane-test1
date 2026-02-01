@@ -2045,6 +2045,9 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                 
                 // Tüm alarmları bir kez map et ve insert et (loop değil!)
                 const alarmsData = this.alarms.map(alarm => {
+                    const resolvedBarCloseLimit = (alarm.barCloseLimit === null || alarm.bar_close_limit === null)
+                        ? null
+                        : (alarm.barCloseLimit ?? alarm.bar_close_limit ?? 5);
                     const baseData = {
                         user_id: this.userId,
                         symbol: alarm.symbol || 'BTCUSDT',
@@ -2057,7 +2060,8 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                         confidence_score: String(alarm.confidenceScore || alarm.confidence_score || '60'),
                         tp_percent: String(alarm.takeProfitPercent || alarm.tp_percent || '5'),
                         sl_percent: String(alarm.stopLossPercent || alarm.sl_percent || '3'),
-                        bar_close_limit: alarm.barCloseLimit || alarm.bar_close_limit || 5
+                        bar_close_limit: resolvedBarCloseLimit,
+                        auto_trade_enabled: alarm.autoTradeEnabled || alarm.auto_trade_enabled || false
                     };
                     
                     // Alarm türüne göre ek alanlar

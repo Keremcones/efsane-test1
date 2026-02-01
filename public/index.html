@@ -1905,6 +1905,10 @@
                             <i class="fa-solid fa-trophy"></i>
                             Kazananlar
                         </a>
+                        <a href="binance.html" class="menu-item" onclick="closeHamburgerMenu()">
+                            <i class="fa-brands fa-bitcoin"></i>
+                            Binance Bağlantısı
+                        </a>
                         <button class="menu-item logout-item" onclick="logout()">
                             <i class="fa-solid fa-right-from-bracket"></i>
                             Çıkış Yap
@@ -5105,6 +5109,30 @@
                 return;
             }
 
+            let autoTradeEnabled = false;
+            try {
+                const { data: binanceSettings } = await supabaseClient
+                    .from('user_binance_keys')
+                    .select('auto_trade_enabled, futures_enabled, spot_enabled')
+                    .eq('user_id', currentUser.id)
+                    .maybeSingle();
+
+                if (binanceSettings?.auto_trade_enabled) {
+                    if (CURRENT_MARKET_TYPE === 'futures' && binanceSettings?.futures_enabled) {
+                        autoTradeEnabled = true;
+                    }
+                    if (CURRENT_MARKET_TYPE === 'spot' && binanceSettings?.spot_enabled) {
+                        autoTradeEnabled = true;
+                    }
+                }
+            } catch (e) {
+                console.warn('Auto trade ayarı okunamadı:', e);
+            }
+
+            const resolvedBarCloseLimit = (CURRENT_MARKET_TYPE === 'futures' && autoTradeEnabled)
+                ? null
+                : barCloseLimit;
+
             const alarm = {
                 marketType: CURRENT_MARKET_TYPE,
                 symbol: currentSymbol,
@@ -5114,15 +5142,16 @@
                 timeframe: currentTimeframe,
                 takeProfitPercent: takeProfitPercent,
                 stopLossPercent: stopLossPercent,
-                barCloseLimit: barCloseLimit,
+                barCloseLimit: resolvedBarCloseLimit,
                 confidenceScore: confidenceThreshold,
+                autoTradeEnabled: autoTradeEnabled,
                 active: true,
                 createdAt: new Date().toISOString()
             };
 
             await alarmSystem.addAlarm(alarm);
             loadAlarms();
-            showUpdateToast('Alarm kuruldu! Telegram\'da bildirim alacaksınız', 'success');
+            showUpdateToast(autoTradeEnabled ? 'Alarm kuruldu! Otomatik trade aktif.' : 'Alarm kuruldu! Telegram\'da bildirim alacaksınız', 'success');
         }
 
         // Aktif sinyali alarm sistemi'ne ekle
