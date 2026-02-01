@@ -1658,16 +1658,13 @@ ${tradeNotificationText}
           signalInserted = false;
         }
 
-        if (signalInserted) {
-          telegramPromises.push(sendTelegramNotification(alarm.user_id, telegramMessage));
-          console.log(`✅ User alarm triggered for ${symbol}: ${triggerMessage}`);
-        } else {
+        if (!signalInserted) {
           console.warn(`⚠️ active_signals insert failed for ${symbol}`);
-          if (tradeResult.success) {
-            telegramMessage += `\n\n⚠️ <b>Not:</b> Sinyal kaydı oluşturulamadı. Sistem yöneticisine bildirin.`;
-            telegramPromises.push(sendTelegramNotification(alarm.user_id, telegramMessage));
-          }
+          telegramMessage += `\n\n⚠️ <b>Not:</b> Sinyal kaydı oluşturulamadı. Sistem yöneticisine bildirin.`;
         }
+
+        telegramPromises.push(sendTelegramNotification(alarm.user_id, telegramMessage));
+        console.log(`✅ User alarm triggered for ${symbol}: ${triggerMessage}`);
       }
     } catch (e) {
       console.error(`❌ Error checking user alarm ${alarms[i]?.id}:`, e);
