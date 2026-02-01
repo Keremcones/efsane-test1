@@ -617,6 +617,8 @@
         let currentUser = null;
         let notificationCount = 0;
         const ADMIN_EMAIL = 'asd@asd.com';
+        let isLoadingBinanceSettings = false;
+        let autoSaveTimer = null;
 
         function updateNotificationPositions() {
             const notifications = Array.from(document.querySelectorAll('.notification'));
@@ -721,8 +723,17 @@
             });
         };
 
+        function queueAutoSave() {
+            if (isLoadingBinanceSettings || !currentUser) return;
+            if (autoSaveTimer) clearTimeout(autoSaveTimer);
+            autoSaveTimer = setTimeout(() => {
+                window.saveBinanceSettings();
+            }, 800);
+        }
+
         async function loadBinanceSettings() {
             if (!currentUser) return;
+            isLoadingBinanceSettings = true;
             try {
                 const { data } = await supabaseClient
                     .from('user_binance_keys')
@@ -742,7 +753,29 @@
                 document.getElementById('spotPositionSize').value = String(data.spot_position_size_percent || 5);
             } catch (e) {
                 console.error('Binance ayarları yükleme hatası:', e);
+            } finally {
+                isLoadingBinanceSettings = false;
             }
+        }
+
+        function setupAutoSaveListeners() {
+            const ids = [
+                'binanceApiKey',
+                'binanceApiSecret',
+                'autoTradeToggle',
+                'futuresEnabledToggle',
+                'spotEnabledToggle',
+                'futuresLeverage',
+                'futuresPositionSize',
+                'spotPositionSize'
+            ];
+
+            ids.forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.addEventListener('input', queueAutoSave);
+                el.addEventListener('change', queueAutoSave);
+            });
         }
 
         window.saveBinanceSettings = async function() {
@@ -812,9 +845,15 @@
 
             if (statusEl) statusEl.textContent = 'Test ediliyor...';
             try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (SUPABASE_ANON_KEY) {
+                    headers['apikey'] = SUPABASE_ANON_KEY;
+                    headers['Authorization'] = 'Bearer ' + SUPABASE_ANON_KEY;
+                }
+
                 const response = await fetch(TELEGRAM_FUNCTION_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers,
                     body: JSON.stringify({
                         action: 'test_binance_connection',
                         api_key: apiKey,
@@ -868,6 +907,7 @@
 
             await loadBinanceSettings();
             window.updateAutoTradeUI();
+            setupAutoSaveListeners();
         }
 
         document.addEventListener('DOMContentLoaded', async () => {
