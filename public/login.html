@@ -220,6 +220,51 @@
             color: var(--login-muted);
         }
 
+        .forgot-password {
+            margin-top: 12px;
+            text-align: center;
+        }
+
+        .forgot-btn {
+            background: none;
+            border: none;
+            color: var(--login-tab-active);
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        .reset-box {
+            margin-top: 14px;
+            padding: 14px;
+            border-radius: 12px;
+            border: 1px solid var(--login-border);
+            background: rgba(255, 255, 255, 0.04);
+            display: none;
+        }
+
+        .reset-box.active {
+            display: block;
+        }
+
+        .reset-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .reset-btn {
+            padding: 10px 16px;
+            border-radius: 10px;
+            border: 1px solid var(--login-border);
+            background: var(--login-input-bg);
+            color: var(--login-text);
+            font-weight: 600;
+            cursor: pointer;
+        }
+
         .terms-box {
             margin: 12px 0 16px;
             padding: 12px 14px;
@@ -533,6 +578,21 @@
                     <button type="submit" class="login-btn" id="loginBtn">
                         <span>Giriş Yap</span>
                     </button>
+                    <div class="forgot-password">
+                        <button type="button" class="forgot-btn" onclick="toggleResetBox()">Şifremi Unuttum</button>
+                    </div>
+                    <div id="resetBox" class="reset-box">
+                        <div class="form-group">
+                            <label class="form-label">Şifre sıfırlama e-postası</label>
+                            <input type="email" id="resetEmail" class="form-input" placeholder="ornek@email.com">
+                        </div>
+                        <div class="reset-actions">
+                            <button type="button" class="reset-btn" onclick="handlePasswordReset()">Sıfırlama Linki Gönder</button>
+                            <button type="button" class="reset-btn" onclick="toggleResetBox(false)">İptal</button>
+                        </div>
+                        <div id="resetSuccess" class="success-message"></div>
+                        <div id="resetError" class="error-message"></div>
+                    </div>
                 </form>
             </div>
 
@@ -540,6 +600,21 @@
             <div id="signup-content" class="auth-content">
                 <div id="signupError" class="error-message"></div>
                 <div id="signupSuccess" class="success-message"></div>
+                <div id="recoveryBox" class="reset-box">
+                    <div class="form-group">
+                        <label class="form-label">Yeni Şifre</label>
+                        <input type="password" id="newPassword" class="form-input" placeholder="En az 6 karakter">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Yeni Şifre (Tekrar)</label>
+                        <input type="password" id="newPasswordConfirm" class="form-input" placeholder="Şifreyi tekrar gir">
+                    </div>
+                    <div class="reset-actions">
+                        <button type="button" class="reset-btn" onclick="handleUpdatePassword()">Şifreyi Güncelle</button>
+                    </div>
+                    <div id="recoverySuccess" class="success-message"></div>
+                    <div id="recoveryError" class="error-message"></div>
+                </div>
                 <div class="terms-box">
                     Kayıt olmadan önce
                     <button type="button" class="terms-link" onclick="openTermsModal()">Kullanım Koşulları ve Bilgilendirme Metni</button>
@@ -598,14 +673,24 @@ Bu metni onaylamadan kayıt olamazsınız.
     <script>
         let supabaseClient;
 
+        function isRecoveryFlow() {
+            return window.location.hash.includes('type=recovery');
+        }
+
         // Supabase'i başlat
         async function initSupabase() {
             supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
             
             // Zaten login'se dashboard'a yönlendir
             const { data: { session } } = await supabaseClient.auth.getSession();
-            if (session) {
+            if (session && !isRecoveryFlow()) {
                 window.location.href = 'index.html';
+            }
+
+            if (isRecoveryFlow()) {
+                switchTab('signup');
+                const recoveryBox = document.getElementById('recoveryBox');
+                if (recoveryBox) recoveryBox.classList.add('active');
             }
         }
 
@@ -666,11 +751,71 @@ Bu metni onaylamadan kayıt olamazsınız.
             successEl.classList.add('show');
         }
 
+        function showCustomMessage(elementId, message, type = 'success') {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+            el.innerHTML = type === 'success'
+                ? '<i class="fa-solid fa-circle-check"></i><span></span>'
+                : '<i class="fa-solid fa-circle-xmark"></i><span></span>';
+            el.querySelector('span').textContent = message;
+            el.classList.add('show');
+        }
+
         // Mesajları temizle
         function clearMessages() {
             document.querySelectorAll('.error-message, .success-message').forEach(el => {
                 el.classList.remove('show');
             });
+        }
+
+        function toggleResetBox(forceState) {
+            const box = document.getElementById('resetBox');
+            if (!box) return;
+            const shouldOpen = typeof forceState === 'boolean' ? forceState : !box.classList.contains('active');
+            box.classList.toggle('active', shouldOpen);
+        }
+
+        async function handlePasswordReset() {
+            clearMessages();
+            const email = document.getElementById('resetEmail')?.value?.trim() || '';
+            if (!email) {
+                showCustomMessage('resetError', 'Lütfen e-posta adresinizi girin.', 'error');
+                return;
+            }
+            try {
+                const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+                    redirectTo: `${window.location.origin}/login.html#type=recovery`
+                });
+                if (error) throw error;
+                showCustomMessage('resetSuccess', 'Şifre sıfırlama linki e-postanıza gönderildi.', 'success');
+            } catch (error) {
+                showCustomMessage('resetError', getErrorMessage(error), 'error');
+            }
+        }
+
+        async function handleUpdatePassword() {
+            clearMessages();
+            const password = document.getElementById('newPassword')?.value || '';
+            const confirm = document.getElementById('newPasswordConfirm')?.value || '';
+            if (password.length < 6) {
+                showCustomMessage('recoveryError', 'Şifre en az 6 karakter olmalı.', 'error');
+                return;
+            }
+            if (password !== confirm) {
+                showCustomMessage('recoveryError', 'Şifreler eşleşmiyor.', 'error');
+                return;
+            }
+            try {
+                const { error } = await supabaseClient.auth.updateUser({ password });
+                if (error) throw error;
+                showCustomMessage('recoverySuccess', 'Şifreniz güncellendi. Giriş yapabilirsiniz.', 'success');
+                setTimeout(() => {
+                    window.location.hash = '';
+                    switchTab('login');
+                }, 1200);
+            } catch (error) {
+                showCustomMessage('recoveryError', getErrorMessage(error), 'error');
+            }
         }
 
         // Giriş Yap
