@@ -2682,6 +2682,8 @@
             console.log(`Coin listesi güncelleniyor (${marketName} için)...`);
             await loadAllCoins();
             console.log(`Listelendi: ${allCoins.length} coin`);
+
+            updateAutoTradeNotice();
             
             // Dropdown'ı kapat ve listeyi göster
             document.getElementById('coinDropdown').style.display = 'block';
@@ -3943,6 +3945,10 @@
                 backtestHtml = `
                     <div class="card">
                         <div class="card-title"><i class="fa-solid fa-chart-simple"></i> Backtest Sonuçları</div>
+                        <div style="margin: 10px 0 14px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-secondary); font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5;">
+                            <i class="fa-solid fa-circle-info"></i>
+                            Backtest bölümünde işlem açıkken alarm kurarsanız, alarm kurulduktan sonra oluşan yeni sinyal şartlarına göre bildirim gelir. Bu nedenle backtestteki açık işlem ile canlı alarm birebir aynı zamanlamayı göstermez.
+                        </div>
                         <div style="margin-bottom: 16px;">
                             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
                                 <div style="text-align: center;">
@@ -4312,6 +4318,9 @@
                             <div style="margin-top: 10px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-secondary); font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5;">
                                 <i class="fa-solid fa-circle-info"></i>
                                 Otomatik trade açıkken alarm tetiklenirse Binance'te işlem açılır. Kapalıysa sadece Telegram bildirimi gelir.
+                                <span id="autoTradeAlarmNote" style="display: none; margin-top: 6px; color: var(--accent); font-weight: 600;">
+                                    Alarm kurulduğunda Binance ile otomatik trade edeceksiniz.
+                                </span>
                                 Otomatik trade ile işlem yaparken bar kapanışını <strong>99</strong> ayarlayınız; bar kapanışı hesaplaması çalışmaz.
                                 Otomatik trade'i <a href="binance.html" style="color: var(--accent); font-weight: 600;">Binance Bağlantısı</a> sayfasından açabilirsiniz.
                             </div>
@@ -4861,6 +4870,7 @@
                     const logoHtml = createCoinLogoElement(coinSymbol, 24);
                     const marketLabel = (alarm.market_type || alarm.marketType || 'spot').toString().toUpperCase();
                     const autoTradeLabel = alarm.auto_trade_enabled ? ' - OTOMATİK TRADE' : '';
+                    const alarmTitleSuffix = alarm.auto_trade_enabled ? 'Otomatik İşlem' : (alarm.name || 'Alarm');
                     
                     // Description'dan TP/SL/Bar bilgilerini parse et
                     const descriptionMatch = alarm.description ? alarm.description.match(/TP:\s*([\d.]+)%,\s*SL:\s*([\d.-]+)%,\s*Bar:\s*(\d+)/) : null;
@@ -4871,7 +4881,7 @@
                     if (alarm.type === 'ACTIVE_TRADE') {
                         activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;">${logoHtml}<div><span style="font-weight: 600;">${coinSymbol} ${alarm.direction}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span><br><span style="font-size: 0.75rem; color: var(--text-secondary);">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></span></div></div></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;"><div><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div><i class="fa-regular fa-clock"></i> Timeframe: <strong>${alarm.timeframe || '-'}</strong></div><div style="margin-top: 4px;"><i class="fa-solid fa-bullseye"></i> TP: ${alarm.tpPercent}% | <i class="fa-solid fa-circle-stop"></i> SL: ${alarm.slPercent}% | <i class="fa-regular fa-clock"></i> Bar: ${alarm.barCloseLimit || '-'}</div></div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
                     } else {
-                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;"><div>${logoHtml}</div><div><span style="font-weight: 600;">${coinSymbol} - ${alarm.name}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe || '1h'}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span></div></div><span style="font-size: 0.85rem; color: var(--text-secondary);"><i class="fa-solid fa-circle"></i> Aktif</span></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">Timeframe: ${alarm.timeframe || '1h'} | TP: ${tp}% | SL: ${sl}% | Bar: ${bar}</div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
+                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;"><div>${logoHtml}</div><div><span style="font-weight: 600;">${coinSymbol} - ${alarmTitleSuffix}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe || '1h'}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span></div></div><span style="font-size: 0.85rem; color: var(--text-secondary);"><i class="fa-solid fa-circle"></i> Aktif</span></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">Timeframe: ${alarm.timeframe || '1h'} | TP: ${tp}% | SL: ${sl}% | Bar: ${bar}</div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
                     }
                 });
                 activeGrid.innerHTML = activeHtml;
@@ -4892,10 +4902,10 @@
                         closedContainerEl.innerHTML = '<div style="text-align: center; padding: 24px; color: var(--text-secondary);">Alarm sinyalleri yüklenemedi.</div>';
                     } else {
                         const filteredSignals = (activeSignals || [])
-                            .filter(sig => activeAlarmIds.has(Number(sig.alarm_id)) && sig.status === 'ACTIVE');
+                            .filter(sig => activeAlarmIds.has(Number(sig.alarm_id)));
 
                         if (filteredSignals.length === 0) {
-                            closedContainerEl.innerHTML = '<div style="text-align: center; padding: 24px; color: var(--text-secondary);">Henüz aktif sinyal yok.</div>';
+                            closedContainerEl.innerHTML = '<div style="text-align: center; padding: 24px; color: var(--text-secondary);">Henüz sinyal yok.</div>';
                         } else {
                             closedContainerEl.innerHTML = filteredSignals.map(sig => {
                                 const coinSymbol = String(sig.symbol || '').replace('USDT', '');
@@ -5145,7 +5155,7 @@
                 symbol: currentSymbol,
                 type: 'PRICE_LEVEL',
                 name: `${currentSymbol} - Alarm Kuruldu`,
-                description: `Güven skoru: ${confidenceThreshold}%, Timeframe: ${currentTimeframe}, TP: ${takeProfitPercent}%, SL: ${stopLossPercent}%, Bar: ${barCloseLimit}`,
+                description: `Güven skoru: ${confidenceThreshold}%, Timeframe: ${currentTimeframe}, TP: ${takeProfitPercent}%, SL: ${stopLossPercent}%, Bar: ${resolvedBarCloseLimit ?? barCloseLimit}`,
                 timeframe: currentTimeframe,
                 takeProfitPercent: takeProfitPercent,
                 stopLossPercent: stopLossPercent,
@@ -5159,6 +5169,33 @@
             await alarmSystem.addAlarm(alarm);
             loadAlarms();
             showUpdateToast(autoTradeEnabled ? 'Alarm kuruldu! Otomatik trade aktif.' : 'Alarm kuruldu! Telegram\'da bildirim alacaksınız', 'success');
+        }
+
+        async function updateAutoTradeNotice() {
+            const noteEl = document.getElementById('autoTradeAlarmNote');
+            if (!noteEl || !currentUser || !supabaseClient) return;
+
+            let autoTradeEnabled = false;
+            try {
+                const { data: binanceSettings } = await supabaseClient
+                    .from('user_binance_keys')
+                    .select('auto_trade_enabled, futures_enabled, spot_enabled')
+                    .eq('user_id', currentUser.id)
+                    .maybeSingle();
+
+                if (binanceSettings?.auto_trade_enabled) {
+                    if (CURRENT_MARKET_TYPE === 'futures' && binanceSettings?.futures_enabled) {
+                        autoTradeEnabled = true;
+                    }
+                    if (CURRENT_MARKET_TYPE === 'spot' && binanceSettings?.spot_enabled) {
+                        autoTradeEnabled = true;
+                    }
+                }
+            } catch (e) {
+                console.warn('Auto trade notu güncellenemedi:', e);
+            }
+
+            noteEl.style.display = autoTradeEnabled ? 'block' : 'none';
         }
 
         // Aktif sinyali alarm sistemi'ne ekle
@@ -5940,6 +5977,7 @@ Detaylar:
         document.addEventListener('DOMContentLoaded', () => {
             setupConfigListeners();
             startAlarmSignalsPnLUpdate();
+            setTimeout(() => updateAutoTradeNotice(), 1200);
         });
         
         // ⚡ Periyodik açık işlem P&L güncellemesi (her 500ms)

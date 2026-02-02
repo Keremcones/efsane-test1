@@ -212,6 +212,23 @@ async function getCurrentPrice(symbol: string, marketType: "spot" | "futures"): 
   }
 }
 
+async function getFuturesMarkPrice(symbol: string): Promise<number | null> {
+  try {
+    const url = `https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`;
+    const res = await throttledFetch(url);
+    if (!res.ok) {
+      console.error("❌ mark price fetch failed:", await res.text());
+      return null;
+    }
+    const data = await res.json();
+    const p = Number(data?.markPrice);
+    return Number.isFinite(p) ? p : null;
+  } catch (e) {
+    console.error("❌ mark price fetch error:", e);
+    return null;
+  }
+}
+
 // =====================
 // BINANCE TRADE EXECUTION
 // =====================
@@ -1596,6 +1613,12 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             tradeNotificationText = `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${tradeResult.message}`;
           }
         }
+
+        if (!tradeNotificationText) {
+          tradeNotificationText = autoTradeEnabled
+            ? `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${tradeResult.message}`
+            : `\n\nℹ️ <b>Otomatik işlem:</b> Kapalı`;
+        }
         
         // Format date as DD.MM.YYYY HH:MM:SS in GMT+3 (Turkey timezone)
         const now = new Date();
@@ -1713,12 +1736,14 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
     if (!signals || signals.length === 0) return [];
 
     // 🚀 PARALLELIZED: Fetch all prices in parallel
-    const pricePromises = signals.map(signal =>
-      getCurrentPrice(
-        String(signal.symbol || ""),
-        normalizeMarketType(signal.market_type || signal.marketType || signal.market)
-      )
-    );
+    const pricePromises = signals.map(signal => {
+      const marketType = normalizeMarketType(signal.market_type || signal.marketType || signal.market);
+      const symbol = String(signal.symbol || "");
+      if (marketType === "futures") {
+        return getFuturesMarkPrice(symbol).then(p => (p === null ? getCurrentPrice(symbol, marketType) : p));
+      }
+      return getCurrentPrice(symbol, marketType);
+    });
     const prices = await Promise.all(pricePromises);
 
     const closedSignals: ClosedSignal[] = [];
