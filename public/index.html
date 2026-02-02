@@ -4308,7 +4308,8 @@
                                 style="width: 100%; padding: 8px; background: var(--bg-primary); border: 1px solid var(--border); 
                                 border-radius: 6px; color: var(--text-primary); font-weight: 600;"
                                 onchange="barCloseLimit = parseInt(this.value); saveDashboardFilters(); console.log('barCloseLimit değiştirildi:', barCloseLimit); triggerBacktestUpdate();">
-                            <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 6px; margin-bottom: 0; line-height: 1.4;">TP/SL vurmayan işlemler kaç bar içinde kapanacağını belirler. Örnek: 5 bar = 5 bardan sonra işlem otomatik kapanır.</p>
+                            <p id="barLimitHelpText" style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 6px; margin-bottom: 0; line-height: 1.4;">TP/SL vurmayan işlemler kaç bar içinde kapanacağını belirler. Örnek: 5 bar = 5 bardan sonra işlem otomatik kapanır.</p>
+                            <p id="autoTradeBarNote" style="display: none; font-size: 0.75rem; color: var(--accent); margin-top: 6px; margin-bottom: 0; line-height: 1.4; font-weight: 600;">Otomatik trade işlemlerinde bar kapanışı kullanılamaz, 99 olmalıdır.</p>
                         </div>
 
                         ${canCreateAlarm ? `
@@ -4319,9 +4320,9 @@
                                 <i class="fa-solid fa-circle-info"></i>
                                 Otomatik trade açıkken alarm tetiklenirse Binance'te işlem açılır. Kapalıysa sadece Telegram bildirimi gelir.
                                 <span id="autoTradeAlarmNote" style="display: none; margin-top: 6px; color: var(--accent); font-weight: 600;">
-                                    Alarm kurulduğunda Binance ile otomatik trade edeceksiniz.
+                                    Otomatik trade yapıyorsunuz.
                                 </span>
-                                Otomatik trade ile işlem yaparken bar kapanışını <strong>99</strong> ayarlayınız; bar kapanışı hesaplaması çalışmaz.
+                                Otomatik trade ile işlem yaparken bar kapanışı kullanılamaz; bar kapanışı <strong>99</strong> olmalıdır.
                                 Otomatik trade'i <a href="binance.html" style="color: var(--accent); font-weight: 600;">Binance Bağlantısı</a> sayfasından açabilirsiniz.
                             </div>
                         ` : `
@@ -4869,17 +4870,23 @@
                     const coinSymbol = alarm.symbol.replace('USDT', '');
                     const logoHtml = createCoinLogoElement(coinSymbol, 24);
                     const marketLabel = (alarm.market_type || alarm.marketType || 'spot').toString().toUpperCase();
-                    const autoTradeLabel = alarm.auto_trade_enabled ? ' - OTOMATİK TRADE' : '';
-                    const alarmTitleSuffix = alarm.auto_trade_enabled ? 'Otomatik İşlem' : (alarm.name || 'Alarm');
+                    const isAutoTrade = alarm.auto_trade_enabled || alarm.autoTradeEnabled;
+                    const autoTradeLabel = isAutoTrade ? ' - OTOMATİK TRADE' : '';
+                    const alarmTitleSuffix = isAutoTrade ? 'Otomatik İşlem' : (alarm.name || 'Alarm');
                     
                     // Description'dan TP/SL/Bar bilgilerini parse et
                     const descriptionMatch = alarm.description ? alarm.description.match(/TP:\s*([\d.]+)%,\s*SL:\s*([\d.-]+)%,\s*Bar:\s*(\d+)/) : null;
                     const tp = descriptionMatch ? descriptionMatch[1] : alarm.takeProfitPercent || '-';
                     const sl = descriptionMatch ? descriptionMatch[2] : alarm.stopLossPercent || '-';
-                    const bar = descriptionMatch ? descriptionMatch[3] : alarm.barCloseLimit || '-';
+                    const barLimitValue = Number.isFinite(Number(alarm.barCloseLimit))
+                        ? Number(alarm.barCloseLimit)
+                        : (Number.isFinite(Number(alarm.bar_close_limit)) ? Number(alarm.bar_close_limit) : null);
+                    const bar = descriptionMatch
+                        ? descriptionMatch[3]
+                        : (barLimitValue === null ? (isAutoTrade ? 99 : '-') : barLimitValue);
                     
                     if (alarm.type === 'ACTIVE_TRADE') {
-                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;">${logoHtml}<div><span style="font-weight: 600;">${coinSymbol} ${alarm.direction}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span><br><span style="font-size: 0.75rem; color: var(--text-secondary);">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></span></div></div></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;"><div><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div><i class="fa-regular fa-clock"></i> Timeframe: <strong>${alarm.timeframe || '-'}</strong></div><div style="margin-top: 4px;"><i class="fa-solid fa-bullseye"></i> TP: ${alarm.tpPercent}% | <i class="fa-solid fa-circle-stop"></i> SL: ${alarm.slPercent}% | <i class="fa-regular fa-clock"></i> Bar: ${alarm.barCloseLimit || '-'}</div></div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
+                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;">${logoHtml}<div><span style="font-weight: 600;">${coinSymbol} ${alarm.direction}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span><br><span style="font-size: 0.75rem; color: var(--text-secondary);">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></span></div></div></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;"><div><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div><i class="fa-regular fa-clock"></i> Timeframe: <strong>${alarm.timeframe || '-'}</strong></div><div style="margin-top: 4px;"><i class="fa-solid fa-bullseye"></i> TP: ${alarm.tpPercent}% | <i class="fa-solid fa-circle-stop"></i> SL: ${alarm.slPercent}% | <i class="fa-regular fa-clock"></i> Bar: ${bar}</div></div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
                     } else {
                         activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;"><div>${logoHtml}</div><div><span style="font-weight: 600;">${coinSymbol} - ${alarmTitleSuffix}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe || '1h'}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span></div></div><span style="font-size: 0.85rem; color: var(--text-secondary);"><i class="fa-solid fa-circle"></i> Aktif</span></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">Timeframe: ${alarm.timeframe || '1h'} | TP: ${tp}% | SL: ${sl}% | Bar: ${bar}</div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
                     }
@@ -5146,9 +5153,7 @@
                 console.warn('Auto trade ayarı okunamadı:', e);
             }
 
-            const resolvedBarCloseLimit = (CURRENT_MARKET_TYPE === 'futures' && autoTradeEnabled)
-                ? null
-                : barCloseLimit;
+            const resolvedBarCloseLimit = autoTradeEnabled ? null : barCloseLimit;
 
             const alarm = {
                 marketType: CURRENT_MARKET_TYPE,
@@ -5196,6 +5201,29 @@
             }
 
             noteEl.style.display = autoTradeEnabled ? 'block' : 'none';
+
+            const barInput = document.getElementById('barLimitInput');
+            const barNote = document.getElementById('autoTradeBarNote');
+            if (autoTradeEnabled) {
+                if (barCloseLimit !== 99) {
+                    barCloseLimit = 99;
+                    saveDashboardFilters();
+                }
+                if (barInput) {
+                    barInput.value = '99';
+                    barInput.setAttribute('disabled', 'disabled');
+                    barInput.style.opacity = '0.7';
+                    barInput.style.cursor = 'not-allowed';
+                }
+                if (barNote) barNote.style.display = 'block';
+            } else {
+                if (barInput) {
+                    barInput.removeAttribute('disabled');
+                    barInput.style.opacity = '';
+                    barInput.style.cursor = '';
+                }
+                if (barNote) barNote.style.display = 'none';
+            }
         }
 
         // Aktif sinyali alarm sistemi'ne ekle

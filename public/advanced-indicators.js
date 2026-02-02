@@ -2045,9 +2045,12 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                 
                 // Tüm alarmları bir kez map et ve insert et (loop değil!)
                 const alarmsData = this.alarms.map(alarm => {
-                    const resolvedBarCloseLimit = (alarm.barCloseLimit === null || alarm.bar_close_limit === null)
+                    const autoTradeEnabled = alarm.autoTradeEnabled || alarm.auto_trade_enabled || false;
+                    const resolvedBarCloseLimit = autoTradeEnabled
                         ? null
-                        : (alarm.barCloseLimit ?? alarm.bar_close_limit ?? 5);
+                        : ((alarm.barCloseLimit === null || alarm.bar_close_limit === null)
+                            ? null
+                            : (alarm.barCloseLimit ?? alarm.bar_close_limit ?? 5));
                     const baseData = {
                         user_id: this.userId,
                         symbol: alarm.symbol || 'BTCUSDT',
@@ -2061,7 +2064,7 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                         tp_percent: String(alarm.takeProfitPercent || alarm.tp_percent || '5'),
                         sl_percent: String(alarm.stopLossPercent || alarm.sl_percent || '3'),
                         bar_close_limit: resolvedBarCloseLimit,
-                        auto_trade_enabled: alarm.autoTradeEnabled || alarm.auto_trade_enabled || false
+                        auto_trade_enabled: autoTradeEnabled
                     };
                     
                     // Alarm türüne göre ek alanlar
@@ -2122,6 +2125,12 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                 
                 if (data && data.length > 0) {
                     this.alarms = data.map(item => {
+                        const autoTradeEnabled = item.auto_trade_enabled === true;
+                        const rawBarCloseLimit = item.bar_close_limit;
+                        const barCloseLimitValue = Number.isFinite(Number(rawBarCloseLimit))
+                            ? Number(rawBarCloseLimit)
+                            : (autoTradeEnabled ? null : 5);
+                        const barCloseLimitDisplay = barCloseLimitValue === null ? 99 : barCloseLimitValue;
                         const baseAlarm = {
                             id: String(item.id),  // Convert BIGSERIAL number to string for consistent type handling
                             symbol: item.symbol,
@@ -2132,7 +2141,9 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                             confidenceScore: parseInt(item.confidence_score) || 60,
                             takeProfitPercent: parseInt(item.tp_percent) || 5,
                             stopLossPercent: parseInt(item.sl_percent) || 3,
-                            barCloseLimit: item.bar_close_limit || 5
+                            barCloseLimit: barCloseLimitValue,
+                            auto_trade_enabled: autoTradeEnabled,
+                            autoTradeEnabled: autoTradeEnabled
                         };
                         
                         // Alarm türüne göre ek alanlar
@@ -2165,7 +2176,7 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                             ...baseAlarm,
                             type: 'PRICE_LEVEL',
                             name: `${item.symbol} - Alarm`,
-                            description: `Güven skoru: ${item.confidence_score}%, TP: ${item.tp_percent}%, SL: ${item.sl_percent}%, Bar: ${item.bar_close_limit}`
+                            description: `Güven skoru: ${item.confidence_score}%, TP: ${item.tp_percent}%, SL: ${item.sl_percent}%, Bar: ${barCloseLimitDisplay}`
                         };
                     });
                     console.log(`📥 alarms tablosundan ${this.alarms.length} alarm yüklendi`);
@@ -2180,7 +2191,15 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
         // localStorage'dan yükle (fallback veya offline)
         const saved = localStorage.getItem('crypto_alarms');
         if (saved) {
-            this.alarms = JSON.parse(saved);
+            const parsed = JSON.parse(saved);
+            this.alarms = (Array.isArray(parsed) ? parsed : []).map(alarm => {
+                const autoTradeEnabled = alarm.auto_trade_enabled ?? alarm.autoTradeEnabled ?? false;
+                return {
+                    ...alarm,
+                    auto_trade_enabled: autoTradeEnabled,
+                    autoTradeEnabled: autoTradeEnabled
+                };
+            });
         }
     }
     
