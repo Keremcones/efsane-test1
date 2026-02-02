@@ -1960,6 +1960,55 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
     type: "auto_signal",
   };
 
+  // ✅ Alarm exists check: skip orphan signals
+  try {
+    if (newSignal.alarm_id) {
+      const alarmIdNum = Number(newSignal.alarm_id);
+      if (!Number.isFinite(alarmIdNum)) {
+        console.warn("⚠️ Invalid alarm_id for signal insert, skipping:", newSignal.alarm_id);
+        return { inserted: false, duplicate: false };
+      }
+      const { data: alarmRow, error: alarmError } = await supabase
+        .from("alarms")
+        .select("id, is_active, status")
+        .eq("id", alarmIdNum)
+        .eq("user_id", newSignal.user_id)
+        .eq("type", "user_alarm")
+        .maybeSingle();
+
+      if (alarmError) {
+        console.error("❌ Alarm lookup failed:", alarmError);
+        return { inserted: false, duplicate: false };
+      }
+      const status = String(alarmRow?.status || "").toUpperCase();
+      if (!alarmRow || alarmRow.is_active === false || (status && status !== "ACTIVE")) {
+        console.warn("⚠️ Alarm not active/exists, skipping signal insert:", newSignal.alarm_id);
+        return { inserted: false, duplicate: false };
+      }
+    } else {
+      const { data: activeAlarm, error: activeAlarmError } = await supabase
+        .from("alarms")
+        .select("id")
+        .eq("user_id", newSignal.user_id)
+        .eq("type", "user_alarm")
+        .eq("is_active", true)
+        .eq("symbol", newSignal.symbol)
+        .maybeSingle();
+
+      if (activeAlarmError) {
+        console.error("❌ Active alarm lookup failed:", activeAlarmError);
+        return { inserted: false, duplicate: false };
+      }
+      if (!activeAlarm?.id) {
+        console.warn("⚠️ No active alarm for user/symbol, skipping signal insert:", newSignal.symbol);
+        return { inserted: false, duplicate: false };
+      }
+    }
+  } catch (e) {
+    console.error("❌ Alarm validation error:", e);
+    return { inserted: false, duplicate: false };
+  }
+
   // Duplicate check - prevent same signal from being inserted twice
   const { data: existing, error } = await supabase
     .from("active_signals")

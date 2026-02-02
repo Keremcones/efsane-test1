@@ -1405,25 +1405,79 @@ class AlarmSystem {
         if (this.supabase && this.userId) {
             try {
                 console.log('🔄 Supabase DELETE çalışıyor:', { user_id: this.userId, id: numId, type: 'user_alarm' });
-                
-                const deleteResult = await this.supabase
-                    .from('alarms')
-                    .delete()
-                    .eq('user_id', this.userId)
-                    .eq('id', numId)
-                    .eq('type', 'user_alarm');
+                let deletedRows = 0;
+                if (Number.isFinite(numId)) {
+                    const deleteResult = await this.supabase
+                        .from('alarms')
+                        .delete()
+                        .eq('user_id', this.userId)
+                        .eq('id', numId)
+                        .eq('type', 'user_alarm')
+                        .select('id');
+                    deletedRows = deleteResult?.data?.length || 0;
+                    console.log('🗑️ Supabase DELETE result:', deleteResult);
+                }
 
-                console.log('🗑️ Supabase DELETE result:', deleteResult);
-                console.log('🗑️ Alarm silindi:', { id: numId, symbol: alarm?.symbol });
+                if (deletedRows === 0 && alarm) {
+                    console.warn('⚠️ Alarm id eşleşmedi, alanlara göre silme deneniyor...');
+                    let fallbackDelete = this.supabase
+                        .from('alarms')
+                        .delete()
+                        .eq('user_id', this.userId)
+                        .eq('type', 'user_alarm')
+                        .eq('symbol', alarm.symbol || 'BTCUSDT')
+                        .eq('timeframe', alarm.timeframe || '1h')
+                        .eq('market_type', alarm.marketType || 'spot');
+
+                    if (alarm.type === 'PRICE_LEVEL' || alarm.type === 'price') {
+                        if (alarm.targetPrice || alarm.target_price) {
+                            fallbackDelete = fallbackDelete.eq('target_price', alarm.targetPrice || alarm.target_price);
+                        }
+                        if (alarm.condition) {
+                            fallbackDelete = fallbackDelete.eq('condition', alarm.condition);
+                        }
+                    } else if (alarm.type === 'ACTIVE_TRADE' || alarm.type === 'trade') {
+                        if (alarm.entryPrice || alarm.entry_price) {
+                            fallbackDelete = fallbackDelete.eq('entry_price', alarm.entryPrice || alarm.entry_price);
+                        }
+                    }
+
+                    const fallbackResult = await fallbackDelete.select('id');
+                    deletedRows = fallbackResult?.data?.length || 0;
+                    console.log('🗑️ Fallback delete result:', fallbackResult);
+                }
+
+                console.log('🗑️ Alarm silindi:', { id: numId, symbol: alarm?.symbol, deletedRows });
 
                 // Alarm sinyallerini de temizle
-                const deleteSignalsResult = await this.supabase
-                    .from('active_signals')
-                    .delete()
-                    .eq('user_id', this.userId)
-                    .eq('alarm_id', numId);
+                if (Number.isFinite(numId)) {
+                    const deleteSignalsResult = await this.supabase
+                        .from('active_signals')
+                        .delete()
+                        .eq('user_id', this.userId)
+                        .eq('alarm_id', numId);
+                    console.log('🧹 Active signals temizlendi:', deleteSignalsResult);
+                }
 
-                console.log('🧹 Active signals temizlendi:', deleteSignalsResult);
+                if (alarm) {
+                    // Fallback: alarm_id eşleşmezse ilgili sembol/timeframe sinyallerini temizle
+                    let fallbackSignalDelete = this.supabase
+                        .from('active_signals')
+                        .delete()
+                        .eq('user_id', this.userId)
+                        .eq('symbol', alarm.symbol || 'BTCUSDT');
+
+                    if (alarm.timeframe) {
+                        fallbackSignalDelete = fallbackSignalDelete.eq('timeframe', alarm.timeframe);
+                    }
+                    if (alarm.marketType) {
+                        fallbackSignalDelete = fallbackSignalDelete.eq('market_type', alarm.marketType);
+                    }
+
+                    const fallbackSignalsResult = await fallbackSignalDelete;
+                    console.log('🧹 Active signals fallback temizlendi:', fallbackSignalsResult);
+                }
+                await this.loadAlarms();
             } catch (error) {
                 console.error('❌ Supabase silme hatası:', error);
                 // Hata olursa alarmı geri ekle
@@ -2103,6 +2157,8 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                 }
                 
                 console.log('💾 Alarmlar alarms tablosuna kaydedildi');
+                // Supabase id'lerini local'e senkronize et
+                await this.loadAlarms();
             } catch (error) {
                 console.error('❌ Supabase kayıt hatası:', error);
             }
@@ -2180,6 +2236,7 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                         };
                     });
                     console.log(`📥 alarms tablosundan ${this.alarms.length} alarm yüklendi`);
+                    localStorage.setItem('crypto_alarms', JSON.stringify(this.alarms));
                     return;
                 }
             } catch (error) {
