@@ -102,16 +102,16 @@
         }
 
         html[data-theme="dark"] {
-            --bg-primary: #0b0f14;
-            --bg-secondary: #0f1621;
-            --bg-card: #141c2a;
+            --bg-primary: #0f141b;
+            --bg-secondary: #182230;
+            --bg-card: #1e2a3a;
             --accent: #38e8ff;
             --accent-red: #ff4d6d;
             --accent-blue: #8b5cf6;
             --accent-yellow: #f5b75b;
             --text-primary: #ffffff;
             --text-secondary: #9aa4b2;
-            --border: #263044;
+            --border: #2f3c52;
         }
 
         html[data-theme="purple"] {
@@ -2187,8 +2187,12 @@
                         .eq('user_id', currentUser.id)
                         .maybeSingle();
                     if (userSettings?.theme) {
-                        localStorage.setItem('theme', userSettings.theme);
-                        document.documentElement.dataset.theme = userSettings.theme;
+                        const allowedThemes = ['light', 'dark', 'purple', 'gold'];
+                        const storedTheme = localStorage.getItem('theme');
+                        if (!storedTheme || !allowedThemes.includes(storedTheme)) {
+                            localStorage.setItem('theme', userSettings.theme);
+                            document.documentElement.dataset.theme = userSettings.theme;
+                        }
                     }
                     
                     alarmSystem.setSupabaseClient(supabaseClient, currentUser.id, userSettings?.telegram_chat_id);
@@ -2212,8 +2216,12 @@
                         .eq('user_id', currentUser.id)
                         .maybeSingle();
                     if (userSettings?.theme) {
-                        localStorage.setItem('theme', userSettings.theme);
-                        document.documentElement.dataset.theme = userSettings.theme;
+                        const allowedThemes = ['light', 'dark', 'purple', 'gold'];
+                        const storedTheme = localStorage.getItem('theme');
+                        if (!storedTheme || !allowedThemes.includes(storedTheme)) {
+                            localStorage.setItem('theme', userSettings.theme);
+                            document.documentElement.dataset.theme = userSettings.theme;
+                        }
                     }
                     
                     if (alarmSystem) {
