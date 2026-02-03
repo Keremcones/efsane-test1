@@ -100,4 +100,17 @@ if (!DEBUG_CONSOLE) {
     console.info = function () {};
     console.warn = function () {};
 }
+// Theme sync across all pages/tabs
+(() => {
+    const applyTheme = (theme) => {
+        if (!theme) return;
+        document.documentElement.dataset.theme = theme;
+    };
+    applyTheme(localStorage.getItem('theme'));
+    window.addEventListener('storage', (event) => {
+        if (event.key === 'theme') {
+            applyTheme(event.newValue);
+        }
+    });
+})();
 /* Updated Sun Jan 25 02:35:41 +03 2026 */

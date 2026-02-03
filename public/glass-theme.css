@@ -121,6 +121,31 @@ body::after {
   -webkit-backdrop-filter: blur(16px);
 }
 
+.coin-selector-btn,
+.coin-dropdown,
+.coin-item,
+.history-item,
+.tpsl-grid,
+.bar-limit-container,
+.timeframe-btn,
+.result-row,
+.result-row-details {
+  background: var(--glass-bg) !important;
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: 0 14px 34px var(--glass-shadow) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.coin-item:hover {
+  background: var(--glass-hover) !important;
+}
+
+.timeframe-btn.active {
+  background: rgba(52, 211, 153, 0.12) !important;
+  border-color: rgba(52, 211, 153, 0.55) !important;
+}
+
 .mtf-card.active {
   background: rgba(52, 211, 153, 0.08) !important;
   border-color: rgba(52, 211, 153, 0.6) !important;
