@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/",
-      "destination": "/public/home.html"
+      "destination": "/home.html"
     },
     {
       "source": "/api/(.*)",
@@ -10,7 +10,7 @@
     },
     {
       "source": "/(.*)",
-      "destination": "/public/$1"
+      "destination": "/$1"
     }
   ]
 }
