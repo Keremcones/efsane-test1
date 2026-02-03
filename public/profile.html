@@ -341,13 +341,14 @@
             top: 0;
             width: 350px;
             height: 100vh;
-            background: var(--glass-bg);
-            border-left: 1px solid var(--glass-border);
+            background: rgba(18, 20, 28, 0.7);
+            border-left: 1px solid rgba(255, 255, 255, 0.12);
             z-index: 998;
             transition: right 0.3s ease;
             overflow-y: auto;
             backdrop-filter: blur(18px) saturate(140%);
             -webkit-backdrop-filter: blur(18px) saturate(140%);
+            box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
         }
 
         .menu-panel.active {
@@ -357,8 +358,18 @@
         html[data-theme="light"] .menu-panel,
         html[data-theme="purple"] .menu-panel,
         html[data-theme="gold"] .menu-panel {
-            background: var(--glass-bg);
-            border-left: 1px solid var(--glass-border);
+            background: rgba(245, 247, 252, 0.75);
+            border-left: 1px solid rgba(0, 0, 0, 0.08);
+        }
+
+        html[data-theme="purple"] .menu-panel {
+            background: rgba(20, 12, 30, 0.7);
+            border-left: 1px solid rgba(184, 108, 255, 0.25);
+        }
+
+        html[data-theme="gold"] .menu-panel {
+            background: rgba(24, 20, 18, 0.7);
+            border-left: 1px solid rgba(245, 208, 111, 0.28);
         }
 
         .menu-close {
