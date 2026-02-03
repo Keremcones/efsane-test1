@@ -2289,8 +2289,87 @@
             
             console.log('\n===== TEST BİTTİ =====\n');
         };
+
+        // DEBUG: Active signals data health check
+        window.testActiveSignalsHealth = async function() {
+            console.log('\n===== ACTIVE_SIGNALS HEALTH CHECK =====');
+
+            if (!currentUser) {
+                console.error('Kullanıcı giriş yapmamış!');
+                return;
+            }
+
+            try {
+                const { data: signals, error } = await supabaseClient
+                    .from('active_signals')
+                    .select('id, alarm_id, symbol, status, created_at, closed_at, close_reason, profit_loss, entry_price, take_profit, stop_loss')
+                    .eq('user_id', currentUser.id)
+                    .order('created_at', { ascending: false });
+
+                if (error) {
+                    console.error('active_signals sorgu hatası:', error.message);
+                    return;
+                }
+
+                const all = signals || [];
+                const active = all.filter(s => String(s.status || '').toUpperCase() === 'ACTIVE');
+                const closed = all.filter(s => String(s.status || '').toUpperCase() === 'CLOSED');
+
+                const closedMissing = closed.filter(s =>
+                    !s.closed_at ||
+                    !s.close_reason ||
+                    !Number.isFinite(Number(s.profit_loss))
+                );
+
+                const activeWithCloseFields = active.filter(s =>
+                    s.closed_at ||
+                    s.close_reason ||
+                    Number.isFinite(Number(s.profit_loss))
+                );
+
+                const alarmIds = Array.from(new Set(all.map(s => s.alarm_id).filter(Boolean)));
+                let missingAlarmIds: Array<number> = [];
+
+                if (alarmIds.length > 0) {
+                    const { data: alarms, error: alarmErr } = await supabaseClient
+                        .from('alarms')
+                        .select('id')
+                        .in('id', alarmIds);
+
+                    if (!alarmErr) {
+                        const existingIds = new Set((alarms || []).map(a => Number(a.id)));
+                        missingAlarmIds = alarmIds.filter(id => !existingIds.has(Number(id)));
+                    }
+                }
+
+                console.log(`Toplam sinyal: ${all.length}`);
+                console.log(`Aktif: ${active.length} | Kapalı: ${closed.length}`);
+                console.log(`Kapalı ama eksik alanlar: ${closedMissing.length}`);
+                console.log(`Aktif ama kapanış alanı var: ${activeWithCloseFields.length}`);
+                console.log(`Alarm kaydı bulunamayan sinyal: ${missingAlarmIds.length}`);
+
+                if (closedMissing.length) {
+                    console.warn('⚠️ Kapalı ama eksik alanlar:', closedMissing);
+                }
+                if (activeWithCloseFields.length) {
+                    console.warn('⚠️ Aktif ama kapanış alanı var:', activeWithCloseFields);
+                }
+                if (missingAlarmIds.length) {
+                    console.warn('⚠️ Alarm kaydı yok:', missingAlarmIds);
+                }
+
+                if (typeof showUpdateToast === 'function') {
+                    showUpdateToast('Active signals denetimi tamamlandı. Detaylar console’da.', 'success');
+                }
+
+            } catch (e) {
+                console.error('Active signals health check hata:', e);
+            }
+
+            console.log('===== HEALTH CHECK BİTTİ =====\n');
+        };
         
-        console.log('Test komutu: testSupabaseSettings() yazıp Enter tuşuna bas');
+        console.log('Test komutları: testSupabaseSettings(), testActiveSignalsHealth() yazıp Enter tuşuna bas');
         
         
         // Supabase real-time subscription
