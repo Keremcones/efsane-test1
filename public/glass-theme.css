@@ -97,6 +97,7 @@ body::after {
 .stat-card,
 .analysis-card,
 .news-card,
+.prediction-card,
 .toast {
   background: var(--glass-bg) !important;
   border: 1px solid var(--glass-border) !important;

@@ -697,8 +697,8 @@
         
         /* AI Prediction */
         .prediction-card {
-            background: linear-gradient(135deg, var(--bg-secondary), var(--bg-card));
-            border: 1px solid var(--border);
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
             border-radius: 12px;
             padding: 24px;
             margin: 0;
@@ -721,6 +721,15 @@
         .prediction-card .prediction-section {
             width: 100%;
             text-align: center;
+        }
+
+        .prediction-card .prediction-highlight {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
         }
 
         .prediction-card .card-title {
@@ -3972,7 +3981,7 @@
                             <div class="prediction-section" style="color: var(--text-secondary);">
                                 ${prediction.model} ile tahmin
                             </div>
-                            <div class="prediction-section" style="display: flex; flex-direction: column; align-items: center; padding: 12px; background: var(--bg-secondary); border-radius: 8px;">
+                            <div class="prediction-section prediction-highlight" style="display: flex; flex-direction: column; align-items: center; padding: 12px;">
                                 <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">Tahmin Fiyat</div>
                                 <div class="prediction-value">
                                     $${predictionPriceFormatted}
