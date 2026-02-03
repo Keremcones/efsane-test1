@@ -1435,28 +1435,27 @@
             top: 0;
             width: 350px;
             height: 100vh;
-            background: rgba(18, 20, 28, 0.7);
-            border-left: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(15, 18, 28, 0.96);
+            border-left: 1px solid rgba(56, 232, 255, 0.18);
             z-index: 998;
             transition: right 0.3s ease;
             overflow-y: auto;
-            backdrop-filter: blur(18px) saturate(140%);
-            -webkit-backdrop-filter: blur(18px) saturate(140%);
-            box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
         }
 
         html[data-theme="light"] .menu-panel {
-            background: rgba(245, 247, 252, 0.75);
-            border-left: 1px solid rgba(0, 0, 0, 0.08);
+            background: rgba(233, 238, 248, 0.96);
+            border-left: 1px solid rgba(79, 70, 229, 0.18);
         }
 
         html[data-theme="purple"] .menu-panel {
-            background: rgba(20, 12, 30, 0.7);
+            background: rgba(12, 8, 22, 0.96);
             border-left: 1px solid rgba(184, 108, 255, 0.25);
         }
 
         html[data-theme="gold"] .menu-panel {
-            background: rgba(24, 20, 18, 0.7);
+            background: rgba(12, 11, 12, 0.96);
             border-left: 1px solid rgba(245, 208, 111, 0.28);
         }
 
@@ -4936,8 +4935,34 @@
         
         // Risk calculator removed
         
+        function getActiveAlarmCount() {
+            const alarms = (alarmSystem && alarmSystem.alarms) ? alarmSystem.alarms : [];
+            return alarms.filter(alarm => alarm.active !== false && alarm.status !== 'KAPANDI').length;
+        }
+
+        function canCreatePremiumAlarm() {
+            if (currentIsAdmin) return true;
+            if (currentMembershipType !== 'premium') return true;
+            const activeCount = getActiveAlarmCount();
+            if (activeCount >= 5) {
+                if (typeof showUpdateToast === 'function') {
+                    showUpdateToast('Premium kullanıcılar en fazla 5 aktif alarm kurabilir', 'warning');
+                } else {
+                    alert('Premium kullanıcılar en fazla 5 aktif alarm kurabilir');
+                }
+                return false;
+            }
+            return true;
+        }
+
         // Alarm ekle modal
         async function showAddAlarmModal() {
+            const canCreateAlarm = currentIsAdmin || currentMembershipType === 'premium';
+            if (!canCreateAlarm) {
+                showUpdateToast('Alarm kurmak için Premium gerekli', 'warning');
+                return;
+            }
+            if (!canCreatePremiumAlarm()) return;
             const alarmType = prompt('Alarm tipi seçin:\n1. Fiyat Alarmı\n2. RSI Alarmı', '1');
             
             if (!alarmType) return;
@@ -5278,6 +5303,7 @@
                 showUpdateToast('Alarm kurmak için Premium gerekli', 'warning');
                 return;
             }
+            if (!canCreatePremiumAlarm()) return;
             if (!currentAnalysis) {
                 showUpdateToast('Lütfen önce bir coin seçin ve analiz yapılmasını bekleyin', 'warning');
                 return;
