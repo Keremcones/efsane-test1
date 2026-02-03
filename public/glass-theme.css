@@ -102,8 +102,8 @@ body::after {
   background: var(--glass-bg) !important;
   border: 1px solid var(--glass-border) !important;
   box-shadow: 0 18px 48px var(--glass-shadow) !important;
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(140%) !important;
   border-radius: 20px;
 }
 
@@ -149,6 +149,15 @@ body::after {
   box-shadow: 0 14px 34px var(--glass-shadow) !important;
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
+}
+
+.glass-section,
+.support-resistance-block {
+  background: var(--glass-bg) !important;
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: 0 16px 40px var(--glass-shadow) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .indicator.updated {
