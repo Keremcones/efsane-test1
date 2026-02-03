@@ -4049,6 +4049,7 @@
                 `;
             }
 
+
             const canCreateAlarm = currentIsAdmin || currentMembershipType === 'premium';
             
             document.getElementById('analysisContent').innerHTML = `
@@ -4339,6 +4340,7 @@
                 <div style="margin-bottom: 32px;">
                     ${backtestHtml}
                 </div>
+
                 
                 <!-- Haberler Bölümü -->
                 <div class="grid">
@@ -4900,7 +4902,7 @@
                     const activeAlarmIds = new Set(activeAlarms.map(a => Number(a.id)));
                     const { data: activeSignals, error } = await supabaseClient
                         .from('active_signals')
-                        .select('id, alarm_id, symbol, direction, entry_price, take_profit, stop_loss, tp_percent, sl_percent, bar_close_limit, score, status, created_at')
+                        .select('id, alarm_id, symbol, direction, entry_price, take_profit, stop_loss, tp_percent, sl_percent, bar_close_limit, score, status, created_at, profit_loss, close_reason, closed_at')
                         .eq('user_id', currentUser.id)
                         .order('created_at', { ascending: false });
 
@@ -4919,11 +4921,16 @@
                                 const logoHtml = createCoinLogoElement(coinSymbol, 20);
                                 const score = Number(sig.score || 0);
                                 const entryPrice = parseFloat(sig.entry_price);
+                                const statusRaw = String(sig.status || '').toUpperCase();
+                                const isClosed = statusRaw === 'CLOSED';
+                                const storedPnl = Number(sig.profit_loss);
                                 const livePrice = parseFloat(localStorage.getItem(`price_${sig.symbol}`) || String(entryPrice));
                                 const rawPnl = sig.direction === 'SHORT'
                                     ? ((entryPrice - livePrice) / entryPrice) * 100
                                     : ((livePrice - entryPrice) / entryPrice) * 100;
-                                const pnlPercent = Number.isFinite(rawPnl) ? parseFloat(rawPnl.toFixed(2)) : 0;
+                                const pnlPercent = isClosed && Number.isFinite(storedPnl)
+                                    ? parseFloat(storedPnl.toFixed(2))
+                                    : (Number.isFinite(rawPnl) ? parseFloat(rawPnl.toFixed(2)) : 0);
                                 const pnlClass = pnlPercent >= 0 ? 'positive' : 'negative';
                                 const pnlSign = pnlPercent >= 0 ? '+' : '';
                                 const tpPercent = Number(sig.tp_percent);
@@ -4932,9 +4939,21 @@
                                 const tpText = Number.isFinite(tpPercent) ? `${tpPercent}%` : '-';
                                 const slText = Number.isFinite(slPercent) ? `${slPercent}%` : '-';
                                 const barText = Number.isFinite(barLimit) ? `${barLimit}` : '-';
-                                const statusRaw = String(sig.status || '').toUpperCase();
-                                const statusText = statusRaw === 'CLOSED' ? 'KAPALI' : 'AKTİF';
-                                const statusClass = statusRaw === 'CLOSED' ? 'negative' : 'positive';
+                                const closeReasonRaw = String(sig.close_reason || '').toUpperCase();
+                                const closeReasonText = closeReasonRaw === 'TP_HIT'
+                                    ? 'TP'
+                                    : closeReasonRaw === 'SL_HIT'
+                                        ? 'SL'
+                                        : closeReasonRaw === 'BAR_CLOSE'
+                                            ? 'BAR'
+                                            : closeReasonRaw === 'CLOSED_BY_USER'
+                                                ? 'KULLANICI'
+                                                : '';
+                                const statusText = isClosed ? `KAPALI${closeReasonText ? ` (${closeReasonText})` : ''}` : 'AKTİF';
+                                const statusClass = isClosed ? 'negative' : 'positive';
+                                const pnlAttrs = isClosed && Number.isFinite(storedPnl)
+                                    ? ''
+                                    : ` data-alarm-signal-pnl="1" data-symbol="${sig.symbol}" data-direction="${sig.direction}" data-entry="${sig.entry_price}"`;
                                 return `
                                     <div class="alarm-card" style="margin-bottom: 12px;">
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;">
@@ -4947,7 +4966,7 @@
                                             </div>
                                             <div style="display:flex;align-items:center;gap:8px;">
                                                 <span class="price-change ${statusClass}" style="font-size:0.75rem;padding:3px 8px;">${statusText}</span>
-                                                <span class="price-change ${pnlClass}" data-alarm-signal-pnl="1" data-symbol="${sig.symbol}" data-direction="${sig.direction}" data-entry="${sig.entry_price}">${pnlSign}${pnlPercent}%</span>
+                                                <span class="price-change ${pnlClass}"${pnlAttrs}>${pnlSign}${pnlPercent}%</span>
                                             </div>
                                         </div>
                                         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
@@ -5686,6 +5705,7 @@ Detaylar:
                 }
             }
         }
+
         
         function refreshAnalysisDisplay() {
             // Analiz bölümünü yeniden render et
