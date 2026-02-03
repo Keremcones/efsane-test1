@@ -29,10 +29,15 @@
         <meta name="theme-color" content="#0b0f14">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <link rel="stylesheet" href="glass-theme.css?v=20260203">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
         const savedTheme = localStorage.getItem('theme') || 'dark';
         document.documentElement.dataset.theme = savedTheme;
+    </script>
+    <script>
+        window.toggleHamburgerMenu = window.toggleHamburgerMenu || function() {};
+        window.closeHamburgerMenu = window.closeHamburgerMenu || function() {};
     </script>
     <style>
         * {
