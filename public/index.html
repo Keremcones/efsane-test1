@@ -1435,27 +1435,27 @@
             top: 0;
             width: 350px;
             height: 100vh;
-            background: rgba(15, 18, 28, 0.96);
-            border-left: 1px solid rgba(56, 232, 255, 0.18);
+            background: var(--glass-bg);
+            border-left: 1px solid var(--glass-border);
             z-index: 998;
             transition: right 0.3s ease;
             overflow-y: auto;
-            backdrop-filter: blur(8px);
+            backdrop-filter: blur(18px);
         }
 
         html[data-theme="light"] .menu-panel {
-            background: rgba(233, 238, 248, 0.96);
-            border-left: 1px solid rgba(79, 70, 229, 0.18);
+            background: var(--glass-bg);
+            border-left: 1px solid var(--glass-border);
         }
 
         html[data-theme="purple"] .menu-panel {
-            background: rgba(12, 8, 22, 0.96);
-            border-left: 1px solid rgba(184, 108, 255, 0.25);
+            background: var(--glass-bg);
+            border-left: 1px solid var(--glass-border);
         }
 
         html[data-theme="gold"] .menu-panel {
-            background: rgba(12, 11, 12, 0.96);
-            border-left: 1px solid rgba(245, 208, 111, 0.28);
+            background: var(--glass-bg);
+            border-left: 1px solid var(--glass-border);
         }
 
         .menu-panel.active {

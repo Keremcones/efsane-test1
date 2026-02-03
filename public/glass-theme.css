@@ -137,6 +137,24 @@ body::after {
   -webkit-backdrop-filter: blur(14px);
 }
 
+.indicator,
+.signal-card,
+.level,
+.chart-container,
+.sr-level,
+.confidence-control,
+.confidence-info-item {
+  background: var(--glass-bg) !important;
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: 0 14px 34px var(--glass-shadow) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.indicator.updated {
+  background: rgba(52, 211, 153, 0.12) !important;
+}
+
 .coin-item:hover {
   background: var(--glass-hover) !important;
 }
