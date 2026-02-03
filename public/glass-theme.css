@@ -107,6 +107,30 @@ body::after {
   border-radius: 20px;
 }
 
+.mtf-card,
+.pattern-card,
+.fib-level,
+.volume-container,
+.risk-calculator,
+.calculator-result,
+.backtest-results {
+  background: var(--glass-bg) !important;
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: 0 16px 40px var(--glass-shadow) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.mtf-card.active {
+  background: rgba(52, 211, 153, 0.08) !important;
+  border-color: rgba(52, 211, 153, 0.6) !important;
+}
+
+.pattern-card.detected {
+  background: rgba(52, 211, 153, 0.12) !important;
+  border-color: rgba(52, 211, 153, 0.55) !important;
+}
+
 .card,
 .alarm-card,
 .signal-card,
