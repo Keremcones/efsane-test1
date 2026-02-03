@@ -1393,6 +1393,9 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
   }
   console.log(`📌 Open auto_signal count: ${openSignalKeys.size}`);
 
+  const openPositionCache = new Map<string, boolean>();
+  const userKeysCache = new Map<string, { api_key: string; api_secret: string; futures_enabled: boolean }>();
+
   // ⚠️ SEQUENTIAL (NOT parallel): Calculate indicators one-by-one to avoid rate limiting
   // 🔴 ÖNEMLİ: Back test'e göre hep 100 bar kullanılıyor, AMA o barların timeframe'i user'ın alarm.timeframe'i ile aynı olmalı!
   const indicatorsResults: (any)[] = [];
@@ -1439,6 +1442,47 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       if (!indicators) {
         console.log(`⚠️ No indicators calculated for ${alarm.symbol}`);
         continue;
+      }
+
+      if (alarmMarketType === "futures" && alarm.auto_trade_enabled === true) {
+        const positionKey = `${alarm.user_id}:${alarmSymbol}`;
+        if (!openPositionCache.has(positionKey)) {
+          try {
+            let keys = userKeysCache.get(String(alarm.user_id));
+            if (!keys) {
+              const { data: userKeys, error: keysError } = await supabase
+                .from("user_binance_keys")
+                .select("api_key, api_secret, futures_enabled")
+                .eq("user_id", alarm.user_id)
+                .eq("auto_trade_enabled", true)
+                .maybeSingle();
+
+              if (!keysError && userKeys) {
+                keys = {
+                  api_key: userKeys.api_key,
+                  api_secret: userKeys.api_secret,
+                  futures_enabled: userKeys.futures_enabled === true
+                };
+                userKeysCache.set(String(alarm.user_id), keys);
+              }
+            }
+
+            if (keys && keys.futures_enabled) {
+              const hasOpen = await hasOpenFuturesPosition(keys.api_key, keys.api_secret, alarmSymbol);
+              openPositionCache.set(positionKey, hasOpen);
+            } else {
+              openPositionCache.set(positionKey, false);
+            }
+          } catch (e) {
+            console.error(`❌ Open position check failed for ${alarmSymbol}:`, e);
+            openPositionCache.set(positionKey, false);
+          }
+        }
+
+        if (openPositionCache.get(positionKey)) {
+          console.log(`⏹️ Skipping alarm ${alarm.id} for ${alarmSymbol}: open futures position exists.`);
+          continue;
+        }
       }
 
       let shouldTrigger = false;
