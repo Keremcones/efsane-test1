@@ -53,6 +53,21 @@ function getTickSizeDecimals(tickSize: string): number {
   return trimmed.length;
 }
 
+function roundToTick(value: number, tickSize: number, mode: "NEAREST" | "UP" | "DOWN" = "NEAREST"): number {
+  if (!Number.isFinite(value) || !Number.isFinite(tickSize) || tickSize <= 0) return value;
+  const scaled = value / tickSize;
+  const epsilon = 1e-12;
+  let rounded: number;
+  if (mode === "UP") {
+    rounded = Math.ceil(scaled - epsilon);
+  } else if (mode === "DOWN") {
+    rounded = Math.floor(scaled + epsilon);
+  } else {
+    rounded = Math.round(scaled);
+  }
+  return rounded * tickSize;
+}
+
 async function getSymbolPricePrecision(symbol: string, marketType: "spot" | "futures"): Promise<number | null> {
   const cacheKey = marketType;
   const now = Date.now();
@@ -282,7 +297,7 @@ async function getBinanceBalance(apiKey: string, apiSecret: string, marketType: 
   return parseFloat(usdtBalance?.free || "0");
 }
 
-async function getSymbolInfo(symbol: string, marketType: "spot" | "futures"): Promise<{ quantityPrecision: number; minQty: number; pricePrecision: number } | null> {
+async function getSymbolInfo(symbol: string, marketType: "spot" | "futures"): Promise<{ quantityPrecision: number; minQty: number; pricePrecision: number; tickSize: number } | null> {
   const baseUrl = marketType === "futures"
     ? "https://fapi.binance.com/fapi/v1/exchangeInfo"
     : "https://api.binance.com/api/v3/exchangeInfo";
@@ -309,7 +324,7 @@ async function getSymbolInfo(symbol: string, marketType: "spot" | "futures"): Pr
     ? tickSize.split(".")[1].replace(/0+$/, "").length
     : 0;
 
-  return { quantityPrecision, minQty, pricePrecision };
+  return { quantityPrecision, minQty, pricePrecision, tickSize: parseFloat(tickSize) };
 }
 
 async function setLeverage(apiKey: string, apiSecret: string, symbol: string, leverage: number): Promise<boolean> {
@@ -397,12 +412,22 @@ async function placeTakeProfitStopLoss(
   direction: "LONG" | "SHORT",
   takeProfit: number,
   stopLoss: number,
-  pricePrecision: number
+  pricePrecision: number,
+  tickSize: number
 ): Promise<{ tpOrderId?: string; slOrderId?: string; tpError?: string; slError?: string }> {
   const closeSide = direction === "LONG" ? "SELL" : "BUY";
-
-  const tpPrice = takeProfit.toFixed(pricePrecision);
-  const slPrice = stopLoss.toFixed(pricePrecision);
+  const tpRounded = roundToTick(
+    takeProfit,
+    tickSize,
+    direction === "LONG" ? "UP" : "DOWN"
+  );
+  const slRounded = roundToTick(
+    stopLoss,
+    tickSize,
+    direction === "LONG" ? "DOWN" : "UP"
+  );
+  const tpPrice = tpRounded.toFixed(pricePrecision);
+  const slPrice = slRounded.toFixed(pricePrecision);
 
   let tpOrderId: string | undefined;
   let slOrderId: string | undefined;
@@ -523,15 +548,19 @@ async function placeSpotOco(
   quantity: number,
   takeProfit: number,
   stopLoss: number,
-  pricePrecision: number
+  pricePrecision: number,
+  tickSize: number
 ): Promise<{ success: boolean; error?: string }> {
   const timestamp = Date.now();
-  const tpPrice = takeProfit.toFixed(pricePrecision);
-  const slPrice = stopLoss.toFixed(pricePrecision);
-  const slValue = Number(stopLoss);
+  const tpRounded = roundToTick(takeProfit, tickSize, "UP");
+  const slRounded = roundToTick(stopLoss, tickSize, "DOWN");
+  const tpPrice = tpRounded.toFixed(pricePrecision);
+  const slPrice = slRounded.toFixed(pricePrecision);
+  const slValue = Number(slRounded);
   const offset = Math.max(slValue * 0.001, 1 / Math.pow(10, pricePrecision));
   const stopLimitValue = Math.max(0, slValue - offset);
-  const stopLimitPrice = stopLimitValue.toFixed(pricePrecision);
+  const stopLimitRounded = roundToTick(stopLimitValue, tickSize, "DOWN");
+  const stopLimitPrice = stopLimitRounded.toFixed(pricePrecision);
 
   const queryString = `symbol=${symbol}&side=SELL&type=OCO&quantity=${quantity}`
     + `&price=${tpPrice}&stopPrice=${slPrice}&stopLimitPrice=${stopLimitPrice}`
@@ -688,7 +717,7 @@ async function executeAutoTrade(
     }
 
     if (marketType === "futures") {
-      const tpSlResult = await placeTakeProfitStopLoss(api_key, api_secret, symbol, direction, takeProfit, stopLoss, symbolInfo.pricePrecision);
+      const tpSlResult = await placeTakeProfitStopLoss(api_key, api_secret, symbol, direction, takeProfit, stopLoss, symbolInfo.pricePrecision, symbolInfo.tickSize);
       let warningText = "";
       if (!tpSlResult.tpOrderId && tpSlResult.tpError) {
         warningText += ` TP oluşturulamadı: ${escapeTelegram(tpSlResult.tpError)}`;
@@ -704,7 +733,7 @@ async function executeAutoTrade(
         };
       }
     } else {
-      const ocoResult = await placeSpotOco(api_key, api_secret, symbol, quantity, takeProfit, stopLoss, symbolInfo.pricePrecision);
+      const ocoResult = await placeSpotOco(api_key, api_secret, symbol, quantity, takeProfit, stopLoss, symbolInfo.pricePrecision, symbolInfo.tickSize);
       if (!ocoResult.success) {
         return { success: false, message: `Spot TP/SL OCO failed: ${ocoResult.error || "unknown"}` };
       }
