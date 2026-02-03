@@ -2338,7 +2338,7 @@
                 );
 
                 const alarmIds = Array.from(new Set(all.map(s => s.alarm_id).filter(Boolean)));
-                let missingAlarmIds: Array<number> = [];
+                let missingAlarmIds = [];
 
                 if (alarmIds.length > 0) {
                     const { data: alarms, error: alarmErr } = await supabaseClient
