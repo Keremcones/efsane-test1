@@ -2014,6 +2014,31 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
     const signals = rawSignals || [];
     if (!signals || signals.length === 0) return [];
 
+    const alarmIdList = Array.from(new Set(
+      signals
+        .map(signal => signal.alarm_id)
+        .filter(id => id !== null && id !== undefined)
+        .map(id => Number(id))
+        .filter(id => Number.isFinite(id))
+    ));
+    const alarmBarMap = new Map<string, number | null>();
+    if (alarmIdList.length > 0) {
+      const { data: alarmRows, error: alarmError } = await supabase
+        .from("alarms")
+        .select("id, bar_close_limit")
+        .in("id", alarmIdList);
+
+      if (alarmError) {
+        console.warn("⚠️ Alarm bar_close_limit fetch failed:", alarmError);
+      } else {
+        (alarmRows || []).forEach(row => {
+          const rawBar = row?.bar_close_limit;
+          const barValue = (rawBar === null || rawBar === undefined) ? null : Number(rawBar);
+          alarmBarMap.set(String(row.id), Number.isFinite(barValue) ? barValue : null);
+        });
+      }
+    }
+
     // 🚀 PARALLELIZED: Fetch all prices in parallel
     const pricePromises = signals.map(signal => {
       const marketType = normalizeMarketType(signal.market_type || signal.marketType || signal.market);
@@ -2125,7 +2150,14 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         }
 
         if (!shouldClose) {
-          const barCloseLimit = Number(signal.bar_close_limit);
+          const rawBarCloseLimit = signal.bar_close_limit;
+          let barCloseLimit = (rawBarCloseLimit === null || rawBarCloseLimit === undefined)
+            ? NaN
+            : Number(rawBarCloseLimit);
+          if (!Number.isFinite(barCloseLimit) || barCloseLimit <= 0) {
+            const fallbackBar = alarmBarMap.get(String(signal.alarm_id));
+            barCloseLimit = (fallbackBar === null || fallbackBar === undefined) ? NaN : Number(fallbackBar);
+          }
           const createdAt = signal.created_at ? new Date(signal.created_at) : null;
           const timeframeMinutes = timeframeToMinutes(String(signal.timeframe || "1h"));
           if (

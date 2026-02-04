@@ -5067,6 +5067,7 @@
                     } else {
                         const filteredSignals = (activeSignals || [])
                             .filter(sig => activeAlarmIds.has(Number(sig.alarm_id)));
+                        const activeAlarmById = new Map(activeAlarms.map(alarm => [String(alarm.id), alarm]));
 
                         if (filteredSignals.length === 0) {
                             closedContainerEl.innerHTML = '<div style="text-align: center; padding: 24px; color: var(--text-secondary);">Henüz sinyal yok.</div>';
@@ -5090,10 +5091,16 @@
                                 const pnlSign = pnlPercent >= 0 ? '+' : '';
                                 const tpPercent = Number(sig.tp_percent);
                                 const slPercent = Number(sig.sl_percent);
-                                const barLimit = Number(sig.bar_close_limit);
+                                const barLimitRaw = sig.bar_close_limit;
+                                let barLimitValue = (barLimitRaw === null || barLimitRaw === undefined) ? null : Number(barLimitRaw);
+                                if (!Number.isFinite(barLimitValue) || barLimitValue <= 0) {
+                                    barLimitValue = null;
+                                }
+                                const alarmMatch = activeAlarmById.get(String(sig.alarm_id));
+                                const alarmAutoTrade = !!(alarmMatch && (alarmMatch.auto_trade_enabled || alarmMatch.autoTradeEnabled));
                                 const tpText = Number.isFinite(tpPercent) ? `${tpPercent}%` : '-';
                                 const slText = Number.isFinite(slPercent) ? `${slPercent}%` : '-';
-                                const barText = Number.isFinite(barLimit) ? `${barLimit}` : '-';
+                                const barText = barLimitValue === null ? (alarmAutoTrade ? '99' : '-') : `${barLimitValue}`;
                                 const closeReasonRaw = String(sig.close_reason || '').toUpperCase();
                                 const closeReasonText = closeReasonRaw === 'TP_HIT'
                                     ? 'TP'

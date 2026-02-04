@@ -820,23 +820,16 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             const indicators = calculateIndicators(windowCloses, windowHighs, windowLows, windowVolumes);
             const sr = findSupportResistance(windowHighs, windowLows, windowCloses);
             
-            // Kullanıcı TP/SL değerlerine göre backtestAverages oluştur
-            const userTPSL = {
-                LONG: {
-                    avgTPPercent: takeProfitPercent,
-                    avgSLPercent: -stopLossPercent
-                },
-                SHORT: {
-                    avgTPPercent: -takeProfitPercent,
-                    avgSLPercent: stopLossPercent
-                }
-            };
+            const signalScore = generateSignalScoreAligned(
+                indicators,
+                windowCloses[windowCloses.length - 1],
+                sr,
+                windowCloses,
+                windowVolumes,
+                confidenceThreshold
+            );
             
-            // ✅ FORMASYONLAR OLMASA BİLE İŞLEM AÇILSIN - patterns şartını kaldır
-            const signal = generateAdvancedSignal(indicators, windowCloses[windowCloses.length-1], sr, [], null, confidenceThreshold, userTPSL);
-            
-            // Seçilen güven eşiğine göre işlem aç
-            const shouldOpenTrade = signal && signal.isValidSignal;
+            const shouldOpenTrade = signalScore && signalScore.triggered;
             
             // DEBUG: Log ekle
             if (i < windowSize + 5 || i > closes.length - 10) {
@@ -854,9 +847,21 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             // ADIM 3: YENİ İŞLEM AÇ
             // ============================================
             
-            const entryPrice = windowCloses[windowCloses.length-1];
-            const takeProfit = signal.tp;
-            const stopLoss = signal.stop;
+            const entryPrice = windowCloses[windowCloses.length - 1];
+            const direction = signalScore.direction;
+            const takeProfit = direction === 'SHORT'
+                ? entryPrice * (1 - takeProfitPercent / 100)
+                : entryPrice * (1 + takeProfitPercent / 100);
+            const stopLoss = direction === 'SHORT'
+                ? entryPrice * (1 + stopLossPercent / 100)
+                : entryPrice * (1 - stopLossPercent / 100);
+            const signal = {
+                direction,
+                score: signalScore.score,
+                tp: takeProfit,
+                stop: stopLoss,
+                isValidSignal: true
+            };
             
             // Tarih ve saat (Türkiye saati)
             const tradeDate = new Date(klines[i][0]);
@@ -1049,18 +1054,30 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             const lastIndicators = calculateIndicators(lastWindowCloses, lastWindowHighs, lastWindowLows, lastWindowVolumes);
             const lastSR = findSupportResistance(lastWindowHighs, lastWindowLows, lastWindowCloses);
             
-            const lastUserTPSL = {
-                LONG: {
-                    avgTPPercent: takeProfitPercent,
-                    avgSLPercent: -stopLossPercent
-                },
-                SHORT: {
-                    avgTPPercent: -takeProfitPercent,
-                    avgSLPercent: stopLossPercent
-                }
+            const lastSignalScore = generateSignalScoreAligned(
+                lastIndicators,
+                closes[closedBarIndex],
+                lastSR,
+                lastWindowCloses,
+                lastWindowVolumes,
+                confidenceThreshold
+            );
+            const lastDirection = lastSignalScore.direction;
+            const lastEntry = closes[closedBarIndex];
+            const lastTp = lastDirection === 'SHORT'
+                ? lastEntry * (1 - takeProfitPercent / 100)
+                : lastEntry * (1 + takeProfitPercent / 100);
+            const lastSl = lastDirection === 'SHORT'
+                ? lastEntry * (1 + stopLossPercent / 100)
+                : lastEntry * (1 - stopLossPercent / 100);
+            const lastSignal = {
+                direction: lastDirection,
+                entry: lastEntry,
+                tp: lastTp,
+                stop: lastSl,
+                score: lastSignalScore.score,
+                isValidSignal: lastSignalScore.triggered
             };
-            
-            const lastSignal = generateAdvancedSignal(lastIndicators, closes[closedBarIndex], lastSR, [], null, confidenceThreshold, lastUserTPSL);
             
             // SADECE isValidSignal true olan sinyalleri göster (confidence threshold geçenler)
             if (lastSignal && lastSignal.isValidSignal) {
@@ -2121,11 +2138,13 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                 // Tüm alarmları bir kez map et ve insert et (loop değil!)
                 const alarmsData = this.alarms.map(alarm => {
                     const autoTradeEnabled = alarm.autoTradeEnabled || alarm.auto_trade_enabled || false;
-                    const resolvedBarCloseLimit = autoTradeEnabled
-                        ? null
-                        : ((alarm.barCloseLimit === null || alarm.bar_close_limit === null)
-                            ? null
-                            : (alarm.barCloseLimit ?? alarm.bar_close_limit ?? 5));
+                    const rawBarCloseLimit = alarm.barCloseLimit ?? alarm.bar_close_limit;
+                    const normalizedBarCloseLimit = (rawBarCloseLimit === null || rawBarCloseLimit === undefined)
+                        ? 5
+                        : (Number.isFinite(Number(rawBarCloseLimit)) && Number(rawBarCloseLimit) > 0
+                            ? Number(rawBarCloseLimit)
+                            : 5);
+                    const resolvedBarCloseLimit = autoTradeEnabled ? null : normalizedBarCloseLimit;
                     const baseData = {
                         user_id: this.userId,
                         symbol: alarm.symbol || 'BTCUSDT',
@@ -2204,9 +2223,11 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                     this.alarms = data.map(item => {
                         const autoTradeEnabled = item.auto_trade_enabled === true;
                         const rawBarCloseLimit = item.bar_close_limit;
-                        const barCloseLimitValue = Number.isFinite(Number(rawBarCloseLimit))
-                            ? Number(rawBarCloseLimit)
-                            : (autoTradeEnabled ? null : 5);
+                        const barCloseLimitValue = (rawBarCloseLimit === null || rawBarCloseLimit === undefined)
+                            ? (autoTradeEnabled ? null : 5)
+                            : (Number.isFinite(Number(rawBarCloseLimit)) && Number(rawBarCloseLimit) > 0
+                                ? Number(rawBarCloseLimit)
+                                : (autoTradeEnabled ? null : 5));
                         const barCloseLimitDisplay = barCloseLimitValue === null ? 99 : barCloseLimitValue;
                         const baseAlarm = {
                             id: String(item.id),  // Convert BIGSERIAL number to string for consistent type handling
@@ -2496,6 +2517,77 @@ async function fetchCryptoNews(coin = 'BTC', limit = 10) {
 // RSS başlık ve açıklamadan duygu analizi
 function analyzeSentiment(text) {
     const positiveWords = ['artış', 'yükseliş', 'kazanç', 'iyi', 'başarı', 'rally', 'bull', 'pompa', 'rekor', 'büyüme'];
+
+    // 6.1 BACKEND-ALIGNED SİNYAL SKORU (Alarm ile aynı)
+    function generateSignalScoreAligned(indicators, price, sr, closes, volumes, userConfidenceThreshold = 70) {
+        const macdValue = Number(indicators?.macd?.macd ?? indicators?.macd ?? 0);
+        const stochK = Number(indicators?.stoch?.k ?? indicators?.stoch?.K ?? 0);
+
+        // TREND (%40)
+        let trendScore = 0;
+        if (indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50) {
+            trendScore += 30;
+        } else if (indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50) {
+            trendScore -= 30;
+        }
+        if (indicators.adx > 25) {
+            trendScore += Math.min((indicators.adx - 25) * 0.8, 20);
+        }
+
+        // MOMENTUM (%30)
+        let momentumScore = 0;
+        if (indicators.rsi < 30) momentumScore += 25;
+        else if (indicators.rsi < 40) momentumScore += 15;
+        else if (indicators.rsi > 70) momentumScore -= 25;
+        else if (indicators.rsi > 60) momentumScore -= 15;
+
+        momentumScore += macdValue > 0 ? 10 : -10;
+        if (stochK < 20) momentumScore += 10;
+        else if (stochK > 80) momentumScore -= 10;
+
+        // VOLUME (%15)
+        let volumeScore = 0;
+        let obvTrend = 'flat';
+        if (Array.isArray(closes) && closes.length >= 2) {
+            if (closes[closes.length - 1] > closes[closes.length - 2]) obvTrend = 'rising';
+            else if (closes[closes.length - 1] < closes[closes.length - 2]) obvTrend = 'falling';
+        }
+        if (obvTrend === 'rising') volumeScore += 10;
+        else if (obvTrend === 'falling') volumeScore -= 10;
+
+        const volumeMA = Array.isArray(volumes) && volumes.length > 0
+            ? volumes.reduce((a, b) => a + b, 0) / volumes.length
+            : 0;
+        if (volumeMA > 0) volumeScore += 15;
+        else volumeScore -= 10;
+
+        // SUPPORT/RESISTANCE (%15)
+        let srScore = 0;
+        const nearestSupport = sr?.supports?.[0]?.price || (price * 0.95);
+        const nearestResistance = sr?.resistances?.[0]?.price || (price * 1.05);
+        if (nearestSupport > 0 && nearestResistance > 0 && price > 0) {
+            const distanceToSupport = (price - nearestSupport) / price;
+            const distanceToResistance = (nearestResistance - price) / price;
+            if (distanceToSupport < 0.02) srScore += 15;
+            if (distanceToResistance < 0.02) srScore -= 15;
+        }
+
+        const normalizedTrendScore = (trendScore / 50) * 40;
+        const normalizedMomentumScore = (momentumScore / 50) * 30;
+        const normalizedVolumeScore = (volumeScore / 25) * 15;
+        const normalizedSRScore = (srScore / 30) * 15;
+        const totalScore = normalizedTrendScore + normalizedMomentumScore + normalizedVolumeScore + normalizedSRScore;
+
+        const direction = totalScore > 0 ? 'LONG' : 'SHORT';
+        const confidence = Math.min(Math.max(Math.abs(totalScore), 0), 100);
+        const triggered = confidence >= userConfidenceThreshold;
+
+        return {
+            direction,
+            score: Math.round(confidence),
+            triggered
+        };
+    }
     const negativeWords = ['düşüş', 'kaybı', 'kötü', 'zararda', 'kayıp', 'bear', 'crash', 'düştü', 'risk', 'uyarı'];
     
     const lower = text.toLowerCase();
