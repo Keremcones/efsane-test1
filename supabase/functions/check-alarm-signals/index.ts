@@ -1914,6 +1914,22 @@ ${tradeNotificationText}
         // 🚀 INSERT active signal INTO DATABASE
         let signalInserted = false;
         try {
+          const { data: alarmCheck, error: alarmCheckError } = await supabase
+            .from("alarms")
+            .select("id, is_active, status")
+            .eq("id", alarm.id)
+            .eq("user_id", alarm.user_id)
+            .eq("type", "user_alarm")
+            .maybeSingle();
+
+          const alarmStatus = String(alarmCheck?.status || "").toUpperCase();
+          const alarmStillActive = !!alarmCheck && alarmCheck.is_active !== false && (!alarmStatus || alarmStatus === "ACTIVE");
+
+          if (alarmCheckError || !alarmStillActive) {
+            console.warn(`⚠️ Alarm artık aktif değil veya yok (id=${alarm.id}). Sinyal kaydı atlandı.`);
+            continue;
+          }
+
           const marketTypeNorm = normalizeMarketType(alarm.market_type || "spot");
           const newActiveSignal = {
             user_id: alarm.user_id,
