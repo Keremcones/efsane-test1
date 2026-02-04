@@ -718,6 +718,65 @@ async function hasOpenSpotOrders(apiKey: string, apiSecret: string, symbol: stri
   return Array.isArray(data) && data.length > 0;
 }
 
+async function hasOpenFuturesOrders(apiKey: string, apiSecret: string, symbol: string): Promise<boolean> {
+  const timestamp = Date.now();
+  const queryString = `symbol=${symbol}&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v1/openOrders?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    console.error("❌ Binance futures open orders check failed:", await response.text());
+    throw new Error("Futures open orders check failed");
+  }
+
+  const data = await response.json();
+  return Array.isArray(data) && data.length > 0;
+}
+
+async function getFuturesOrderStatus(apiKey: string, apiSecret: string, symbol: string, orderId: string): Promise<string | null> {
+  const timestamp = Date.now();
+  const queryString = `symbol=${symbol}&orderId=${orderId}&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v1/order?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    console.error("❌ Binance futures order status failed:", await response.text());
+    return null;
+  }
+
+  const data = await response.json();
+  return String(data?.status || "");
+}
+
+async function cancelFuturesOrder(apiKey: string, apiSecret: string, symbol: string, orderId: string): Promise<boolean> {
+  const timestamp = Date.now();
+  const queryString = `symbol=${symbol}&orderId=${orderId}&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v1/order?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    console.error("❌ Binance futures cancel order failed:", await response.text());
+    return false;
+  }
+
+  return true;
+}
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 async function executeAutoTrade(
   userId: string,
   symbol: string,
@@ -763,9 +822,15 @@ async function executeAutoTrade(
 
     try {
       if (marketType === "futures") {
-        const hasOpen = await hasOpenFuturesPosition(api_key, api_secret, symbol);
-        if (hasOpen) {
+        const [hasPosition, hasOrders] = await Promise.all([
+          hasOpenFuturesPosition(api_key, api_secret, symbol),
+          hasOpenFuturesOrders(api_key, api_secret, symbol)
+        ]);
+        if (hasPosition) {
           return { success: false, message: `Açık futures pozisyonu var (${symbol}). Yeni işlem açılmadı.` };
+        }
+        if (hasOrders) {
+          return { success: false, message: `Açık futures emri var (${symbol}). Yeni işlem açılmadı.` };
         }
       } else {
         const hasOpen = await hasOpenSpotOrders(api_key, api_secret, symbol);
@@ -774,7 +839,7 @@ async function executeAutoTrade(
         }
       }
     } catch (e) {
-      return { success: false, message: "Açık pozisyon kontrolü başarısız. İşlem açılmadı." };
+      return { success: false, message: "Açık pozisyon/emtir kontrolü başarısız. İşlem açılmadı." };
     }
 
     const leverage = marketType === "futures" ? Number(futures_leverage || 10) : 1;
@@ -875,6 +940,38 @@ async function executeAutoTrade(
       return { success: false, message: orderResult.error || "Order failed" };
     }
 
+    let finalOrderId = orderResult.orderId;
+    if (marketType === "futures" && orderType === "LIMIT") {
+      const timeoutSecondsRaw = Number(futures_limit_timeout_seconds ?? 60);
+      const timeoutSeconds = Number.isFinite(timeoutSecondsRaw) ? Math.min(Math.max(timeoutSecondsRaw, 10), 300) : 60;
+      const fallbackToMarket = futures_limit_fallback_to_market !== false;
+
+      await sleep(timeoutSeconds * 1000);
+      const status = finalOrderId ? await getFuturesOrderStatus(api_key, api_secret, symbol, String(finalOrderId)) : null;
+      if (status && status !== "FILLED") {
+        if (!fallbackToMarket) {
+          return { success: true, message: `⏳ Limit emir beklemede (${status}). TP/SL kurulmadı.`, orderId: finalOrderId };
+        }
+        if (finalOrderId) {
+          await cancelFuturesOrder(api_key, api_secret, symbol, String(finalOrderId));
+        }
+        const marketFallback = await openBinanceTrade(
+          api_key,
+          api_secret,
+          symbol,
+          direction,
+          quantity,
+          marketType,
+          positionSide,
+          "MARKET"
+        );
+        if (!marketFallback.success) {
+          return { success: false, message: marketFallback.error || "Market fallback failed" };
+        }
+        finalOrderId = marketFallback.orderId;
+      }
+    }
+
     if (marketType === "futures") {
       const tpSlResult = await placeTakeProfitStopLoss(api_key, api_secret, symbol, direction, takeProfit, stopLoss, symbolInfo.pricePrecision, symbolInfo.tickSize, positionSide);
       let warningText = "";
@@ -888,7 +985,7 @@ async function executeAutoTrade(
         return {
           success: true,
           message: `✅ ${direction} ${quantity} ${symbol} (${leverage}x) @ $${entryPrice.toFixed(symbolInfo.pricePrecision)}\n⚠️ ${warningText.trim()}`,
-          orderId: orderResult.orderId
+          orderId: finalOrderId
         };
       }
     } else {
@@ -902,7 +999,7 @@ async function executeAutoTrade(
     return {
       success: true,
       message: `✅ ${direction} ${quantity} ${symbol}${leverageText} @ $${executionPrice.toFixed(symbolInfo.pricePrecision)}`,
-      orderId: orderResult.orderId
+      orderId: finalOrderId
     };
   } catch (e) {
     console.error(`❌ Auto-trade error for ${userId}:`, e);
