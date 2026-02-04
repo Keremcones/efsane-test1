@@ -4500,7 +4500,10 @@
                     
                     <!-- Alarm Sinyalleri Container -->
                     <div class="card">
-                        <div class="card-title"><i class="fa-solid fa-satellite-dish"></i> Alarm Sinyalleri</div>
+                        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+                            <span><i class="fa-solid fa-satellite-dish"></i> Alarm Sinyalleri</span>
+                            <span id="alarmSignalsTotalPnl" class="price-change" style="font-size:0.8rem;padding:4px 8px;">Toplam PnL: 0%</span>
+                        </div>
                         <div id="closedAlarmContainer" style="min-height: 100px;">
                             <!-- Bu container farklı bir amaçla kullanılacaktır -->
                         </div>
@@ -5078,6 +5081,28 @@
                     } else {
                         const filteredSignals = (activeSignals || [])
                             .filter(sig => activeAlarmIds.has(Number(sig.alarm_id)));
+                        const totalPnlEl = document.getElementById('alarmSignalsTotalPnl');
+                        const totalPnlValue = (filteredSignals || []).reduce((sum, sig) => {
+                            const entryPrice = parseFloat(sig.entry_price);
+                            if (!Number.isFinite(entryPrice) || entryPrice <= 0) return sum;
+                            const statusRaw = String(sig.status || '').toUpperCase();
+                            const isClosed = statusRaw === 'CLOSED';
+                            const storedPnl = Number(sig.profit_loss);
+                            if (isClosed && Number.isFinite(storedPnl)) return sum + storedPnl;
+                            const livePrice = parseFloat(localStorage.getItem(`price_${sig.symbol}`) || String(entryPrice));
+                            if (!Number.isFinite(livePrice)) return sum;
+                            const rawPnl = sig.direction === 'SHORT'
+                                ? ((entryPrice - livePrice) / entryPrice) * 100
+                                : ((livePrice - entryPrice) / entryPrice) * 100;
+                            return sum + (Number.isFinite(rawPnl) ? rawPnl : 0);
+                        }, 0);
+                        if (totalPnlEl) {
+                            const pnlRounded = Number.isFinite(totalPnlValue) ? totalPnlValue.toFixed(2) : '0.00';
+                            const pnlSign = totalPnlValue >= 0 ? '+' : '';
+                            totalPnlEl.textContent = `Toplam PnL: ${pnlSign}${pnlRounded}%`;
+                            totalPnlEl.classList.remove('positive', 'negative');
+                            totalPnlEl.classList.add(totalPnlValue >= 0 ? 'positive' : 'negative');
+                        }
                         const activeAlarmById = new Map(activeAlarms.map(alarm => [String(alarm.id), alarm]));
 
                         if (filteredSignals.length === 0) {
