@@ -5152,7 +5152,7 @@
                                 const pnlAttrs = isClosed && Number.isFinite(storedPnl)
                                     ? ''
                                     : ` data-alarm-signal-pnl="1" data-symbol="${sig.symbol}" data-direction="${sig.direction}" data-entry="${sig.entry_price}"`;
-                                const signalTime = formatTurkeyDate(isClosed ? sig.closed_at : sig.created_at);
+                                const signalTime = formatTurkeyDate(isClosed ? sig.closed_at : (sig.signal_timestamp || sig.created_at));
                                 const signalTimeLabel = isClosed ? 'Kapanış' : 'Oluşum';
                                 return `
                                     <div class="alarm-card" style="margin-bottom: 12px;">

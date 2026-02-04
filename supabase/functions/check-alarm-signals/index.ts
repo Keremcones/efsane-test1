@@ -2098,7 +2098,8 @@ ${tradeNotificationText}
             bar_close_limit: barClose,
             status: "ACTIVE",
             score: detectedSignal?.score || 50,
-            created_at: signalCreatedAt
+            created_at: signalCreatedAt,
+            signal_timestamp: signalCreatedAt
           };
 
           const { error: insertError } = await supabase.from("active_signals").insert(newActiveSignal);
