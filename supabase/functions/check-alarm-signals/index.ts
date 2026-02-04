@@ -1854,7 +1854,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         let tradeNotificationText = "";
         const autoTradeEnabled = alarm.auto_trade_enabled === true;
 
-        if (autoTradeEnabled && !alarm.binance_order_id) {
+        if (autoTradeEnabled) {
           tradeResult = await executeAutoTrade(
             alarm.user_id,
             symbol,
