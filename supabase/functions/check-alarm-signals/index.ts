@@ -37,6 +37,61 @@ if (!telegramBotToken) {
 const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
 // =====================
+// CRON Lock Helpers (prevent duplicate runs)
+// =====================
+async function acquireCronLock(lockName: string, ttlSeconds: number = 55): Promise<{ acquired: boolean; requestId: string }> {
+  const requestId = crypto.randomUUID();
+  const nowIso = new Date().toISOString();
+  const cutoffIso = new Date(Date.now() - ttlSeconds * 1000).toISOString();
+
+  try {
+    await supabase
+      .from("cron_locks")
+      .upsert({ name: lockName }, { onConflict: "name", ignoreDuplicates: true });
+
+    const { data, error } = await supabase
+      .from("cron_locks")
+      .update({
+        last_started_at: nowIso,
+        last_status: "RUNNING",
+        last_request_id: requestId,
+        updated_at: nowIso
+      })
+      .eq("name", lockName)
+      .or(`last_started_at.lt.${cutoffIso},last_started_at.is.null`)
+      .select("name");
+
+    if (error) {
+      console.error("❌ Cron lock update error:", error);
+      return { acquired: true, requestId };
+    }
+
+    const acquired = Array.isArray(data) && data.length > 0;
+    return { acquired, requestId };
+  } catch (e) {
+    console.error("❌ Cron lock exception:", e);
+    return { acquired: true, requestId };
+  }
+}
+
+async function releaseCronLock(lockName: string, requestId: string, status: "DONE" | "ERROR"): Promise<void> {
+  const nowIso = new Date().toISOString();
+  try {
+    await supabase
+      .from("cron_locks")
+      .update({
+        last_finished_at: nowIso,
+        last_status: status,
+        updated_at: nowIso
+      })
+      .eq("name", lockName)
+      .eq("last_request_id", requestId);
+  } catch (e) {
+    console.error("❌ Cron lock release error:", e);
+  }
+}
+
+// =====================
 // Binance API bases & price cache
 // =====================
 const BINANCE_SPOT_API_BASE = "https://api.binance.com/api/v3";
@@ -380,7 +435,8 @@ async function openBinanceTrade(
   symbol: string,
   direction: "LONG" | "SHORT",
   quantity: number,
-  marketType: "spot" | "futures"
+  marketType: "spot" | "futures",
+  positionSide?: "LONG" | "SHORT"
 ): Promise<{ success: boolean; orderId?: string; error?: string }> {
   const timestamp = Date.now();
   const side = direction === "LONG" ? "BUY" : "SELL";
@@ -389,7 +445,8 @@ async function openBinanceTrade(
   let baseUrl: string;
 
   if (marketType === "futures") {
-    queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
+    const positionSideParam = positionSide ? `&positionSide=${positionSide}` : "";
+    queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}${positionSideParam}&timestamp=${timestamp}`;
     baseUrl = "https://fapi.binance.com/fapi/v1/order";
   } else {
     queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
@@ -421,9 +478,11 @@ async function placeTakeProfitStopLoss(
   takeProfit: number,
   stopLoss: number,
   pricePrecision: number,
-  tickSize: number
+  tickSize: number,
+  positionSide?: "LONG" | "SHORT"
 ): Promise<{ tpOrderId?: string; slOrderId?: string; tpError?: string; slError?: string }> {
   const closeSide = direction === "LONG" ? "SELL" : "BUY";
+  const positionSideParam = positionSide ? `&positionSide=${positionSide}` : "";
   const tpRounded = roundToTick(
     takeProfit,
     tickSize,
@@ -455,11 +514,12 @@ async function placeTakeProfitStopLoss(
     tpError = `TP zaten tetiklenmiş olabilir (mark: ${formatPriceWithPrecision(markPrice as number, pricePrecision)})`;
   } else {
     const tpTimestamp = Date.now();
-    const algoTp = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "TAKE_PROFIT_MARKET", tpPrice);
+    const algoTp = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "TAKE_PROFIT_MARKET", tpPrice, positionSide);
     if (algoTp.ok) {
       tpOrderId = algoTp.orderId;
     } else {
-      const tpQuery = `symbol=${symbol}&side=${closeSide}&type=TAKE_PROFIT_MARKET&stopPrice=${tpPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true&timestamp=${tpTimestamp}`;
+      const tpQueryBase = `symbol=${symbol}&side=${closeSide}&type=TAKE_PROFIT_MARKET&stopPrice=${tpPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true`;
+      const tpQuery = `${tpQueryBase}${positionSideParam}&timestamp=${tpTimestamp}`;
       const tpSignature = await createBinanceSignature(tpQuery, apiSecret);
       const tpResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${tpQuery}&signature=${tpSignature}`, {
         method: "POST",
@@ -481,11 +541,12 @@ async function placeTakeProfitStopLoss(
     slError = `SL zaten tetiklenmiş olabilir (mark: ${formatPriceWithPrecision(markPrice as number, pricePrecision)})`;
   } else {
     const slTimestamp = Date.now();
-    const algoSl = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "STOP_MARKET", slPrice);
+    const algoSl = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "STOP_MARKET", slPrice, positionSide);
     if (algoSl.ok) {
       slOrderId = algoSl.orderId;
     } else {
-      const slQuery = `symbol=${symbol}&side=${closeSide}&type=STOP_MARKET&stopPrice=${slPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true&timestamp=${slTimestamp}`;
+      const slQueryBase = `symbol=${symbol}&side=${closeSide}&type=STOP_MARKET&stopPrice=${slPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true`;
+      const slQuery = `${slQueryBase}${positionSideParam}&timestamp=${slTimestamp}`;
       const slSignature = await createBinanceSignature(slQuery, apiSecret);
       const slResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${slQuery}&signature=${slSignature}`, {
         method: "POST",
@@ -512,11 +573,13 @@ async function placeFuturesAlgoOrder(
   symbol: string,
   side: "BUY" | "SELL",
   type: "TAKE_PROFIT_MARKET" | "STOP_MARKET",
-  stopPrice: string
+  stopPrice: string,
+  positionSide?: "LONG" | "SHORT"
 ): Promise<{ ok: boolean; orderId?: string; error?: string }> {
   const timestamp = Date.now();
+  const positionSideParam = positionSide ? `&positionSide=${positionSide}` : "";
   const query = `algoType=CONDITIONAL&symbol=${symbol}&side=${side}&type=${type}&triggerPrice=${stopPrice}`
-    + `&closePosition=true&workingType=MARK_PRICE&priceProtect=TRUE&timestamp=${timestamp}`;
+    + `&closePosition=true&workingType=MARK_PRICE&priceProtect=TRUE${positionSideParam}&timestamp=${timestamp}`;
   const signature = await createBinanceSignature(query, apiSecret);
   const url = `https://fapi.binance.com/fapi/v1/algoOrder?${query}&signature=${signature}`;
 
@@ -747,10 +810,11 @@ async function executeAutoTrade(
       return { success: false, message: `Quantity too small: ${quantity} < ${symbolInfo.minQty}` };
     }
 
+    let positionSide: "LONG" | "SHORT" | undefined;
     if (marketType === "futures") {
       const positionMode = await getFuturesPositionMode(api_key, api_secret);
       if (positionMode === "HEDGE") {
-        return { success: false, message: "Futures Hedge mode is not supported. Use One-Way." };
+        positionSide = direction === "LONG" ? "LONG" : "SHORT";
       }
       const resolvedMarginType = String(futures_margin_type || "CROSS").toUpperCase() === "ISOLATED" ? "ISOLATED" : "CROSS";
       try {
@@ -762,13 +826,13 @@ async function executeAutoTrade(
       await setLeverage(api_key, api_secret, symbol, leverage);
     }
 
-    const orderResult = await openBinanceTrade(api_key, api_secret, symbol, direction, quantity, marketType);
+    const orderResult = await openBinanceTrade(api_key, api_secret, symbol, direction, quantity, marketType, positionSide);
     if (!orderResult.success) {
       return { success: false, message: orderResult.error || "Order failed" };
     }
 
     if (marketType === "futures") {
-      const tpSlResult = await placeTakeProfitStopLoss(api_key, api_secret, symbol, direction, takeProfit, stopLoss, symbolInfo.pricePrecision, symbolInfo.tickSize);
+      const tpSlResult = await placeTakeProfitStopLoss(api_key, api_secret, symbol, direction, takeProfit, stopLoss, symbolInfo.pricePrecision, symbolInfo.tickSize, positionSide);
       let warningText = "";
       if (!tpSlResult.tpOrderId && tpSlResult.tpError) {
         warningText += ` TP oluşturulamadı: ${escapeTelegram(tpSlResult.tpError)}`;
@@ -852,7 +916,6 @@ function calculateStochastic(closes: number[], highs: number[], lows: number[], 
     if (lows[i] < lowestLow) lowestLow = lows[i];
     if (highs[i] > highestHigh) highestHigh = highs[i];
   }
-  
   const range = highestHigh - lowestLow;
   const rawK = range === 0 ? 50 : ((closes[closes.length - 1] - lowestLow) / range) * 100;
   
@@ -998,6 +1061,7 @@ interface TechnicalIndicators {
   ema12: number;
   ema26: number;
   price: number;
+  lastClosedCandleCloseTime: number;
   closes: number[];
   volumes: number[];
   highs: number[];
@@ -1013,6 +1077,17 @@ interface TechnicalIndicators {
   volumeMA: number;
 }
 
+function formatTurkeyTimeFromMs(timestampMs: number): string {
+  const turkeyTime = new Date(new Date(timestampMs).toLocaleString("en-US", { timeZone: "Europe/Istanbul" }));
+  const day = String(turkeyTime.getDate()).padStart(2, "0");
+  const month = String(turkeyTime.getMonth() + 1).padStart(2, "0");
+  const year = turkeyTime.getFullYear();
+  const hours = String(turkeyTime.getHours()).padStart(2, "0");
+  const minutes = String(turkeyTime.getMinutes()).padStart(2, "0");
+  const seconds = String(turkeyTime.getSeconds()).padStart(2, "0");
+  return `${day}.${month}.${year} ${hours}:${minutes}:${seconds}`;
+}
+
 async function calculateIndicators(symbol: string, marketType: "spot" | "futures", timeframe: string = "1h"): Promise<TechnicalIndicators | null> {
   const klines = await getKlines(symbol, marketType, timeframe, 100);
   if (!klines || klines.length < 2) return null;
@@ -1020,6 +1095,9 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
   // ✅ Backtest ile birebir uyum için açık (son) bar'ı dahil etme
   const closedKlines = klines.slice(0, -1);
   if (closedKlines.length < 50) return null;
+
+  const lastClosedKline = closedKlines[closedKlines.length - 1];
+  const lastClosedCandleCloseTime = Number(lastClosedKline?.[6] ?? lastClosedKline?.[0]);
 
   const closes = closedKlines.map((k: any) => parseFloat(k[4]));
   const volumes = closedKlines.map((k: any) => parseFloat(k[5]));
@@ -1068,6 +1146,7 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
     ema12: ema12,
     ema26: ema26,
     price: lastPrice,
+    lastClosedCandleCloseTime: Number.isFinite(lastClosedCandleCloseTime) ? lastClosedCandleCloseTime : Date.now(),
     closes: closes,
     volumes: volumes,
     highs: highs,
@@ -1344,6 +1423,35 @@ async function sendTelegramToChatId(chatId: string, message: string): Promise<{ 
   }
 }
 
+async function hasSignalForCandle(
+  userId: string,
+  symbol: string,
+  timeframe: string,
+  candleCloseTimeMs: number
+): Promise<boolean> {
+  const tfMinutes = timeframeToMinutes(timeframe);
+  if (!Number.isFinite(tfMinutes) || tfMinutes <= 0) return false;
+  const windowStart = new Date(candleCloseTimeMs).toISOString();
+  const windowEnd = new Date(candleCloseTimeMs + tfMinutes * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from("active_signals")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("symbol", symbol)
+    .eq("timeframe", timeframe)
+    .gte("created_at", windowStart)
+    .lt("created_at", windowEnd)
+    .limit(1);
+
+  if (error) {
+    console.error("❌ Candle dedupe lookup error:", error);
+    return false;
+  }
+
+  return Array.isArray(data) && data.length > 0;
+}
+
 // =====================
 // User alarm trigger logic (WITH SIGNAL GENERATION)
 // =====================
@@ -1399,6 +1507,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
   // ⚠️ SEQUENTIAL (NOT parallel): Calculate indicators one-by-one to avoid rate limiting
   // 🔴 ÖNEMLİ: Back test'e göre hep 100 bar kullanılıyor, AMA o barların timeframe'i user'ın alarm.timeframe'i ile aynı olmalı!
   const indicatorsResults: (any)[] = [];
+  const delayMs = Math.max(50, Math.min(250, Math.floor(3000 / Math.max(1, alarms.length))));
   console.log(`📊 Starting to calculate indicators for ${alarms.length} alarms...`);
   for (const alarm of alarms) {
     console.log(`  ⏳ Calculating indicators for ${alarm.symbol}...`);
@@ -1408,7 +1517,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         normalizeMarketType(alarm.market_type || alarm.marketType || "spot"),
         String(alarm.timeframe || "1h")  // ✅ BACK TEST ALİNMENT: User'ın timeframe'ini kullan
       );
-      await new Promise(resolve => setTimeout(resolve, 250));
+      await new Promise(resolve => setTimeout(resolve, delayMs));
       if (indicators) {
         console.log(`  ✅ Indicators calculated for ${alarm.symbol}`);
       } else {
@@ -1424,6 +1533,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
 
   // Process alarms with calculated indicators
   const telegramPromises: Promise<void>[] = [];
+  const candleDedupCache = new Map<string, number>();
 
   for (let i = 0; i < (alarms || []).length; i++) {
     try {
@@ -1434,15 +1544,18 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       const alarmPricePrecision = alarmSymbol
         ? await getSymbolPricePrecision(alarmSymbol, alarmMarketType)
         : null;
-      const livePrice = await getLivePrice(alarmSymbol, alarmMarketType);
-      const priceForDecision = Number.isFinite(livePrice as number)
-        ? (livePrice as number)
-        : indicators.price;
-
       if (!indicators) {
         console.log(`⚠️ No indicators calculated for ${alarm.symbol}`);
         continue;
       }
+
+      const livePrice = await getLivePrice(alarmSymbol, alarmMarketType);
+      const candleCloseTimeMs = indicators.lastClosedCandleCloseTime;
+      const candleTimeKey = `${alarm.user_id}:${alarmSymbol}:${String(alarm.timeframe || "1h")}`;
+      const signalPrice = indicators.price;
+      const priceForSignal = signalPrice;
+      const priceForPriceAlarm = Number.isFinite(livePrice as number) ? (livePrice as number) : signalPrice;
+      const priceForActiveTrade = Number.isFinite(livePrice as number) ? (livePrice as number) : signalPrice;
 
       if (alarmMarketType === "futures" && alarm.auto_trade_enabled === true) {
         const positionKey = `${alarm.user_id}:${alarmSymbol}`;
@@ -1501,7 +1614,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         } else {
           const tpPercent = Math.abs(Number(alarm.tp_percent || 5));
           const slPercent = Math.abs(Number(alarm.sl_percent || 3));
-          const entryPrice = priceForDecision;
+          const entryPrice = priceForSignal;
           
           console.log(`📊 User alarm check: ${symbol}, TP=${tpPercent}%, SL=${slPercent}%`);
           
@@ -1529,7 +1642,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             };
             
             const directionEmoji = signal.direction === "LONG" ? "🟢" : "🔴";
-            const now = new Date().toLocaleString('tr-TR');
+            const now = formatTurkeyTimeFromMs(candleCloseTimeMs);
             
             triggerMessage = `🔔 ALARM AKTİVE! 🔔\n\n` +
               `💰 Çift: ${symbol}\n` +
@@ -1561,24 +1674,24 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         }
 
         if (Number.isFinite(targetPrice) && !openSignalSymbols.has(symbolKey)) {
-          if (condition === "above" && priceForDecision >= targetPrice) {
+          if (condition === "above" && priceForPriceAlarm >= targetPrice) {
             shouldTrigger = true;
-            triggerMessage = `🚀 Price ${formatPriceWithPrecision(targetPrice, alarmPricePrecision)}$ reached! (Current: $${formatPriceWithPrecision(priceForDecision, alarmPricePrecision)})`;
+            triggerMessage = `🚀 Price ${formatPriceWithPrecision(targetPrice, alarmPricePrecision)}$ reached! (Current: $${formatPriceWithPrecision(priceForPriceAlarm, alarmPricePrecision)})`;
             // Use alarm's confidence score directly for PRICE_LEVEL
             const confidenceScore = Number(alarm.confidence_score || 50);
             detectedSignal = {
-              direction: priceForDecision > targetPrice ? "LONG" : "SHORT",
+              direction: priceForPriceAlarm > targetPrice ? "LONG" : "SHORT",
               score: confidenceScore,
               triggered: true,
               breakdown: { trend: 0, momentum: 0, volume: 0, sr: 0 }
             };
-          } else if (condition === "below" && priceForDecision <= targetPrice) {
+          } else if (condition === "below" && priceForPriceAlarm <= targetPrice) {
             shouldTrigger = true;
-            triggerMessage = `📉 Price dropped below ${formatPriceWithPrecision(targetPrice, alarmPricePrecision)}$! (Current: $${formatPriceWithPrecision(priceForDecision, alarmPricePrecision)})`;
+            triggerMessage = `📉 Price dropped below ${formatPriceWithPrecision(targetPrice, alarmPricePrecision)}$! (Current: $${formatPriceWithPrecision(priceForPriceAlarm, alarmPricePrecision)})`;
             // Use alarm's confidence score directly for PRICE_LEVEL
             const confidenceScore = Number(alarm.confidence_score || 50);
             detectedSignal = {
-              direction: priceForDecision < targetPrice ? "SHORT" : "LONG",
+              direction: priceForPriceAlarm < targetPrice ? "SHORT" : "LONG",
               score: confidenceScore,
               triggered: true,
               breakdown: { trend: 0, momentum: 0, volume: 0, sr: 0 }
@@ -1607,7 +1720,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             `📊 ${alarm.symbol}: ` +
             `RSI=${indicators.rsi.toFixed(1)} | ` +
             `EMA12=${indicators.ema12.toFixed(2)} vs EMA26=${indicators.ema26.toFixed(2)} | ` +
-            `Price=$${formatPriceWithPrecision(priceForDecision, alarmPricePrecision)} | ` +
+            `Price=$${formatPriceWithPrecision(priceForSignal, alarmPricePrecision)} | ` +
             `[Trend:${signal.breakdown.trend} Momentum:${signal.breakdown.momentum} Volume:${signal.breakdown.volume} SR:${signal.breakdown.sr}] ` +
             `→ ${signal.direction}(${signal.score}%)`
           );
@@ -1623,7 +1736,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             };
             triggerMessage = `🎯 <b>${signal.direction}</b> Signal detected!\n` +
               `Confidence: <b>${signal.score}%</b>\n` +
-              `RSI: ${indicators.rsi.toFixed(1)} | Price: $${formatPriceWithPrecision(priceForDecision, alarmPricePrecision)}\n` +
+              `RSI: ${indicators.rsi.toFixed(1)} | Price: $${formatPriceWithPrecision(priceForSignal, alarmPricePrecision)}\n` +
               `📈 Analysis: Trend=${signal.breakdown.trend} Momentum=${signal.breakdown.momentum} Volume=${signal.breakdown.volume} SR=${signal.breakdown.sr}`;
           }
         }
@@ -1637,9 +1750,9 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         const stopLoss = Number(alarm.stop_loss || alarm.stopLoss);
 
         if (direction === "LONG" && Number.isFinite(entryPrice) && Number.isFinite(takeProfit) && Number.isFinite(stopLoss)) {
-          if (priceForDecision >= takeProfit) {
+          if (priceForActiveTrade >= takeProfit) {
             shouldTrigger = true;
-            triggerMessage = `✅ LONG TP Hit! (Entry: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}, TP: $${formatPriceWithPrecision(takeProfit, alarmPricePrecision)}, Current: $${formatPriceWithPrecision(priceForDecision, alarmPricePrecision)})`;
+            triggerMessage = `✅ LONG TP Hit! (Entry: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}, TP: $${formatPriceWithPrecision(takeProfit, alarmPricePrecision)}, Current: $${formatPriceWithPrecision(priceForActiveTrade, alarmPricePrecision)})`;
             // Use alarm's confidence score directly for ACTIVE_TRADE
             const confidenceScore = Number(alarm.confidence_score || 50);
             detectedSignal = {
@@ -1648,9 +1761,9 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
               triggered: true,
               breakdown: { trend: 0, momentum: 0, volume: 0, sr: 0 }
             };
-          } else if (priceForDecision <= stopLoss) {
+          } else if (priceForActiveTrade <= stopLoss) {
             shouldTrigger = true;
-            triggerMessage = `⛔ LONG SL Hit! (Entry: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}, SL: $${formatPriceWithPrecision(stopLoss, alarmPricePrecision)}, Current: $${formatPriceWithPrecision(priceForDecision, alarmPricePrecision)})`;
+            triggerMessage = `⛔ LONG SL Hit! (Entry: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}, SL: $${formatPriceWithPrecision(stopLoss, alarmPricePrecision)}, Current: $${formatPriceWithPrecision(priceForActiveTrade, alarmPricePrecision)})`;
             // Use alarm's confidence score directly for ACTIVE_TRADE
             const confidenceScore = Number(alarm.confidence_score || 50);
             detectedSignal = {
@@ -1661,9 +1774,9 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             };
           }
         } else if (direction === "SHORT" && Number.isFinite(entryPrice) && Number.isFinite(takeProfit) && Number.isFinite(stopLoss)) {
-          if (priceForDecision <= takeProfit) {
+          if (priceForActiveTrade <= takeProfit) {
             shouldTrigger = true;
-            triggerMessage = `✅ SHORT TP Hit! (Entry: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}, TP: $${formatPriceWithPrecision(takeProfit, alarmPricePrecision)}, Current: $${formatPriceWithPrecision(priceForDecision, alarmPricePrecision)})`;
+            triggerMessage = `✅ SHORT TP Hit! (Entry: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}, TP: $${formatPriceWithPrecision(takeProfit, alarmPricePrecision)}, Current: $${formatPriceWithPrecision(priceForActiveTrade, alarmPricePrecision)})`;
             // Use alarm's confidence score directly for ACTIVE_TRADE
             const confidenceScore = Number(alarm.confidence_score || 50);
             detectedSignal = {
@@ -1672,9 +1785,9 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
               triggered: true,
               breakdown: { trend: 0, momentum: 0, volume: 0, sr: 0 }
             };
-          } else if (priceForDecision >= stopLoss) {
+          } else if (priceForActiveTrade >= stopLoss) {
             shouldTrigger = true;
-            triggerMessage = `⛔ SHORT SL Hit! (Entry: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}, SL: $${formatPriceWithPrecision(stopLoss, alarmPricePrecision)}, Current: $${formatPriceWithPrecision(priceForDecision, alarmPricePrecision)})`;
+            triggerMessage = `⛔ SHORT SL Hit! (Entry: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}, SL: $${formatPriceWithPrecision(stopLoss, alarmPricePrecision)}, Current: $${formatPriceWithPrecision(priceForActiveTrade, alarmPricePrecision)})`;
             // Use alarm's confidence score directly for ACTIVE_TRADE
             const confidenceScore = Number(alarm.confidence_score || 50);
             detectedSignal = {
@@ -1688,6 +1801,25 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       }
 
       if (shouldTrigger && triggerMessage) {
+        if (Number.isFinite(candleCloseTimeMs)) {
+          const cached = candleDedupCache.get(candleTimeKey);
+          if (cached === candleCloseTimeMs) {
+            console.log(`⏹️ Skipping duplicate candle trigger for ${alarmSymbol} (${alarm.timeframe})`);
+            continue;
+          }
+          const alreadyHasSignal = await hasSignalForCandle(
+            String(alarm.user_id),
+            alarmSymbol,
+            String(alarm.timeframe || "1h"),
+            candleCloseTimeMs
+          );
+          if (alreadyHasSignal) {
+            console.log(`⏹️ Signal already exists for candle ${alarmSymbol} (${alarm.timeframe})`);
+            candleDedupCache.set(candleTimeKey, candleCloseTimeMs);
+            continue;
+          }
+        }
+
         const symbol = String(alarm.symbol || "").toUpperCase();
         const marketType = String(alarm.market_type || "spot").toLowerCase() === "futures" ? "Futures" : "Spot";
         const timeframe = String(alarm.timeframe || "1h");
@@ -1701,11 +1833,11 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         
         // Calculate TP/SL prices based on current price and percentages
         const rawTpPrice = direction === "SHORT"
-          ? priceForDecision * (1 - tpPercent / 100)
-          : priceForDecision * (1 + tpPercent / 100);
+          ? priceForSignal * (1 - tpPercent / 100)
+          : priceForSignal * (1 + tpPercent / 100);
         const rawSlPrice = direction === "SHORT"
-          ? priceForDecision * (1 + slPercent / 100)
-          : priceForDecision * (1 - slPercent / 100);
+          ? priceForSignal * (1 + slPercent / 100)
+          : priceForSignal * (1 - slPercent / 100);
         const tpPrice = rawTpPrice;
         const slPrice = rawSlPrice;
 
@@ -1719,7 +1851,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             alarm.user_id,
             symbol,
             direction,
-            priceForDecision,
+            priceForSignal,
             tpPrice,
             slPrice,
             normalizeMarketType(alarm.market_type || "spot")
@@ -1749,15 +1881,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         }
         
         // Format date as DD.MM.YYYY HH:MM:SS in GMT+3 (Turkey timezone)
-        const now = new Date();
-        const turkeyTime = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Istanbul" }));
-        const day = String(turkeyTime.getDate()).padStart(2, "0");
-        const month = String(turkeyTime.getMonth() + 1).padStart(2, "0");
-        const year = turkeyTime.getFullYear();
-        const hours = String(turkeyTime.getHours()).padStart(2, "0");
-        const minutes = String(turkeyTime.getMinutes()).padStart(2, "0");
-        const seconds = String(turkeyTime.getSeconds()).padStart(2, "0");
-        const formattedDateTime = `${day}.${month}.${year} ${hours}:${minutes}:${seconds}`;
+        const formattedDateTime = formatTurkeyTimeFromMs(candleCloseTimeMs);
 
         // Get signal analysis score for market strength
         const userConfidenceThreshold = Number(alarm.confidence_score || 70);
@@ -1770,7 +1894,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
 🎯 ${directionTR} Sinyali Tespit Edildi!
 
 📊 Piyasa: <b>${marketType}</b> | Zaman: <b>${timeframe}</b>
-💹 Fiyat: <b>$${formatPriceWithPrecision(priceForDecision, decimals)}</b>
+💹 Fiyat: <b>$${formatPriceWithPrecision(priceForSignal, decimals)}</b>
 
 📈 Sinyal: Güven: <b>${userConfidenceThreshold}%</b>
 📊 Gelen Sinyalin Güveni: <b>${signalAnalysis.score}%</b>
@@ -1798,7 +1922,7 @@ ${tradeNotificationText}
             market_type: marketTypeNorm,
             timeframe: String(alarm.timeframe || "1h"),
             direction,
-            entry_price: priceForDecision,
+            entry_price: priceForSignal,
             take_profit: tpPrice,
             stop_loss: slPrice,
             tp_percent: tpPercent,
@@ -1827,6 +1951,9 @@ ${tradeNotificationText}
         }
 
         telegramPromises.push(sendTelegramNotification(alarm.user_id, telegramMessage));
+        if (Number.isFinite(candleCloseTimeMs)) {
+          candleDedupCache.set(candleTimeKey, candleCloseTimeMs);
+        }
         console.log(`✅ User alarm triggered for ${symbol}: ${triggerMessage}`);
       }
     } catch (e) {
@@ -1906,22 +2033,70 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
 
         let shouldClose = false;
         let closeReason: "TP_HIT" | "SL_HIT" | "BAR_CLOSE" | "" = "";
+        let closePrice = currentPrice;
 
         if (direction === "LONG") {
-          if (currentPrice >= takeProfit) {
-            shouldClose = true;
-            closeReason = "TP_HIT";
-          } else if (currentPrice <= stopLoss) {
+          if (currentPrice <= stopLoss) {
             shouldClose = true;
             closeReason = "SL_HIT";
+            closePrice = stopLoss;
+          } else if (currentPrice >= takeProfit) {
+            shouldClose = true;
+            closeReason = "TP_HIT";
+            closePrice = takeProfit;
           }
         } else if (direction === "SHORT") {
-          if (currentPrice <= takeProfit) {
-            shouldClose = true;
-            closeReason = "TP_HIT";
-          } else if (currentPrice >= stopLoss) {
+          if (currentPrice >= stopLoss) {
             shouldClose = true;
             closeReason = "SL_HIT";
+            closePrice = stopLoss;
+          } else if (currentPrice <= takeProfit) {
+            shouldClose = true;
+            closeReason = "TP_HIT";
+            closePrice = takeProfit;
+          }
+        }
+
+        if (!shouldClose) {
+          let candleHigh: number | null = null;
+          let candleLow: number | null = null;
+          try {
+            const recentKlines = await getKlines(symbol, normalizeMarketType(signal.market_type || signal.marketType || signal.market), "1m", 2, 1);
+            if (recentKlines && recentKlines.length >= 2) {
+              const lastClosed = recentKlines[recentKlines.length - 2];
+              const high = Number(lastClosed?.[2]);
+              const low = Number(lastClosed?.[3]);
+              candleHigh = Number.isFinite(high) ? high : null;
+              candleLow = Number.isFinite(low) ? low : null;
+            }
+          } catch (e) {
+            console.warn(`⚠️ 1m kline read failed for ${symbol}:`, e);
+          }
+
+          if (direction === "LONG") {
+            const hitSl = candleLow !== null && candleLow <= stopLoss;
+            const hitTp = candleHigh !== null && candleHigh >= takeProfit;
+            if (hitSl) {
+              shouldClose = true;
+              closeReason = "SL_HIT";
+              closePrice = stopLoss;
+            } else if (hitTp) {
+              shouldClose = true;
+              closeReason = "TP_HIT";
+              closePrice = takeProfit;
+            }
+          } else if (direction === "SHORT") {
+            const hitSl = candleHigh !== null && candleHigh >= stopLoss;
+            const hitTp = candleLow !== null && candleLow <= takeProfit;
+            if (hitSl) {
+              shouldClose = true;
+              closeReason = "SL_HIT";
+              closePrice = stopLoss;
+            } else if (hitTp) {
+              shouldClose = true;
+              closeReason = "TP_HIT";
+              closePrice = takeProfit;
+            }
           }
         }
 
@@ -1949,8 +2124,8 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
 
         // Calculate profit/loss (store for UI + notifications)
         const profitLoss = direction === "LONG"
-          ? ((currentPrice - Number(signal.entry_price)) / Number(signal.entry_price)) * 100
-          : ((Number(signal.entry_price) - currentPrice) / Number(signal.entry_price)) * 100;
+          ? ((closePrice - Number(signal.entry_price)) / Number(signal.entry_price)) * 100
+          : ((Number(signal.entry_price) - closePrice) / Number(signal.entry_price)) * 100;
 
         const updateResult = await supabase
           .from("active_signals")
@@ -1975,12 +2150,12 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           symbol,
           direction,
           close_reason: closeReason,
-          price: currentPrice,
+          price: closePrice,
           user_id: signal.user_id,
           market_type: signal.market_type || signal.marketType || signal.market,
           profitLoss: direction === "LONG"
-            ? ((currentPrice - Number(signal.entry_price)) / Number(signal.entry_price)) * 100
-            : ((Number(signal.entry_price) - currentPrice) / Number(signal.entry_price)) * 100,
+            ? ((closePrice - Number(signal.entry_price)) / Number(signal.entry_price)) * 100
+            : ((Number(signal.entry_price) - closePrice) / Number(signal.entry_price)) * 100,
         });
       } catch (e) {
         console.error(`❌ Error checking signal ${signals[idx]?.id}:`, e);
@@ -2221,6 +2396,15 @@ serve(async (req: any) => {
   //   }
   // }
 
+  const lockName = "check-alarm-signals";
+  const lock = await acquireCronLock(lockName, 55);
+  if (!lock.acquired) {
+    return new Response(JSON.stringify({ ok: true, skipped: true, reason: "duplicate-run" }), {
+      status: 202,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   try {
     console.log("🚀 [CRON] Starting alarm signals check");
 
@@ -2417,6 +2601,7 @@ ${emoji} ${statusMessage}
     
     await Promise.all(notificationPromises);
 
+    await releaseCronLock(lockName, lock.requestId, "DONE");
     return new Response(
       JSON.stringify({
         success: true,
@@ -2430,6 +2615,7 @@ ${emoji} ${statusMessage}
     );
   } catch (e) {
     console.error("❌ Fatal error:", e);
+    await releaseCronLock(lockName, lock.requestId, "ERROR");
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
