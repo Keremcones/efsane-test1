@@ -2514,80 +2514,80 @@ async function fetchCryptoNews(coin = 'BTC', limit = 10) {
     }
 }
 
+// 6.1 BACKEND-ALIGNED SİNYAL SKORU (Alarm ile aynı)
+function generateSignalScoreAligned(indicators, price, sr, closes, volumes, userConfidenceThreshold = 70) {
+    const macdValue = Number(indicators?.macd?.macd ?? indicators?.macd ?? 0);
+    const stochK = Number(indicators?.stoch?.k ?? indicators?.stoch?.K ?? 0);
+
+    // TREND (%40)
+    let trendScore = 0;
+    if (indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50) {
+        trendScore += 30;
+    } else if (indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50) {
+        trendScore -= 30;
+    }
+    if (indicators.adx > 25) {
+        trendScore += Math.min((indicators.adx - 25) * 0.8, 20);
+    }
+
+    // MOMENTUM (%30)
+    let momentumScore = 0;
+    if (indicators.rsi < 30) momentumScore += 25;
+    else if (indicators.rsi < 40) momentumScore += 15;
+    else if (indicators.rsi > 70) momentumScore -= 25;
+    else if (indicators.rsi > 60) momentumScore -= 15;
+
+    momentumScore += macdValue > 0 ? 10 : -10;
+    if (stochK < 20) momentumScore += 10;
+    else if (stochK > 80) momentumScore -= 10;
+
+    // VOLUME (%15)
+    let volumeScore = 0;
+    let obvTrend = 'flat';
+    if (Array.isArray(closes) && closes.length >= 2) {
+        if (closes[closes.length - 1] > closes[closes.length - 2]) obvTrend = 'rising';
+        else if (closes[closes.length - 1] < closes[closes.length - 2]) obvTrend = 'falling';
+    }
+    if (obvTrend === 'rising') volumeScore += 10;
+    else if (obvTrend === 'falling') volumeScore -= 10;
+
+    const volumeMA = Array.isArray(volumes) && volumes.length > 0
+        ? volumes.reduce((a, b) => a + b, 0) / volumes.length
+        : 0;
+    if (volumeMA > 0) volumeScore += 15;
+    else volumeScore -= 10;
+
+    // SUPPORT/RESISTANCE (%15)
+    let srScore = 0;
+    const nearestSupport = sr?.supports?.[0]?.price || (price * 0.95);
+    const nearestResistance = sr?.resistances?.[0]?.price || (price * 1.05);
+    if (nearestSupport > 0 && nearestResistance > 0 && price > 0) {
+        const distanceToSupport = (price - nearestSupport) / price;
+        const distanceToResistance = (nearestResistance - price) / price;
+        if (distanceToSupport < 0.02) srScore += 15;
+        if (distanceToResistance < 0.02) srScore -= 15;
+    }
+
+    const normalizedTrendScore = (trendScore / 50) * 40;
+    const normalizedMomentumScore = (momentumScore / 50) * 30;
+    const normalizedVolumeScore = (volumeScore / 25) * 15;
+    const normalizedSRScore = (srScore / 30) * 15;
+    const totalScore = normalizedTrendScore + normalizedMomentumScore + normalizedVolumeScore + normalizedSRScore;
+
+    const direction = totalScore > 0 ? 'LONG' : 'SHORT';
+    const confidence = Math.min(Math.max(Math.abs(totalScore), 0), 100);
+    const triggered = confidence >= userConfidenceThreshold;
+
+    return {
+        direction,
+        score: Math.round(confidence),
+        triggered
+    };
+}
+
 // RSS başlık ve açıklamadan duygu analizi
 function analyzeSentiment(text) {
     const positiveWords = ['artış', 'yükseliş', 'kazanç', 'iyi', 'başarı', 'rally', 'bull', 'pompa', 'rekor', 'büyüme'];
-
-    // 6.1 BACKEND-ALIGNED SİNYAL SKORU (Alarm ile aynı)
-    function generateSignalScoreAligned(indicators, price, sr, closes, volumes, userConfidenceThreshold = 70) {
-        const macdValue = Number(indicators?.macd?.macd ?? indicators?.macd ?? 0);
-        const stochK = Number(indicators?.stoch?.k ?? indicators?.stoch?.K ?? 0);
-
-        // TREND (%40)
-        let trendScore = 0;
-        if (indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50) {
-            trendScore += 30;
-        } else if (indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50) {
-            trendScore -= 30;
-        }
-        if (indicators.adx > 25) {
-            trendScore += Math.min((indicators.adx - 25) * 0.8, 20);
-        }
-
-        // MOMENTUM (%30)
-        let momentumScore = 0;
-        if (indicators.rsi < 30) momentumScore += 25;
-        else if (indicators.rsi < 40) momentumScore += 15;
-        else if (indicators.rsi > 70) momentumScore -= 25;
-        else if (indicators.rsi > 60) momentumScore -= 15;
-
-        momentumScore += macdValue > 0 ? 10 : -10;
-        if (stochK < 20) momentumScore += 10;
-        else if (stochK > 80) momentumScore -= 10;
-
-        // VOLUME (%15)
-        let volumeScore = 0;
-        let obvTrend = 'flat';
-        if (Array.isArray(closes) && closes.length >= 2) {
-            if (closes[closes.length - 1] > closes[closes.length - 2]) obvTrend = 'rising';
-            else if (closes[closes.length - 1] < closes[closes.length - 2]) obvTrend = 'falling';
-        }
-        if (obvTrend === 'rising') volumeScore += 10;
-        else if (obvTrend === 'falling') volumeScore -= 10;
-
-        const volumeMA = Array.isArray(volumes) && volumes.length > 0
-            ? volumes.reduce((a, b) => a + b, 0) / volumes.length
-            : 0;
-        if (volumeMA > 0) volumeScore += 15;
-        else volumeScore -= 10;
-
-        // SUPPORT/RESISTANCE (%15)
-        let srScore = 0;
-        const nearestSupport = sr?.supports?.[0]?.price || (price * 0.95);
-        const nearestResistance = sr?.resistances?.[0]?.price || (price * 1.05);
-        if (nearestSupport > 0 && nearestResistance > 0 && price > 0) {
-            const distanceToSupport = (price - nearestSupport) / price;
-            const distanceToResistance = (nearestResistance - price) / price;
-            if (distanceToSupport < 0.02) srScore += 15;
-            if (distanceToResistance < 0.02) srScore -= 15;
-        }
-
-        const normalizedTrendScore = (trendScore / 50) * 40;
-        const normalizedMomentumScore = (momentumScore / 50) * 30;
-        const normalizedVolumeScore = (volumeScore / 25) * 15;
-        const normalizedSRScore = (srScore / 30) * 15;
-        const totalScore = normalizedTrendScore + normalizedMomentumScore + normalizedVolumeScore + normalizedSRScore;
-
-        const direction = totalScore > 0 ? 'LONG' : 'SHORT';
-        const confidence = Math.min(Math.max(Math.abs(totalScore), 0), 100);
-        const triggered = confidence >= userConfidenceThreshold;
-
-        return {
-            direction,
-            score: Math.round(confidence),
-            triggered
-        };
-    }
     const negativeWords = ['düşüş', 'kaybı', 'kötü', 'zararda', 'kayıp', 'bear', 'crash', 'düştü', 'risk', 'uyarı'];
     
     const lower = text.toLowerCase();
