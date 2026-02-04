@@ -1557,6 +1557,14 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       const priceForPriceAlarm = Number.isFinite(livePrice as number) ? (livePrice as number) : signalPrice;
       const priceForActiveTrade = Number.isFinite(livePrice as number) ? (livePrice as number) : signalPrice;
 
+      if (alarm.created_at) {
+        const createdAtMs = new Date(alarm.created_at).getTime();
+        if (Number.isFinite(createdAtMs) && candleCloseTimeMs <= createdAtMs) {
+          console.log(`⏭️ Skipping alarm ${alarm.id}: candle close before alarm creation.`);
+          continue;
+        }
+      }
+
       if (alarmMarketType === "futures" && alarm.auto_trade_enabled === true) {
         const positionKey = `${alarm.user_id}:${alarmSymbol}`;
         if (!openPositionCache.has(positionKey)) {
@@ -1842,7 +1850,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         const slPrice = rawSlPrice;
 
         // 🚀 AUTO TRADE EXECUTION
-        let tradeResult = { success: false, message: "Auto-trade not triggered" } as { success: boolean; message: string; orderId?: string };
+        let tradeResult = { success: false, message: "Otomatik işlem tetiklenmedi (auto-trade kapalı/izin yok/açık pozisyon/işlem hatası)" } as { success: boolean; message: string; orderId?: string };
         let tradeNotificationText = "";
         const autoTradeEnabled = alarm.auto_trade_enabled === true;
 
