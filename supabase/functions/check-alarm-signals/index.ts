@@ -1939,6 +1939,9 @@ ${tradeNotificationText}
           }
 
           const marketTypeNorm = normalizeMarketType(alarm.market_type || "spot");
+          const signalCreatedAt = Number.isFinite(candleCloseTimeMs)
+            ? new Date(candleCloseTimeMs).toISOString()
+            : new Date().toISOString();
           const newActiveSignal = {
             user_id: alarm.user_id,
             alarm_id: alarm.id,
@@ -1953,7 +1956,8 @@ ${tradeNotificationText}
             sl_percent: slPercent,
             bar_close_limit: barClose,
             status: "ACTIVE",
-            score: detectedSignal?.score || 50  // ✅ ADD SCORE
+            score: detectedSignal?.score || 50,
+            created_at: signalCreatedAt
           };
 
           const { error: insertError } = await supabase.from("active_signals").insert(newActiveSignal);
