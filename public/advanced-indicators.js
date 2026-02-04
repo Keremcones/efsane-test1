@@ -833,7 +833,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             
             // DEBUG: Log ekle
             if (i < windowSize + 5 || i > closes.length - 10) {
-                console.log(`🔄 [${timeframe}] bar=${i} signal=${signal.direction} score=${signal.score} TP=${signal.tp?.toFixed(4)} SL=${signal.stop?.toFixed(4)} shouldOpen=${shouldOpenTrade}`);
+                console.log(`🔄 [${timeframe}] bar=${i} signal=${signalScore.direction} score=${signalScore.score} shouldOpen=${shouldOpenTrade}`);
             }
             
             if (!shouldOpenTrade) {
