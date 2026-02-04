@@ -621,22 +621,22 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Emir Tipi <span title="Market: anlık fiyatla girer. Limit: tolerans dahilinde fiyat bekler."><i class="fa-solid fa-circle-info"></i></span></label>
+                        <label class="form-label">Emir Tipi (Market: anlık fiyat. Limit: tolerans dahilinde bekler)</label>
                         <select id="futuresOrderType" class="form-input">
                             <option value="market" selected>Market</option>
                             <option value="limit">Limit</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Limit Toleransı (%) <span title="Limit fiyatı, sinyal fiyatına bu tolerans uygulanarak hesaplanır."><i class="fa-solid fa-circle-info"></i></span></label>
+                        <label class="form-label">Limit Toleransı (%) (Sinyal fiyatına tolerans uygulanır)</label>
                         <input type="number" id="futuresLimitTolerance" class="form-input" min="0" max="2" step="0.01" value="0.30" />
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Limit Bekleme (sn) <span title="Limit emir bu süre içinde dolmazsa iptal edilir."><i class="fa-solid fa-circle-info"></i></span></label>
+                        <label class="form-label">Limit Bekleme (sn) (Bu sürede dolmazsa iptal)</label>
                         <input type="number" id="futuresLimitTimeout" class="form-input" min="10" max="300" step="5" value="60" />
                     </div>
                     <div class="toggle-group" style="margin-top: 0;">
-                        <label class="toggle-label">Dolmazsa Market <span title="Limit emir dolmazsa market emir ile devam eder."><i class="fa-solid fa-circle-info"></i></span></label>
+                        <label class="toggle-label">Dolmazsa Market (Limit dolmazsa markete geç)</label>
                         <label class="toggle-switch">
                             <input type="checkbox" id="futuresLimitFallbackToggle" checked />
                             <span class="toggle-slider"></span>

@@ -139,6 +139,7 @@
             z-index: 100;
             box-shadow: 0 12px 30px rgba(86, 110, 170, 0.22);
             min-height: 72px;
+            width: 100%;
         }
 
         html[data-theme="dark"] .navbar {
@@ -357,6 +358,20 @@
         html[data-theme="light"] .menu-panel {
             background: #000;
             border-left: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        html[data-theme="light"] .menu-item,
+        html[data-theme="light"] .menu-user-email,
+        html[data-theme="light"] .menu-content,
+        html[data-theme="light"] .menu-user-info {
+            color: #ffffff;
+        }
+
+        @media (max-width: 520px) {
+            .menu-panel {
+                width: 100vw;
+                right: -100vw;
+            }
         }
 
         html[data-theme="purple"] .menu-panel {
