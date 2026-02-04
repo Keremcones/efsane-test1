@@ -436,7 +436,9 @@ async function openBinanceTrade(
   direction: "LONG" | "SHORT",
   quantity: number,
   marketType: "spot" | "futures",
-  positionSide?: "LONG" | "SHORT"
+  positionSide?: "LONG" | "SHORT",
+  orderType: "MARKET" | "LIMIT" = "MARKET",
+  limitPrice?: number
 ): Promise<{ success: boolean; orderId?: string; error?: string }> {
   const timestamp = Date.now();
   const side = direction === "LONG" ? "BUY" : "SELL";
@@ -446,7 +448,14 @@ async function openBinanceTrade(
 
   if (marketType === "futures") {
     const positionSideParam = positionSide ? `&positionSide=${positionSide}` : "";
-    queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}${positionSideParam}&timestamp=${timestamp}`;
+    if (orderType === "LIMIT") {
+      if (!Number.isFinite(limitPrice as number)) {
+        return { success: false, error: "Limit price required" };
+      }
+      queryString = `symbol=${symbol}&side=${side}&type=LIMIT&timeInForce=GTC&quantity=${quantity}&price=${limitPrice}${positionSideParam}&timestamp=${timestamp}`;
+    } else {
+      queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}${positionSideParam}&timestamp=${timestamp}`;
+    }
     baseUrl = "https://fapi.binance.com/fapi/v1/order";
   } else {
     queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
@@ -737,7 +746,16 @@ async function executeAutoTrade(
       return { success: false, message: "Spot auto-trade not enabled" };
     }
 
-    const { api_key, api_secret, futures_leverage, futures_position_size_percent, spot_position_size_percent, futures_margin_type } = userKeys;
+    const {
+      api_key,
+      api_secret,
+      futures_leverage,
+      futures_position_size_percent,
+      spot_position_size_percent,
+      futures_margin_type,
+      futures_order_type,
+      futures_limit_tolerance_percent
+    } = userKeys;
 
     if (marketType === "spot" && direction === "SHORT") {
       return { success: false, message: "Spot SHORT not supported" };
@@ -826,7 +844,33 @@ async function executeAutoTrade(
       await setLeverage(api_key, api_secret, symbol, leverage);
     }
 
-    const orderResult = await openBinanceTrade(api_key, api_secret, symbol, direction, quantity, marketType, positionSide);
+    let orderType: "MARKET" | "LIMIT" = "MARKET";
+    let limitPrice: number | undefined;
+    if (marketType === "futures") {
+      const rawOrderType = String(futures_order_type || "market").toLowerCase();
+      orderType = rawOrderType === "limit" ? "LIMIT" : "MARKET";
+      if (orderType === "LIMIT") {
+        const tolerance = Number(futures_limit_tolerance_percent ?? 0.3);
+        const toleranceRatio = Number.isFinite(tolerance) ? Math.max(0, tolerance) / 100 : 0.003;
+        const rawLimit = direction === "LONG"
+          ? executionPrice * (1 + toleranceRatio)
+          : executionPrice * (1 - toleranceRatio);
+        const rounded = roundToTick(rawLimit, symbolInfo.tickSize, direction === "LONG" ? "UP" : "DOWN");
+        limitPrice = rounded;
+      }
+    }
+
+    const orderResult = await openBinanceTrade(
+      api_key,
+      api_secret,
+      symbol,
+      direction,
+      quantity,
+      marketType,
+      positionSide,
+      orderType,
+      limitPrice
+    );
     if (!orderResult.success) {
       return { success: false, message: orderResult.error || "Order failed" };
     }
