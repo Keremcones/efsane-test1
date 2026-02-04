@@ -6,6 +6,8 @@
 
 // (no helper) price formatting uses toFixed(2) where appropriate
 
+const TELEGRAM_BOT_TOKEN_SAFE = typeof TELEGRAM_BOT_TOKEN !== 'undefined' ? TELEGRAM_BOT_TOKEN : null;
+
 // 1. MULTI-TIMEFRAME ANALİZ
 async function analyzeMultiTimeframe(symbol) {
     const timeframes = ['5m', '15m', '1h', '4h', '1d'];
@@ -1740,6 +1742,11 @@ ${profitEmoji} Kar/Zarar: *${profit}%*
 
             const chatId = userSettings.telegram_username;
 
+            if (!TELEGRAM_BOT_TOKEN_SAFE) {
+                console.warn('⚠️ [TELEGRAM] Bot token tanımlı değil, gönderim atlandı');
+                return;
+            }
+
             console.log('📤 [TELEGRAM] Mesaj hazırlanıyor:', { 
                 chatId,
                 type: alarm.type,
@@ -1756,7 +1763,7 @@ ${profitEmoji} Kar/Zarar: *${profit}%*
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         telegramUsername: chatId,
-                        botToken: TELEGRAM_BOT_TOKEN,
+                        botToken: TELEGRAM_BOT_TOKEN_SAFE,
                         message: messageText,
                         parse_mode: 'Markdown'
                     })
@@ -1843,8 +1850,13 @@ ${profitEmoji} Kar/Zarar: *${profit}%*
             console.log('📤 Telegram mesajı gönderiliyor:', {
                 chatId,
                 messageLength: messageText.length,
-                botTokenExists: !!TELEGRAM_BOT_TOKEN
+                botTokenExists: !!TELEGRAM_BOT_TOKEN_SAFE
             });
+
+            if (!TELEGRAM_BOT_TOKEN_SAFE) {
+                console.warn('⚠️ [TELEGRAM] Bot token tanımlı değil, gönderim atlandı');
+                return;
+            }
 
             const response = await fetch(
                 'https://jcrbhekrphxodxhkuzju.supabase.co/functions/v1/dynamic-responder',
@@ -1853,7 +1865,7 @@ ${profitEmoji} Kar/Zarar: *${profit}%*
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         telegramUsername: chatId,
-                        botToken: TELEGRAM_BOT_TOKEN,
+                        botToken: TELEGRAM_BOT_TOKEN_SAFE,
                         message: messageText,
                         parse_mode: 'Markdown'
                     })
@@ -1981,8 +1993,13 @@ ${pnlEmoji} Kar/Zarar: *${pnl}%*
             console.log('📤 [TELEGRAM PASIF] Telegram mesajı gönderiliyor...', {
                 chatId,
                 messageLength: messageText.length,
-                botTokenExists: !!TELEGRAM_BOT_TOKEN
+                botTokenExists: !!TELEGRAM_BOT_TOKEN_SAFE
             });
+
+            if (!TELEGRAM_BOT_TOKEN_SAFE) {
+                console.warn('⚠️ [TELEGRAM PASIF] Bot token tanımlı değil, gönderim atlandı');
+                return;
+            }
 
             const response = await fetch(
                 'https://jcrbhekrphxodxhkuzju.supabase.co/functions/v1/dynamic-responder',
@@ -1991,7 +2008,7 @@ ${pnlEmoji} Kar/Zarar: *${pnl}%*
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         telegramUsername: chatId,
-                        botToken: TELEGRAM_BOT_TOKEN,
+                        botToken: TELEGRAM_BOT_TOKEN_SAFE,
                         message: messageText,
                         parse_mode: 'Markdown'
                     })
@@ -2059,6 +2076,10 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
 
             const chatId = userSettings.telegram_username;
 
+            if (!TELEGRAM_BOT_TOKEN_SAFE) {
+                return;
+            }
+
             await fetch(
                 'https://jcrbhekrphxodxhkuzju.supabase.co/functions/v1/dynamic-responder',
                 {
@@ -2066,7 +2087,7 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         telegramUsername: chatId,
-                        botToken: TELEGRAM_BOT_TOKEN,
+                        botToken: TELEGRAM_BOT_TOKEN_SAFE,
                         message: message,
                         parse_mode: 'Markdown'
                     })
