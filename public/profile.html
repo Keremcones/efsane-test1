@@ -17,6 +17,9 @@
     </script>
     <link rel="icon" type="image/svg+xml" href="/logo.svg">
     <link rel="icon" href="/favicon.ico" sizes="any">
+        body {
+            overflow-x: hidden;
+        }
     <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png">
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
@@ -338,17 +341,18 @@
 
         .menu-panel {
             position: fixed;
-            right: -350px;
+              right: 0;
             top: 0;
             width: 350px;
             height: 100vh;
             background: #000;
             border-left: 1px solid rgba(255, 255, 255, 0.12);
             z-index: 998;
-            transition: right 0.3s ease;
+              transition: transform 0.3s ease;
             overflow-y: auto;
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
+              transform: translateX(100%);
         }
 
         .menu-panel.active {
@@ -398,8 +402,8 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: all 0.3s ease;
-        }
+            .menu-panel.active {
+                transform: translateX(0);
 
         .menu-close:hover {
             color: var(--secondary);
@@ -1274,7 +1278,7 @@
         @media (max-width: 600px) {
             .container {
                 padding: 20px 16px;
-            }
+                    transform: translateX(100%);
         }
 
         @media (max-width: 960px) {

@@ -1070,6 +1070,25 @@ function calculateStochastic(closes: number[], highs: number[], lows: number[], 
   return { K: Math.max(0, Math.min(100, K)), D: Math.max(0, Math.min(100, D)) };
 }
 
+function calculateATR(highs: number[], lows: number[], closes: number[], period: number = 14): number {
+  if (closes.length < period + 1) return 0;
+
+  const trueRanges: number[] = [];
+  for (let i = 1; i < closes.length; i++) {
+    const high = highs[i];
+    const low = lows[i];
+    const prevClose = closes[i - 1];
+    const tr1 = high - low;
+    const tr2 = Math.abs(high - prevClose);
+    const tr3 = Math.abs(low - prevClose);
+    trueRanges.push(Math.max(tr1, tr2, tr3));
+  }
+
+  const recent = trueRanges.slice(-period);
+  if (recent.length === 0) return 0;
+  return recent.reduce((a, b) => a + b, 0) / recent.length;
+}
+
 function calculateADX(highs: number[], lows: number[], closes: number[], period: number = 14): number {
   if (closes.length < period + 1) return 25;
   
@@ -1216,6 +1235,7 @@ interface TechnicalIndicators {
   stoch: { K: number; D: number };
   adx: number;
   volumeMA: number;
+  atr: number;
 }
 
 function formatTurkeyTimeFromMs(timestampMs: number): string {
@@ -1276,6 +1296,7 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
   // Calculate Stochastic and ADX
   const stoch = calculateStochastic(closes, highs, lows);
   const adx = calculateADX(highs, lows, closes);
+  const atr = calculateATR(highs, lows, closes, 14);
   
   // Calculate Volume Moving Average
   const volumeMA = volumes.length > 0 ? volumes.reduce((a, b) => a + b, 0) / volumes.length : 0;
@@ -1301,6 +1322,7 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
     stoch: stoch,
     adx: adx,
     volumeMA: volumeMA,
+    atr: atr,
   };
 }
 
@@ -1309,6 +1331,27 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
 // =====================
 function generateSignalScore(indicators: TechnicalIndicators, userConfidenceThreshold: number = 70): { direction: "LONG" | "SHORT"; score: number; triggered: boolean; breakdown: any } {
   const breakdown: any = {};
+
+  const atrPercent = indicators.price > 0 ? (indicators.atr / indicators.price) : 0;
+  const isTrending = indicators.adx >= 25;
+  const regime = isTrending ? "trend" : "range";
+
+  let trendWeight = 40;
+  let momentumWeight = 30;
+  let volumeWeight = 15;
+  let srWeight = 15;
+
+  if (regime === "trend") {
+    trendWeight = 50;
+    momentumWeight = 20;
+    volumeWeight = 20;
+    srWeight = 10;
+  } else {
+    trendWeight = 25;
+    momentumWeight = 35;
+    volumeWeight = 15;
+    srWeight = 25;
+  }
 
   // ===== TREND ANALİZİ (%40) =====
   let trendScore = 0;
@@ -1335,7 +1378,7 @@ function generateSignalScore(indicators: TechnicalIndicators, userConfidenceThre
 
   breakdown.TREND_ANALIZI = {
     score: trendScore,
-    weight: "40%",
+    weight: `${trendWeight}%`,
     details: {
       "EMA12/EMA26 & SMA20/SMA50": `${trendDetails.emaAlignment > 0 ? "✅ LONG" : trendDetails.emaAlignment < 0 ? "⚠️ SHORT" : "-"} (${trendDetails.emaAlignment})`,
       "ADX > 25 Bonus": `${trendDetails.adxBonus > 0 ? "+" : ""}${trendDetails.adxBonus.toFixed(2)}`,
@@ -1386,7 +1429,7 @@ function generateSignalScore(indicators: TechnicalIndicators, userConfidenceThre
 
   breakdown.MOMENTUM_ANALIZI = {
     score: momentumScore,
-    weight: "30%",
+    weight: `${momentumWeight}%`,
     details: {
       "RSI": `${indicators.rsi.toFixed(2)} → ${momentumDetails.rsiScore > 0 ? "+" : ""}${momentumDetails.rsiScore}`,
       "MACD": `${indicators.macd > 0 ? "Positive" : "Negative"} → ${momentumDetails.macdScore > 0 ? "+" : ""}${momentumDetails.macdScore}`,
@@ -1423,7 +1466,7 @@ function generateSignalScore(indicators: TechnicalIndicators, userConfidenceThre
 
   breakdown.VOLUME_ANALIZI = {
     score: volumeScore,
-    weight: "15%",
+    weight: `${volumeWeight}%`,
     details: {
       "OBV Trend": `${indicators.obvTrend} → ${volumeDetails.obvScore > 0 ? "+" : ""}${volumeDetails.obvScore}`,
       "Volume MA": `${indicators.volumeMA > 0 ? "Positive" : "Negative"} → ${volumeDetails.volumeMAScore > 0 ? "+" : ""}${volumeDetails.volumeMAScore}`,
@@ -1456,7 +1499,7 @@ function generateSignalScore(indicators: TechnicalIndicators, userConfidenceThre
 
     breakdown.SUPPORT_RESISTANCE_ANALIZI = {
       score: srScore,
-      weight: "15%",
+      weight: `${srWeight}%`,
       details: {
         "Support Proximity": `${(distanceToSupport * 100).toFixed(2)}% → ${srDetails.supportProximity > 0 ? "+" : ""}${srDetails.supportProximity}`,
         "Resistance Proximity": `${(distanceToResistance * 100).toFixed(2)}% → ${srDetails.resistanceProximity}`,
@@ -1468,17 +1511,23 @@ function generateSignalScore(indicators: TechnicalIndicators, userConfidenceThre
   }
 
   // ===== NORMALIZE VE AĞIRLIKLA =====
-  const normalizedTrendScore = (trendScore / 50) * 40; // -50 to +50 → ±40
-  const normalizedMomentumScore = (momentumScore / 50) * 30; // -50 to +50 → ±30
-  const normalizedVolumeScore = (volumeScore / 25) * 15; // -25 to +25 → ±15
-  const normalizedSRScore = (srScore / 30) * 15; // -30 to +30 → ±15
+  const normalizedTrendScore = (trendScore / 50) * trendWeight; // -50 to +50 → ±weight
+  const normalizedMomentumScore = (momentumScore / 50) * momentumWeight; // -50 to +50 → ±weight
+  const normalizedVolumeScore = (volumeScore / 25) * volumeWeight; // -25 to +25 → ±weight
+  const normalizedSRScore = (srScore / 30) * srWeight; // -30 to +30 → ±weight
 
   let score = normalizedTrendScore + normalizedMomentumScore + normalizedVolumeScore + normalizedSRScore;
 
   // Clamp to 0-100
   const direction = score > 0 ? "LONG" : "SHORT";
   const confidence = Math.min(Math.max(Math.abs(score), 0), 100);
-  const triggered = confidence >= userConfidenceThreshold;
+
+  let adjustedThreshold = userConfidenceThreshold;
+  if (atrPercent > 0 && atrPercent < 0.001) adjustedThreshold += 20;
+  else if (atrPercent > 0 && atrPercent < 0.002) adjustedThreshold += 10;
+  adjustedThreshold = Math.min(95, adjustedThreshold);
+
+  const triggered = confidence >= adjustedThreshold;
 
   breakdown.normalizedScore = {
     trend: normalizedTrendScore.toFixed(2),
@@ -1486,6 +1535,12 @@ function generateSignalScore(indicators: TechnicalIndicators, userConfidenceThre
     volume: normalizedVolumeScore.toFixed(2),
     sr: normalizedSRScore.toFixed(2),
     total: score.toFixed(2),
+  };
+
+  breakdown.regime = {
+    type: regime,
+    atrPercent: (atrPercent * 100).toFixed(3) + "%",
+    adjustedThreshold: adjustedThreshold,
   };
 
   return {

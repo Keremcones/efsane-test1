@@ -2518,6 +2518,28 @@ async function fetchCryptoNews(coin = 'BTC', limit = 10) {
 function generateSignalScoreAligned(indicators, price, sr, closes, volumes, userConfidenceThreshold = 70) {
     const macdValue = Number(indicators?.macd?.macd ?? indicators?.macd ?? 0);
     const stochK = Number(indicators?.stoch?.k ?? indicators?.stoch?.K ?? 0);
+    const atrValue = Number(indicators?.atr ?? 0);
+    const atrPercent = price > 0 ? (atrValue / price) : 0;
+
+    const isTrending = Number(indicators?.adx ?? 0) >= 25;
+    const regime = isTrending ? 'trend' : 'range';
+
+    let trendWeight = 40;
+    let momentumWeight = 30;
+    let volumeWeight = 15;
+    let srWeight = 15;
+
+    if (regime === 'trend') {
+        trendWeight = 50;
+        momentumWeight = 20;
+        volumeWeight = 20;
+        srWeight = 10;
+    } else {
+        trendWeight = 25;
+        momentumWeight = 35;
+        volumeWeight = 15;
+        srWeight = 25;
+    }
 
     // TREND (%40)
     let trendScore = 0;
@@ -2568,20 +2590,29 @@ function generateSignalScoreAligned(indicators, price, sr, closes, volumes, user
         if (distanceToResistance < 0.02) srScore -= 15;
     }
 
-    const normalizedTrendScore = (trendScore / 50) * 40;
-    const normalizedMomentumScore = (momentumScore / 50) * 30;
-    const normalizedVolumeScore = (volumeScore / 25) * 15;
-    const normalizedSRScore = (srScore / 30) * 15;
+    const normalizedTrendScore = (trendScore / 50) * trendWeight;
+    const normalizedMomentumScore = (momentumScore / 50) * momentumWeight;
+    const normalizedVolumeScore = (volumeScore / 25) * volumeWeight;
+    const normalizedSRScore = (srScore / 30) * srWeight;
     const totalScore = normalizedTrendScore + normalizedMomentumScore + normalizedVolumeScore + normalizedSRScore;
 
     const direction = totalScore > 0 ? 'LONG' : 'SHORT';
     const confidence = Math.min(Math.max(Math.abs(totalScore), 0), 100);
-    const triggered = confidence >= userConfidenceThreshold;
+    let adjustedThreshold = userConfidenceThreshold;
+    if (atrPercent > 0 && atrPercent < 0.001) adjustedThreshold += 20;
+    else if (atrPercent > 0 && atrPercent < 0.002) adjustedThreshold += 10;
+    adjustedThreshold = Math.min(95, adjustedThreshold);
+
+    const triggered = confidence >= adjustedThreshold;
 
     return {
         direction,
         score: Math.round(confidence),
-        triggered
+        triggered,
+        regime: {
+            type: regime,
+            atrPercent: atrPercent
+        }
     };
 }
 

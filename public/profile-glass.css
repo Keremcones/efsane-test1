@@ -117,3 +117,23 @@ textarea:focus {
   backdrop-filter: blur(18px) !important;
   -webkit-backdrop-filter: blur(18px) !important;
 }
+
+@media (max-width: 768px) {
+  body::before,
+  body::after {
+    display: none;
+  }
+
+  .profile-section::before,
+  .membership-card::before {
+    display: none;
+  }
+
+  .profile-section,
+  .membership-card,
+  .navbar,
+  .menu-panel {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
