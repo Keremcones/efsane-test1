@@ -50,6 +50,11 @@ body {
     linear-gradient(135deg, var(--bg-primary), var(--bg-secondary));
 }
 
+html,
+body {
+  overflow-x: hidden;
+}
+
 body::before,
 body::after {
   display: none;
@@ -191,12 +196,7 @@ body::after {
 .stat-card::before,
 .analysis-card::before,
 .news-card::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
-  opacity: 0.25;
-  pointer-events: none;
+  display: none;
 }
 
 .card:hover,
@@ -236,10 +236,14 @@ body::after {
   transform: translateX(100%);
   transition: transform 0.3s ease !important;
   will-change: transform;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .menu-panel.active {
   transform: translateX(0) !important;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .navbar {
