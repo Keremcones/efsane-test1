@@ -233,17 +233,19 @@ body::after {
 .menu-panel {
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45) !important;
   right: 0 !important;
-  transform: translateX(100%);
+  transform: translateX(100%) !important;
   transition: transform 0.3s ease !important;
   will-change: transform;
-  opacity: 0;
-  pointer-events: none;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
 }
 
 .menu-panel.active {
   transform: translateX(0) !important;
-  opacity: 1;
-  pointer-events: auto;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  visibility: visible !important;
 }
 
 .navbar {

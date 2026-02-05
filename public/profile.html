@@ -339,22 +339,22 @@
 
         .menu-panel {
             position: fixed;
-              right: 0;
+                        right: 0;
             top: 0;
             width: 350px;
             height: 100vh;
             background: #000;
             border-left: 1px solid rgba(255, 255, 255, 0.12);
             z-index: 998;
-              transition: transform 0.3s ease;
+                        transition: transform 0.3s ease;
             overflow-y: auto;
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
-              transform: translateX(100%);
+                        transform: translateX(100%);
         }
 
         .menu-panel.active {
-            right: 0;
+                        transform: translateX(0);
         }
 
         html[data-theme="light"] .menu-panel {
@@ -372,7 +372,7 @@
         @media (max-width: 520px) {
             .menu-panel {
                 width: 100vw;
-                right: -100vw;
+                right: 0;
             }
         }
 
@@ -400,8 +400,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            .menu-panel.active {
-                transform: translateX(0);
+        }
 
         .menu-close:hover {
             color: var(--secondary);
@@ -1276,7 +1275,7 @@
         @media (max-width: 600px) {
             .container {
                 padding: 20px 16px;
-                    transform: translateX(100%);
+            }
         }
 
         @media (max-width: 960px) {
