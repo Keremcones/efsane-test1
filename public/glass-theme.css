@@ -52,15 +52,7 @@ body {
 
 body::before,
 body::after {
-  content: '';
-  position: fixed;
-  width: 420px;
-  height: 420px;
-  border-radius: 50%;
-  filter: blur(90px);
-  opacity: 0.35;
-  z-index: 0;
-  pointer-events: none;
+  display: none;
 }
 
 body::before {
@@ -240,6 +232,14 @@ body::after {
 
 .menu-panel {
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45) !important;
+  right: 0 !important;
+  transform: translateX(100%);
+  transition: transform 0.3s ease !important;
+  will-change: transform;
+}
+
+.menu-panel.active {
+  transform: translateX(0) !important;
 }
 
 .navbar {

@@ -7,28 +7,15 @@ body {
 
 body::before,
 body::after {
-  content: '';
-  position: fixed;
-  inset: -10% -10% auto auto;
-  width: 420px;
-  height: 420px;
-  border-radius: 50%;
-  filter: blur(90px);
-  opacity: 0.35;
-  z-index: 0;
-  pointer-events: none;
+  display: none;
 }
 
 body::before {
-  background: rgba(52, 211, 153, 0.6);
-  top: 8%;
-  left: 6%;
+  display: none;
 }
 
 body::after {
-  background: rgba(212, 165, 116, 0.55);
-  bottom: 6%;
-  right: 6%;
+  display: none;
 }
 
 .container,
