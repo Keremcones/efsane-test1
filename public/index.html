@@ -4373,7 +4373,7 @@
                     
                     <!-- Alarm Sinyalleri Container -->
                     <div class="card">
-                        <div class="card-title"><i class="fa-solid fa-satellite-dish"></i> Alarm Sinyalleri</div>
+                        <div class="card-title"><i class="fa-solid fa-satellite-dish"></i> Alarm Sinyalleri <span id="alarmSignalsTotalPnl" class="price-change" style="margin-left: 8px; font-size: 0.8rem;">0%</span></div>
                         <div id="closedAlarmContainer" style="min-height: 100px;">
                             <!-- Bu container farklı bir amaçla kullanılacaktır -->
                         </div>
@@ -5761,7 +5761,17 @@ Detaylar:
 
         function updateAlarmSignalsPnL() {
             const pnlEls = document.querySelectorAll('[data-alarm-signal-pnl="1"]');
-            if (!pnlEls || pnlEls.length === 0) return;
+            const totalEl = document.getElementById('alarmSignalsTotalPnl');
+            if (!pnlEls || pnlEls.length === 0) {
+                if (totalEl) {
+                    totalEl.textContent = '0%';
+                    totalEl.className = 'price-change';
+                }
+                return;
+            }
+
+            let totalPnl = 0;
+            let counted = 0;
 
             pnlEls.forEach(el => {
                 const symbol = el.getAttribute('data-symbol');
@@ -5777,10 +5787,19 @@ Detaylar:
                     : ((livePrice - entry) / entry) * 100;
 
                 const pnlPercent = Number.isFinite(rawPnl) ? parseFloat(rawPnl.toFixed(2)) : 0;
+                totalPnl += pnlPercent;
+                counted += 1;
                 const pnlSign = pnlPercent >= 0 ? '+' : '';
                 el.textContent = `${pnlSign}${pnlPercent}%`;
                 el.className = `price-change ${pnlPercent >= 0 ? 'positive' : 'negative'}`;
             });
+
+            if (totalEl) {
+                const totalPercent = counted > 0 ? parseFloat(totalPnl.toFixed(2)) : 0;
+                const totalSign = totalPercent >= 0 ? '+' : '';
+                totalEl.textContent = `${totalSign}${totalPercent}%`;
+                totalEl.className = `price-change ${totalPercent >= 0 ? 'positive' : 'negative'}`;
+            }
         }
         
         function updateOpenTradePnL(trade, livePrice = null) {
