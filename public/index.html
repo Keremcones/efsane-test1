@@ -4954,6 +4954,7 @@
                                 const pnlClass = pnlPercent !== null && pnlPercent >= 0 ? 'positive' : 'negative';
                                 const pnlSign = pnlPercent !== null && pnlPercent >= 0 ? '+' : '';
                                 const pnlText = pnlPercent === null ? '--' : `${pnlSign}${pnlPercent}%`;
+                                const pnlValueAttr = pnlPercent === null ? '' : String(pnlPercent);
                                 const tpPercent = Number(sig.tp_percent);
                                 const slPercent = Number(sig.sl_percent);
                                 const barLimit = Number(sig.bar_close_limit);
@@ -4974,7 +4975,7 @@
                                             </div>
                                             <div style="display:flex;align-items:center;gap:8px;">
                                                 <span class="price-change ${statusClass}" style="font-size:0.75rem;padding:3px 8px;">${statusText}</span>
-                                                <span class="price-change ${pnlClass}" data-alarm-signal-pnl="1" data-live="${isClosed ? '0' : '1'}" data-symbol="${sig.symbol}" data-direction="${sig.direction}" data-entry="${sig.entry_price}" data-market="${sig.market_type || 'spot'}">${pnlText}</span>
+                                                <span class="price-change ${pnlClass}" data-alarm-signal-pnl="1" data-live="${isClosed ? '0' : '1'}" data-pnl="${pnlValueAttr}" data-symbol="${sig.symbol}" data-direction="${sig.direction}" data-entry="${sig.entry_price}" data-market="${sig.market_type || 'spot'}">${pnlText}</span>
                                             </div>
                                         </div>
                                         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
@@ -5814,7 +5815,7 @@ Detaylar:
         }
 
         function updateAlarmSignalsPnL() {
-            const pnlEls = document.querySelectorAll('[data-alarm-signal-pnl="1"][data-live="1"]');
+            const pnlEls = document.querySelectorAll('[data-alarm-signal-pnl="1"]');
             const totalEl = document.getElementById('alarmSignalsTotalPnl');
             if (!pnlEls || pnlEls.length === 0) {
                 if (totalEl) {
@@ -5828,31 +5829,40 @@ Detaylar:
             let counted = 0;
 
             pnlEls.forEach(el => {
-                const symbol = el.getAttribute('data-symbol');
-                const marketType = el.getAttribute('data-market') || 'spot';
-                const direction = String(el.getAttribute('data-direction') || '').toUpperCase();
-                const entry = parseFloat(el.getAttribute('data-entry') || '0');
-                if (!symbol || !entry) return;
+                const isLive = el.getAttribute('data-live') === '1';
 
-                ensureAlarmSignalPrice(symbol, marketType);
-                const storedLivePrice = localStorage.getItem(`price_${symbol}`);
-                const livePrice = storedLivePrice ? parseFloat(storedLivePrice) : NaN;
-                if (!Number.isFinite(livePrice) || !Number.isFinite(entry)) {
-                    el.textContent = '--';
-                    el.className = 'price-change';
-                    return;
+                if (isLive) {
+                    const symbol = el.getAttribute('data-symbol');
+                    const marketType = el.getAttribute('data-market') || 'spot';
+                    const direction = String(el.getAttribute('data-direction') || '').toUpperCase();
+                    const entry = parseFloat(el.getAttribute('data-entry') || '0');
+                    if (!symbol || !entry) return;
+
+                    ensureAlarmSignalPrice(symbol, marketType);
+                    const storedLivePrice = localStorage.getItem(`price_${symbol}`);
+                    const livePrice = storedLivePrice ? parseFloat(storedLivePrice) : NaN;
+                    if (!Number.isFinite(livePrice) || !Number.isFinite(entry)) {
+                        el.textContent = '--';
+                        el.className = 'price-change';
+                        return;
+                    }
+
+                    const rawPnl = direction === 'SHORT'
+                        ? ((entry - livePrice) / entry) * 100
+                        : ((livePrice - entry) / entry) * 100;
+
+                    const pnlPercent = Number.isFinite(rawPnl) ? parseFloat(rawPnl.toFixed(2)) : 0;
+                    const pnlSign = pnlPercent >= 0 ? '+' : '';
+                    el.textContent = `${pnlSign}${pnlPercent}%`;
+                    el.className = `price-change ${pnlPercent >= 0 ? 'positive' : 'negative'}`;
+                    el.setAttribute('data-pnl', String(pnlPercent));
                 }
 
-                const rawPnl = direction === 'SHORT'
-                    ? ((entry - livePrice) / entry) * 100
-                    : ((livePrice - entry) / entry) * 100;
-
-                const pnlPercent = Number.isFinite(rawPnl) ? parseFloat(rawPnl.toFixed(2)) : 0;
-                totalPnl += pnlPercent;
-                counted += 1;
-                const pnlSign = pnlPercent >= 0 ? '+' : '';
-                el.textContent = `${pnlSign}${pnlPercent}%`;
-                el.className = `price-change ${pnlPercent >= 0 ? 'positive' : 'negative'}`;
+                const pnlValue = parseFloat(el.getAttribute('data-pnl') || '');
+                if (Number.isFinite(pnlValue)) {
+                    totalPnl += pnlValue;
+                    counted += 1;
+                }
             });
 
             if (totalEl) {
