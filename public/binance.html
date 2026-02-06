@@ -1041,7 +1041,25 @@
 
                 let result = null;
                 if (supabaseClient?.functions?.invoke) {
+                    const { data: { session: initialSession } } = await supabaseClient.auth.getSession();
+                    let session = initialSession;
+                    const nowSeconds = Math.floor(Date.now() / 1000);
+                    if (!session || (session.expires_at && session.expires_at <= nowSeconds + 30)) {
+                        const { data: refreshData } = await supabaseClient.auth.refreshSession();
+                        session = refreshData?.session || session;
+                    }
+
+                    if (!session?.access_token) {
+                        showNotification('Oturum bulunamadı. Lütfen çıkış yapıp tekrar giriş yapın.', 'warning');
+                        if (statusEl) statusEl.textContent = 'Bağlı Değil';
+                        return;
+                    }
+
                     const invokeResult = await supabaseClient.functions.invoke('check-alarm-signals', {
+                        headers: {
+                            Authorization: 'Bearer ' + session.access_token,
+                            apikey: SUPABASE_ANON_KEY || ''
+                        },
                         body: {
                             action: 'test_binance_connection',
                             api_key: apiKey,
