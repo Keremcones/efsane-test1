@@ -1699,46 +1699,46 @@
                 <span></span>
                 <span></span>
             </button>
-            <div class="menu-panel" id="menuPanel">
-                <button class="menu-close" onclick="closeHamburgerMenu()">×</button>
-                <div class="menu-content">
-                    <div class="menu-user-info">
-                        <div class="menu-user-email" id="menuUserEmail">Yükleniyor...</div>
-                    </div>
-                    <nav class="menu-nav">
-                        <a href="profile.html" class="menu-item" onclick="closeHamburgerMenu()">
-                            <i class="fa-solid fa-user"></i>
-                            Profil
-                        </a>
-                        <a href="index.html" class="menu-item" onclick="closeHamburgerMenu()">
-                            <i class="fa-solid fa-chart-line"></i>
-                            Dashboard
-                        </a>
-                        <a href="her-durumda.html" class="menu-item" onclick="closeHamburgerMenu()">
-                            <i class="fa-solid fa-layer-group"></i>
-                            Her Durumda
-                        </a>
-                        <a href="kazananlar.html" class="menu-item" onclick="closeHamburgerMenu()">
-                            <i class="fa-solid fa-trophy"></i>
-                            Kazananlar
-                        </a>
-                        <a href="binance.html" class="menu-item" onclick="closeHamburgerMenu()">
-                            <i class="fa-brands fa-bitcoin"></i>
-                            Binance Bağlantısı
-                        </a>
-                        <a href="premium.html" class="menu-item" id="premiumMenuItem" onclick="closeHamburgerMenu()" style="display: none;">
-                            <i class="fa-solid fa-star"></i>
-                            Premium Ol
-                        </a>
-                        <button class="menu-item logout-item" onclick="logout()">
-                            <i class="fa-solid fa-right-from-bracket"></i>
-                            Çıkış Yap
-                        </button>
-                    </nav>
-                </div>
-            </div>
         </div>
     </nav>
+    <div class="menu-panel" id="menuPanel">
+        <button class="menu-close" onclick="window.closeHamburgerMenu()">×</button>
+        <div class="menu-content">
+            <div class="menu-user-info">
+                <div class="menu-user-email" id="menuUserEmail">Yükleniyor...</div>
+            </div>
+            <nav class="menu-nav">
+                <a href="profile.html" class="menu-item" onclick="window.closeHamburgerMenu()">
+                    <i class="fa-solid fa-user"></i>
+                    Profil
+                </a>
+                <a href="index.html" class="menu-item active" onclick="window.closeHamburgerMenu()">
+                    <i class="fa-solid fa-chart-line"></i>
+                    Dashboard
+                </a>
+                <a href="her-durumda.html" class="menu-item" onclick="window.closeHamburgerMenu()">
+                    <i class="fa-solid fa-layer-group"></i>
+                    Her Durumda
+                </a>
+                <a href="kazananlar.html" class="menu-item" onclick="window.closeHamburgerMenu()">
+                    <i class="fa-solid fa-trophy"></i>
+                    Kazananlar
+                </a>
+                <a href="binance.html" class="menu-item" onclick="window.closeHamburgerMenu()">
+                    <i class="fa-brands fa-bitcoin"></i>
+                    Binance Bağlantısı
+                </a>
+                <a href="premium.html" class="menu-item" id="premiumMenuItem" onclick="window.closeHamburgerMenu()" style="display: none;">
+                    <i class="fa-solid fa-star"></i>
+                    Premium Ol
+                </a>
+                <button class="menu-item logout-item" onclick="logout()">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                    Çıkış Yap
+                </button>
+            </nav>
+        </div>
+    </div>
 
     <div class="container">
         <div class="header">
@@ -2830,43 +2830,7 @@
             }
         }
         
-        // Hamburger Menü Toggle
-        function toggleHamburgerMenu() {
-            const hamburgerBtn = document.getElementById('hamburgerBtn');
-            const menuPanel = document.getElementById('menuPanel');
-            
-            hamburgerBtn.classList.toggle('active');
-            menuPanel.classList.toggle('active');
-            
-            // Body scroll'u engelle
-            if (menuPanel.classList.contains('active')) {
-                document.body.style.overflow = 'hidden';
-            } else {
-                document.body.style.overflow = 'auto';
-            }
-        }
-        
-        function closeHamburgerMenu() {
-            const hamburgerBtn = document.getElementById('hamburgerBtn');
-            const menuPanel = document.getElementById('menuPanel');
-            
-            hamburgerBtn.classList.remove('active');
-            menuPanel.classList.remove('active');
-            document.body.style.overflow = 'auto';
-        }
-        
-        // Dışa tıklanırsa menüyü kapat
-        document.addEventListener('click', (event) => {
-            const menuPanel = document.getElementById('menuPanel');
-            const hamburgerBtn = document.getElementById('hamburgerBtn');
-            
-            if (!menuPanel.contains(event.target) && !hamburgerBtn.contains(event.target)) {
-                closeHamburgerMenu();
-            }
-        });
-
-        window.toggleHamburgerMenu = toggleHamburgerMenu;
-        window.closeHamburgerMenu = closeHamburgerMenu;
+        // Hamburger Menü - menu-unified.js tarafından yönetilir
         
         // Çıkış
         async function logout() {

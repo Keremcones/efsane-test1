@@ -760,20 +760,7 @@
             }
         }
 
-        window.toggleHamburgerMenu = function() {
-            const panel = document.getElementById('menuPanel');
-            const btn = document.getElementById('hamburgerBtn');
-            if (!panel || !btn) return;
-            panel.classList.toggle('active');
-            btn.classList.toggle('active');
-        };
-
-        window.closeHamburgerMenu = function() {
-            const panel = document.getElementById('menuPanel');
-            const btn = document.getElementById('hamburgerBtn');
-            if (panel) panel.classList.remove('active');
-            if (btn) btn.classList.remove('active');
-        };
+        // Hamburger Menü - menu-unified.js tarafından yönetilir
 
         window.logout = async function() {
             try {

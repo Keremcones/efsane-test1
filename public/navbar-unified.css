@@ -283,8 +283,11 @@ html[data-theme="gold"] {
 
 @media (max-width: 480px) {
     .menu-panel {
-        width: 280px;
-        right: -280px;
+        width: 280px !important;
+        right: -280px !important;
+    }
+    .menu-panel.active {
+        right: 0 !important;
     }
 }
 
