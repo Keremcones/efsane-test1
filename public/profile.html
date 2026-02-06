@@ -2106,11 +2106,19 @@
                     headers['apikey'] = SUPABASE_ANON_KEY;
                 }
                 if (supabaseClient?.auth) {
-                    const { data: { session } } = await supabaseClient.auth.getSession();
+                    const { data: { session: initialSession } } = await supabaseClient.auth.getSession();
+                    let session = initialSession;
+                    const nowSeconds = Math.floor(Date.now() / 1000);
+                    if (!session || (session.expires_at && session.expires_at <= nowSeconds + 30)) {
+                        const { data: refreshData } = await supabaseClient.auth.refreshSession();
+                        session = refreshData?.session || session;
+                    }
                     if (session?.access_token) {
                         headers['Authorization'] = 'Bearer ' + session.access_token;
                     } else if (SUPABASE_ANON_KEY) {
-                        headers['Authorization'] = 'Bearer ' + SUPABASE_ANON_KEY;
+                        showNotification('Oturum bulunamadı. Lütfen çıkış yapıp tekrar giriş yapın.', 'warning');
+                        if (statusEl) statusEl.textContent = 'Bağlı Değil';
+                        return;
                     }
                 }
 
