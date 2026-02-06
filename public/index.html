@@ -2817,7 +2817,8 @@
             const premiumItem = document.getElementById('premiumMenuItem');
             if (!premiumItem) return;
             const isFree = !isAdmin && membershipType !== 'premium';
-            premiumItem.style.display = isFree ? 'flex' : 'none';
+            const displayValue = isFree ? 'flex' : 'none';
+            premiumItem.style.setProperty('display', displayValue, 'important');
         }
 
         // Çıkış Yap
