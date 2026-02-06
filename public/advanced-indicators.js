@@ -433,6 +433,8 @@ function generateAdvancedSignal(indicators, price, sr, patterns = [], divergence
         
         if (lastVolume > avgVolume * 1.5) {
             volumeScore += 15;
+        } else {
+            volumeScore -= 10;
         }
     }
     
@@ -494,9 +496,14 @@ function generateAdvancedSignal(indicators, price, sr, patterns = [], divergence
     // Sonucu 0-100 arasına clamp et
     const direction = score > 0 ? 'LONG' : 'SHORT';
     const confidence = Math.min(Math.max(Math.abs(score), 0), 100);  // 0-100 arası
+
+    // Trend filtresi: downtrend LONG, uptrend SHORT engelle
+    const isDowntrend = indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50;
+    const isUptrend = indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50;
+    const trendBlocks = (direction === 'LONG' && isDowntrend) || (direction === 'SHORT' && isUptrend);
     
     // GERÇEK SINYAL: confidence >= confidenceThreshold (kullanıcı ayarlanabilir)
-    const isValidSignal = confidence >= confidenceThreshold;
+    const isValidSignal = confidence >= confidenceThreshold && !trendBlocks;
     
     // Risk/Reward oranı hesapla
     const riskReward = calculateRiskReward(price, sr, direction);

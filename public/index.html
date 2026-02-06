@@ -2397,6 +2397,20 @@
             
             return String(duration);
         }
+
+        function formatDateTime(value) {
+            if (!value) return '-';
+            const dateObj = value instanceof Date ? value : new Date(value);
+            if (Number.isNaN(dateObj.getTime())) return '-';
+            const datePart = dateObj.toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' });
+            const timePart = dateObj.toLocaleTimeString('tr-TR', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                timeZone: 'Europe/Istanbul'
+            });
+            return `${datePart} ${timePart}`;
+        }
         
         // Coin logosu için HTML elementi oluştur
         function createCoinLogoElement(symbol, size = 32) {
@@ -4873,6 +4887,7 @@
                     const isAutoTrade = alarm.auto_trade_enabled || alarm.autoTradeEnabled;
                     const autoTradeLabel = isAutoTrade ? ' - OTOMATİK TRADE' : '';
                     const alarmTitleSuffix = isAutoTrade ? 'Otomatik İşlem' : (alarm.name || 'Alarm');
+                    const alarmCreatedAt = formatDateTime(alarm.createdAt || alarm.created_at || alarm.signalTimestamp || alarm.signal_time);
                     
                     // Description'dan TP/SL/Bar bilgilerini parse et
                     const descriptionMatch = alarm.description ? alarm.description.match(/TP:\s*([\d.]+)%,\s*SL:\s*([\d.-]+)%,\s*Bar:\s*(\d+)/) : null;
@@ -4886,9 +4901,9 @@
                         : (barLimitValue === null ? (isAutoTrade ? 99 : '-') : barLimitValue);
                     
                     if (alarm.type === 'ACTIVE_TRADE') {
-                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;">${logoHtml}<div><span style="font-weight: 600;">${coinSymbol} ${alarm.direction}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span><br><span style="font-size: 0.75rem; color: var(--text-secondary);">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></span></div></div></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;"><div><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div><i class="fa-regular fa-clock"></i> Timeframe: <strong>${alarm.timeframe || '-'}</strong></div><div style="margin-top: 4px;"><i class="fa-solid fa-bullseye"></i> TP: ${alarm.tpPercent}% | <i class="fa-solid fa-circle-stop"></i> SL: ${alarm.slPercent}% | <i class="fa-regular fa-clock"></i> Bar: ${bar}</div></div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
+                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;">${logoHtml}<div><span style="font-weight: 600;">${coinSymbol} ${alarm.direction}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span><br><span style="font-size: 0.75rem; color: var(--text-secondary);">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></span></div></div></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;"><div><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div><i class="fa-regular fa-clock"></i> Timeframe: <strong>${alarm.timeframe || '-'}</strong></div><div><i class="fa-regular fa-calendar"></i> Tarih/Saat: <strong>${alarmCreatedAt}</strong></div><div style="margin-top: 4px;"><i class="fa-solid fa-bullseye"></i> TP: ${alarm.tpPercent}% | <i class="fa-solid fa-circle-stop"></i> SL: ${alarm.slPercent}% | <i class="fa-regular fa-clock"></i> Bar: ${bar}</div></div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
                     } else {
-                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;"><div>${logoHtml}</div><div><span style="font-weight: 600;">${coinSymbol} - ${alarmTitleSuffix}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe || '1h'}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span></div></div><span style="font-size: 0.85rem; color: var(--text-secondary);"><i class="fa-solid fa-circle"></i> Aktif</span></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">Timeframe: ${alarm.timeframe || '1h'} | TP: ${tp}% | SL: ${sl}% | Bar: ${bar}</div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
+                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;"><div>${logoHtml}</div><div><span style="font-weight: 600;">${coinSymbol} - ${alarmTitleSuffix}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe || '1h'}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span></div></div><span style="font-size: 0.85rem; color: var(--text-secondary);"><i class="fa-solid fa-circle"></i> Aktif</span></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-regular fa-calendar"></i> Tarih/Saat: <strong>${alarmCreatedAt}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">Timeframe: ${alarm.timeframe || '1h'} | TP: ${tp}% | SL: ${sl}% | Bar: ${bar}</div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
                     }
                 });
                 activeGrid.innerHTML = activeHtml;
@@ -4920,6 +4935,7 @@
                                 const score = Number(sig.score || 0);
                                 const entryPrice = parseFloat(sig.entry_price);
                                 const livePrice = parseFloat(localStorage.getItem(`price_${sig.symbol}`) || String(entryPrice));
+                                const signalCreatedAt = formatDateTime(sig.created_at);
                                 const rawPnl = sig.direction === 'SHORT'
                                     ? ((entryPrice - livePrice) / entryPrice) * 100
                                     : ((livePrice - entryPrice) / entryPrice) * 100;
@@ -4956,6 +4972,7 @@
                                             <span class="price-change" style="background:rgba(255,255,255,0.06);color:var(--text-secondary);padding:3px 8px;font-size:0.75rem;">Bar: ${barText}</span>
                                         </div>
                                         <div style="font-size:0.85rem;color:var(--text-secondary);">
+                                            <div><i class="fa-regular fa-calendar"></i> Tarih/Saat: <strong>${signalCreatedAt}</strong></div>
                                             Giriş: <strong>$${formatPrice(parseFloat(sig.entry_price))}</strong><br>
                                             TP: <strong>$${formatPrice(parseFloat(sig.take_profit))}</strong> | SL: <strong>$${formatPrice(parseFloat(sig.stop_loss))}</strong>
                                         </div>
