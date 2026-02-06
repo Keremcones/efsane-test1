@@ -160,6 +160,13 @@ function formatPriceWithPrecision(value: number, precision: number | null): stri
   return value.toFixed(Math.max(0, precision));
 }
 
+function formatQuantityWithPrecision(value: number, precision: number): string {
+  const safePrecision = Math.max(0, precision);
+  const fixed = value.toFixed(safePrecision);
+  if (safePrecision === 0) return fixed;
+  return fixed.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+}
+
 // Global ban cooldown (Binance 418)
 let binanceBanUntil = 0;
 
@@ -434,11 +441,11 @@ async function openBinanceTrade(
   apiSecret: string,
   symbol: string,
   direction: "LONG" | "SHORT",
-  quantity: number,
+  quantity: string,
   marketType: "spot" | "futures",
   positionSide?: "LONG" | "SHORT",
   orderType: "MARKET" | "LIMIT" = "MARKET",
-  limitPrice?: number
+  limitPrice?: string
 ): Promise<{ success: boolean; orderId?: string; error?: string }> {
   const timestamp = Date.now();
   const side = direction === "LONG" ? "BUY" : "SELL";
@@ -449,7 +456,7 @@ async function openBinanceTrade(
   if (marketType === "futures") {
     const positionSideParam = positionSide ? `&positionSide=${positionSide}` : "";
     if (orderType === "LIMIT") {
-      if (!Number.isFinite(limitPrice as number)) {
+      if (!limitPrice || !String(limitPrice).length) {
         return { success: false, error: "Limit price required" };
       }
       queryString = `symbol=${symbol}&side=${side}&type=LIMIT&timeInForce=GTC&quantity=${quantity}&price=${limitPrice}${positionSideParam}&timestamp=${timestamp}`;
@@ -813,7 +820,9 @@ async function executeAutoTrade(
       spot_position_size_percent,
       futures_margin_type,
       futures_order_type,
-      futures_limit_tolerance_percent
+      futures_limit_tolerance_percent,
+      futures_limit_timeout_seconds,
+      futures_limit_fallback_to_market
     } = userKeys;
 
     if (marketType === "spot" && direction === "SHORT") {
@@ -911,6 +920,7 @@ async function executeAutoTrade(
 
     let orderType: "MARKET" | "LIMIT" = "MARKET";
     let limitPrice: number | undefined;
+    let limitPriceStr: string | undefined;
     if (marketType === "futures") {
       const rawOrderType = String(futures_order_type || "market").toLowerCase();
       orderType = rawOrderType === "limit" ? "LIMIT" : "MARKET";
@@ -922,19 +932,22 @@ async function executeAutoTrade(
           : executionPrice * (1 - toleranceRatio);
         const rounded = roundToTick(rawLimit, symbolInfo.tickSize, direction === "LONG" ? "UP" : "DOWN");
         limitPrice = rounded;
+        limitPriceStr = formatPriceWithPrecision(rounded, symbolInfo.pricePrecision);
       }
     }
+
+    const quantityStr = formatQuantityWithPrecision(quantity, symbolInfo.quantityPrecision);
 
     const orderResult = await openBinanceTrade(
       api_key,
       api_secret,
       symbol,
       direction,
-      quantity,
+      quantityStr,
       marketType,
       positionSide,
       orderType,
-      limitPrice
+      limitPriceStr
     );
     if (!orderResult.success) {
       return { success: false, message: orderResult.error || "Order failed" };
@@ -960,7 +973,7 @@ async function executeAutoTrade(
           api_secret,
           symbol,
           direction,
-          quantity,
+          quantityStr,
           marketType,
           positionSide,
           "MARKET"
@@ -2074,7 +2087,11 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             tradeResult.message !== "Futures auto-trade not enabled" &&
             tradeResult.message !== "Spot auto-trade not enabled"
           ) {
-            tradeNotificationText = `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${tradeResult.message}`;
+            const needsWidenHint = /TP zaten tetiklenmiş olabilir|SL zaten tetiklenmiş olabilir/i.test(tradeResult.message || "");
+            const hintText = needsWidenHint
+              ? "\n<i>Not:</i> Fiyat hızlı hareket etti. TP/SL oranını biraz genişletmeyi veya limit toleransını artırmayı deneyin."
+              : "";
+            tradeNotificationText = `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${tradeResult.message}${hintText}`;
           }
         }
 

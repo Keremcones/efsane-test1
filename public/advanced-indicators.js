@@ -1477,25 +1477,6 @@ class AlarmSystem {
                         .eq('alarm_id', numId);
                     console.log('🧹 Active signals temizlendi:', deleteSignalsResult);
                 }
-
-                if (alarm) {
-                    // Fallback: alarm_id eşleşmezse ilgili sembol/timeframe sinyallerini temizle
-                    let fallbackSignalDelete = this.supabase
-                        .from('active_signals')
-                        .delete()
-                        .eq('user_id', this.userId)
-                        .eq('symbol', alarm.symbol || 'BTCUSDT');
-
-                    if (alarm.timeframe) {
-                        fallbackSignalDelete = fallbackSignalDelete.eq('timeframe', alarm.timeframe);
-                    }
-                    if (alarm.marketType) {
-                        fallbackSignalDelete = fallbackSignalDelete.eq('market_type', alarm.marketType);
-                    }
-
-                    const fallbackSignalsResult = await fallbackSignalDelete;
-                    console.log('🧹 Active signals fallback temizlendi:', fallbackSignalsResult);
-                }
                 await this.loadAlarms();
             } catch (error) {
                 console.error('❌ Supabase silme hatası:', error);
@@ -2229,6 +2210,8 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                                 ? Number(rawBarCloseLimit)
                                 : (autoTradeEnabled ? null : 5));
                         const barCloseLimitDisplay = barCloseLimitValue === null ? 99 : barCloseLimitValue;
+                        const tpValue = parseFloat(item.tp_percent);
+                        const slValue = parseFloat(item.sl_percent);
                         const baseAlarm = {
                             id: String(item.id),  // Convert BIGSERIAL number to string for consistent type handling
                             symbol: item.symbol,
@@ -2237,8 +2220,8 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                             active: item.is_active,
                             createdAt: item.created_at,
                             confidenceScore: parseInt(item.confidence_score) || 60,
-                            takeProfitPercent: parseInt(item.tp_percent) || 5,
-                            stopLossPercent: parseInt(item.sl_percent) || 3,
+                            takeProfitPercent: Number.isFinite(tpValue) ? tpValue : 5,
+                            stopLossPercent: Number.isFinite(slValue) ? slValue : 3,
                             barCloseLimit: barCloseLimitValue,
                             auto_trade_enabled: autoTradeEnabled,
                             autoTradeEnabled: autoTradeEnabled

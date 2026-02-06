@@ -32,6 +32,15 @@
     <link rel="stylesheet" href="glass-theme.css?v=20260203">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
+        (function () {
+            if (window.supabase) return;
+            var fallbackScript = document.createElement('script');
+            fallbackScript.src = 'https://unpkg.com/@supabase/supabase-js@2';
+            fallbackScript.defer = true;
+            document.head.appendChild(fallbackScript);
+        })();
+    </script>
+    <script>
         const savedTheme = localStorage.getItem('theme') || 'dark';
         document.documentElement.dataset.theme = savedTheme;
     </script>
@@ -677,6 +686,7 @@ Bu metni onaylamadan kayıt olamazsınız.
     <script src="config.js"></script>
     <script>
         let supabaseClient;
+        let supabaseInitAttempts = 0;
 
         function isRecoveryFlow() {
             return window.location.hash.includes('type=recovery')
@@ -685,6 +695,21 @@ Bu metni onaylamadan kayıt olamazsınız.
 
         // Supabase'i başlat
         async function initSupabase() {
+            if (!window.supabase || typeof window.supabase.createClient !== 'function') {
+                if (supabaseInitAttempts < 3) {
+                    supabaseInitAttempts += 1;
+                    setTimeout(initSupabase, 600);
+                    return;
+                }
+                showError('login', 'Supabase SDK yuklenemedi. Adblock/VPN kontrol edin ve sayfayi yenileyin.');
+                return;
+            }
+
+            if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+                showError('login', 'Supabase ayarlari yuklenemedi. Sayfayi yenileyin veya destek alin.');
+                return;
+            }
+
             supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
             
             // Zaten login'se dashboard'a yönlendir
