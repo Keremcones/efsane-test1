@@ -32,32 +32,40 @@
         }
     };
 
-    // ==================== OPEN MENU ==================== 
-    function openHamburgerMenu() {
+    function setMenuState(isOpen) {
         const elements = getMenuElements();
-        
+
         if (!elements.menuPanel) return;
 
-        isMenuOpen = true;
-        
-        // Animate hamburger to X
+        isMenuOpen = isOpen;
+
+        elements.hamburgerButtons.forEach(button => {
+            button.classList.toggle('active', isOpen);
+        });
+
         if (elements.hamburgerBtn) {
-            elements.hamburgerBtn.classList.add('active');
+            elements.hamburgerBtn.classList.toggle('active', isOpen);
         }
 
-        // Slide menu in
-        elements.menuPanel.classList.add('active');
+        elements.menuPanel.classList.toggle('active', isOpen);
 
-        // Show overlay
         if (elements.menuOverlay) {
-            elements.menuOverlay.classList.add('active');
+            elements.menuOverlay.classList.toggle('active', isOpen);
         }
 
-        // Prevent body scroll
-        document.body.style.overflow = 'hidden';
+        document.body.classList.toggle('menu-open', isOpen);
+        document.body.style.overflow = isOpen ? 'hidden' : '';
 
-        // Lock focus to menu (accessibility)
-        trapFocus(elements.menuPanel);
+        if (isOpen) {
+            trapFocus(elements.menuPanel);
+        } else if (elements.hamburgerBtn) {
+            elements.hamburgerBtn.focus();
+        }
+    }
+
+    // ==================== OPEN MENU ==================== 
+    function openHamburgerMenu() {
+        setMenuState(true);
     }
 
     // ==================== CLOSE MENU ==================== 
@@ -66,28 +74,7 @@
         
         if (!elements.menuPanel) return;
 
-        isMenuOpen = false;
-
-        // Animate hamburger back
-        if (elements.hamburgerBtn) {
-            elements.hamburgerBtn.classList.remove('active');
-        }
-
-        // Slide menu out
-        elements.menuPanel.classList.remove('active');
-
-        // Hide overlay
-        if (elements.menuOverlay) {
-            elements.menuOverlay.classList.remove('active');
-        }
-
-        // Restore body scroll
-        document.body.style.overflow = '';
-
-        // Restore focus
-        if (elements.hamburgerBtn) {
-            elements.hamburgerBtn.focus();
-        }
+        setMenuState(false);
     };
 
     // ==================== INITIALIZE MENU ==================== 
@@ -126,6 +113,24 @@
         if (updatedOverlay) {
             updatedOverlay.addEventListener('click', window.closeHamburgerMenu);
         }
+
+        // Delegate clicks to handle edge cases
+        document.addEventListener('click', function(event) {
+            const hamburger = event.target.closest('.hamburger-menu');
+            if (hamburger) {
+                event.preventDefault();
+                event.stopPropagation();
+                window.toggleHamburgerMenu();
+                return;
+            }
+
+            const closeButton = event.target.closest('.menu-close');
+            if (closeButton) {
+                event.preventDefault();
+                event.stopPropagation();
+                window.closeHamburgerMenu();
+            }
+        }, true);
 
         // Menu item clicks (auto-close)
         document.querySelectorAll('.menu-item').forEach(item => {

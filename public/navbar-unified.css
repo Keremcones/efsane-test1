@@ -285,6 +285,10 @@ body.home-only .navbar {
     right: 0 !important;
 }
 
+body.menu-open .menu-panel {
+    right: 0 !important;
+}
+
 @media (max-width: 480px) {
     .menu-panel {
         width: 280px !important;
@@ -421,6 +425,11 @@ body.home-only .navbar {
 }
 
 .menu-overlay.active {
+    background: rgba(0, 0, 0, 0.5);
+    pointer-events: auto;
+}
+
+body.menu-open .menu-overlay {
     background: rgba(0, 0, 0, 0.5);
     pointer-events: auto;
 }
