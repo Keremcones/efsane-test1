@@ -1,0 +1,363 @@
+/* ============================================ */
+/* ENHANCED DESIGN IMPROVEMENTS                 */
+/* Optional CSS for premium visual effects      */
+/* ============================================ */
+
+/* ==================== ENHANCED COLORS & SHADOWS ==================== */
+
+/* Dark Theme Enhancements */
+html[data-theme="dark"] .navbar {
+    box-shadow: 
+        0 10px 30px rgba(56, 232, 255, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .menu-panel {
+    box-shadow: 
+        -8px 0 32px rgba(56, 232, 255, 0.15),
+        -2px 0 12px rgba(0, 0, 0, 0.3);
+}
+
+html[data-theme="dark"] .menu-item {
+    border-color: rgba(56, 232, 255, 0.05) !important;
+}
+
+html[data-theme="dark"] .menu-item:hover {
+    border-color: rgba(56, 232, 255, 0.2) !important;
+    background: linear-gradient(135deg, rgba(56, 232, 255, 0.08), rgba(139, 92, 246, 0.04)) !important;
+}
+
+/* Light Theme Enhancements */
+html[data-theme="light"] .navbar {
+    box-shadow: 
+        0 10px 30px rgba(79, 70, 229, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+html[data-theme="light"] .menu-panel {
+    box-shadow: 
+        -8px 0 32px rgba(79, 70, 229, 0.1),
+        -2px 0 12px rgba(0, 0, 0, 0.08);
+}
+
+/* Purple Theme Enhancements */
+html[data-theme="purple"] .navbar {
+    box-shadow: 
+        0 10px 30px rgba(192, 123, 255, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="purple"] .menu-panel {
+    box-shadow: 
+        -8px 0 32px rgba(192, 123, 255, 0.12),
+        -2px 0 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Gold Theme Enhancements */
+html[data-theme="gold"] .navbar {
+    box-shadow: 
+        0 10px 30px rgba(245, 208, 111, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="gold"] .menu-panel {
+    box-shadow: 
+        -8px 0 32px rgba(245, 208, 111, 0.12),
+        -2px 0 12px rgba(0, 0, 0, 0.3);
+}
+
+/* ==================== HOVER & ACTIVE STATES ==================== */
+
+/* Enhanced Logo Hover */
+.logo:hover .logo-img {
+    filter: drop-shadow(0 0 20px rgba(56, 232, 255, 0.6)) !important;
+    transform: scale(1.05);
+}
+
+.logo:active .logo-img {
+    filter: drop-shadow(0 0 16px rgba(56, 232, 255, 0.4)) !important;
+    transform: scale(0.98);
+}
+
+/* Enhanced Role Badge */
+.user-role-badge {
+    box-shadow: 
+        0 4px 16px rgba(56, 232, 255, 0.25),
+        inset 0 1px 2px rgba(255, 255, 255, 0.3) !important;
+    transition: all 0.3s ease !important;
+}
+
+.user-role-badge:hover {
+    transform: translateY(-2px);
+    box-shadow: 
+        0 6px 24px rgba(56, 232, 255, 0.35),
+        inset 0 1px 2px rgba(255, 255, 255, 0.3) !important;
+}
+
+.user-role-badge.premium {
+    box-shadow: 
+        0 4px 16px rgba(255, 215, 0, 0.4),
+        inset 0 1px 2px rgba(255, 255, 255, 0.4) !important;
+}
+
+.user-role-badge.premium:hover {
+    box-shadow: 
+        0 6px 24px rgba(255, 215, 0, 0.5),
+        inset 0 1px 2px rgba(255, 255, 255, 0.4) !important;
+}
+
+/* ==================== SMOOTH TRANSITIONS ==================== */
+
+/* Backdrop Filter Transitions */
+.navbar,
+.menu-panel,
+.menu-item {
+    transition: 
+        background 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+        border-color 0.3s ease,
+        box-shadow 0.3s ease,
+        transform 0.3s ease !important;
+}
+
+/* ==================== ANIMATION KEYFRAMES ==================== */
+
+@keyframes menuSlideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes menuSlideOut {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+}
+
+@keyframes hamburgerPulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(56, 232, 255, 0.4);
+    }
+    50% {
+        box-shadow: 0 0 0 6px rgba(56, 232, 255, 0);
+    }
+}
+
+@keyframes logoGlow {
+    0%, 100% {
+        filter: drop-shadow(0 0 12px rgba(56, 232, 255, 0.35));
+    }
+    50% {
+        filter: drop-shadow(0 0 16px rgba(56, 232, 255, 0.6));
+    }
+}
+
+/* Optional Pulse Animation */
+.hamburger-menu:active {
+    animation: hamburgerPulse 0.6s ease-out;
+}
+
+/* ==================== SCROLLBAR STYLING ==================== */
+
+/* Custom Menu Scrollbar */
+.menu-panel::-webkit-scrollbar {
+    width: 8px !important;
+}
+
+.menu-panel::-webkit-scrollbar-track {
+    background: transparent !important;
+}
+
+.menu-panel::-webkit-scrollbar-thumb {
+    background: rgba(56, 232, 255, 0.25) !important;
+    border-radius: 4px !important;
+}
+
+.menu-panel::-webkit-scrollbar-thumb:hover {
+    background: rgba(56, 232, 255, 0.45) !important;
+}
+
+html[data-theme="light"] .menu-panel::-webkit-scrollbar-thumb {
+    background: rgba(79, 70, 229, 0.25) !important;
+}
+
+html[data-theme="light"] .menu-panel::-webkit-scrollbar-thumb:hover {
+    background: rgba(79, 70, 229, 0.45) !important;
+}
+
+html[data-theme="purple"] .menu-panel::-webkit-scrollbar-thumb {
+    background: rgba(192, 123, 255, 0.25) !important;
+}
+
+html[data-theme="purple"] .menu-panel::-webkit-scrollbar-thumb:hover {
+    background: rgba(192, 123, 255, 0.45) !important;
+}
+
+html[data-theme="gold"] .menu-panel::-webkit-scrollbar-thumb {
+    background: rgba(245, 208, 111, 0.25) !important;
+}
+
+html[data-theme="gold"] .menu-panel::-webkit-scrollbar-thumb:hover {
+    background: rgba(245, 208, 111, 0.45) !important;
+}
+
+/* ==================== MICRO-INTERACTIONS ==================== */
+
+/* Menu Item Line Animation */
+.menu-item::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 16px;
+    right: 16px;
+    height: 0px;
+    background: linear-gradient(90deg, transparent, var(--navbar-accent), transparent);
+    transform: scaleX(0);
+    transform-origin: center;
+    transition: all 0.3s ease;
+    opacity: 0;
+}
+
+.menu-item:hover::after {
+    height: 1px;
+    transform: scaleX(1);
+    opacity: 0.8;
+}
+
+/* ==================== FOCUS STATES (Accessibility) ==================== */
+
+.hamburger-menu:focus,
+.menu-close:focus,
+.menu-item:focus {
+    outline: 2px solid var(--navbar-accent) !important;
+    outline-offset: 2px !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* ==================== RESPONSIVE ANIMATIONS ==================== */
+
+@media (max-width: 480px) {
+    .hamburger-menu {
+        animation: none;
+    }
+
+    .menu-panel {
+        width: 100% !important;
+        left: -100% !important;
+        right: auto !important;
+        box-shadow: 8px 0 32px rgba(0, 0, 0, 0.3) !important;
+    }
+
+    .menu-panel.active {
+        left: 0 !important;
+        right: auto !important;
+    }
+}
+
+/* ==================== GRADIENT BACKGROUNDS ==================== */
+
+/* Subtle Gradient for Menu Items (Optional) */
+html[data-theme="dark"] .menu-item::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        135deg,
+        rgba(56, 232, 255, 0.05) 0%,
+        transparent 100%
+    );
+    border-radius: 10px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    z-index: -1;
+}
+
+html[data-theme="dark"] .menu-item:hover::before {
+    opacity: 1;
+}
+
+/* ==================== PERFORMANCE OPTIMIZATIONS ==================== */
+
+/* Use GPU Acceleration */
+.hamburger-menu,
+.menu-panel,
+.menu-item {
+    will-change: transform, opacity;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    perspective: 1000px;
+}
+
+/* ==================== ALTERNATIVE MENU STYLES ==================== */
+
+/* Compact Menu Variant (Optional) */
+.menu-panel.compact .menu-item {
+    padding: 10px 12px !important;
+    font-size: 0.9rem !important;
+}
+
+.menu-panel.compact .menu-content {
+    padding: 60px 16px 16px !important;
+}
+
+/* ==================== ACCESSIBILITY IMPROVEMENTS ==================== */
+
+/* Larger Click Targets */
+@media (pointer: coarse) {
+    .hamburger-menu,
+    .menu-close,
+    .menu-item {
+        min-height: 48px !important;
+        min-width: 48px !important;
+    }
+}
+
+/* High Contrast Mode */
+@media (prefers-contrast: more) {
+    .navbar {
+        border-bottom-width: 2px !important;
+    }
+
+    .user-role-badge {
+        outline: 1px solid currentColor;
+    }
+
+    .hamburger-menu span {
+        height: 3px !important;
+    }
+}
+
+/* ==================== PRINT STYLES ==================== */
+
+@media print {
+    .navbar,
+    .menu-panel,
+    .hamburger-menu {
+        display: none !important;
+    }
+}
+
+/* ==================== DARK MODE MEDIA QUERY ==================== */
+
+@media (prefers-color-scheme: dark) {
+    html:not([data-theme]) .navbar {
+        background: var(--navbar-bg) !important;
+        border-bottom-color: var(--navbar-border) !important;
+    }
+}

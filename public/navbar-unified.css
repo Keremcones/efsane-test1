@@ -1,0 +1,599 @@
+/* ============================================ */
+/* UNIFIED NAVBAR & MENU SYSTEM - ALL PAGES      */
+/* Modern, Consistent Design                     */
+/* ============================================ */
+
+/* ==================== CSS VARIABLES ==================== */
+:root {
+    /* Light Theme (Default) */
+    --navbar-bg: rgba(240, 246, 255, 0.82);
+    --navbar-border: rgba(124, 92, 255, 0.24);
+    --navbar-shadow: 0 12px 30px rgba(86, 110, 170, 0.22);
+    --navbar-text: #1f2a44;
+    --navbar-text-secondary: #5c6b87;
+    --navbar-accent: #3a7bd5;
+    --navbar-accent-blue: #4f46e5;
+    --menu-bg: #f8fafc;
+    --menu-border: #d4dde8;
+    --menu-item-hover: rgba(58, 123, 213, 0.08);
+    --menu-item-active: rgba(58, 123, 213, 0.12);
+}
+
+html[data-theme="dark"] {
+    --navbar-bg: rgba(11, 15, 20, 0.88);
+    --navbar-bg-scrolled: rgba(11, 15, 20, 0.95);
+    --navbar-border: rgba(56, 232, 255, 0.16);
+    --navbar-border-scrolled: rgba(56, 232, 255, 0.28);
+    --navbar-shadow: 0 10px 24px rgba(5, 12, 24, 0.5);
+    --navbar-shadow-scrolled: 0 12px 30px rgba(5, 12, 24, 0.6);
+    --navbar-text: #ffffff;
+    --navbar-text-secondary: #9aa4b2;
+    --navbar-accent: #38e8ff;
+    --navbar-accent-blue: #8b5cf6;
+    --navbar-accent-light: #00d8ff;
+    --menu-bg: #0f1621;
+    --menu-border: #263044;
+    --menu-item-hover: rgba(56, 232, 255, 0.12);
+    --menu-item-active: rgba(56, 232, 255, 0.18);
+    --hamburger-bg: rgba(56, 232, 255, 0.08);
+    --hamburger-border: rgba(56, 232, 255, 0.2);
+    --hamburger-color: #38e8ff;
+}
+
+html[data-theme="light"] {
+    --navbar-bg: rgba(240, 246, 255, 0.82);
+    --navbar-bg-scrolled: rgba(240, 246, 255, 0.94);
+    --navbar-border: rgba(124, 92, 255, 0.24);
+    --navbar-border-scrolled: rgba(79, 70, 229, 0.28);
+    --navbar-shadow: 0 12px 30px rgba(86, 110, 170, 0.22);
+    --navbar-shadow-scrolled: 0 12px 26px rgba(70, 90, 140, 0.24);
+    --navbar-text: #1f2a44;
+    --navbar-text-secondary: #5c6b87;
+    --navbar-accent: #3a7bd5;
+    --navbar-accent-blue: #4f46e5;
+    --navbar-accent-light: #5a8de5;
+    --menu-bg: #ffffff;
+    --menu-border: #e4eaf2;
+    --menu-item-hover: rgba(58, 123, 213, 0.08);
+    --menu-item-active: rgba(58, 123, 213, 0.12);
+    --hamburger-bg: rgba(58, 123, 213, 0.1);
+    --hamburger-border: rgba(58, 123, 213, 0.2);
+    --hamburger-color: #3a7bd5;
+}
+
+html[data-theme="purple"] {
+    --navbar-bg: rgba(11, 7, 20, 0.82);
+    --navbar-bg-scrolled: rgba(12, 8, 22, 0.94);
+    --navbar-border: rgba(184, 108, 255, 0.22);
+    --navbar-border-scrolled: rgba(184, 108, 255, 0.3);
+    --navbar-shadow: 0 10px 24px rgba(10, 6, 18, 0.6);
+    --navbar-shadow-scrolled: 0 10px 24px rgba(10, 6, 18, 0.6);
+    --navbar-text: #f6efff;
+    --navbar-text-secondary: #c2b4d6;
+    --navbar-accent: #c07bff;
+    --navbar-accent-blue: #7c5cff;
+    --navbar-accent-light: #d499ff;
+    --menu-bg: #120a1f;
+    --menu-border: #2a193a;
+    --menu-item-hover: rgba(184, 108, 255, 0.12);
+    --menu-item-active: rgba(184, 108, 255, 0.18);
+    --hamburger-bg: rgba(192, 123, 255, 0.1);
+    --hamburger-border: rgba(192, 123, 255, 0.2);
+    --hamburger-color: #c07bff;
+}
+
+html[data-theme="gold"] {
+    --navbar-bg: rgba(11, 11, 11, 0.86);
+    --navbar-bg-scrolled: rgba(11, 11, 11, 0.94);
+    --navbar-border: rgba(245, 208, 111, 0.3);
+    --navbar-border-scrolled: rgba(245, 208, 111, 0.36);
+    --navbar-shadow: 0 10px 24px rgba(5, 4, 3, 0.7);
+    --navbar-shadow-scrolled: 0 10px 24px rgba(5, 4, 3, 0.7);
+    --navbar-text: #f6f1e7;
+    --navbar-text-secondary: #c9bba0;
+    --navbar-accent: #f5d06f;
+    --navbar-accent-blue: #ffd86b;
+    --navbar-accent-light: #ffd986;
+    --menu-bg: #0f0f0f;
+    --menu-border: #2f3c52;
+    --menu-item-hover: rgba(245, 208, 111, 0.1);
+    --menu-item-active: rgba(245, 208, 111, 0.15);
+    --hamburger-bg: rgba(245, 208, 111, 0.08);
+    --hamburger-border: rgba(245, 208, 111, 0.2);
+    --hamburger-color: #f5d06f;
+}
+
+/* ==================== NAVBAR STYLING ==================== */
+.navbar {
+    background: var(--navbar-bg) !important;
+    border-bottom: 1px solid var(--navbar-border) !important;
+    padding: 16px 24px !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    backdrop-filter: blur(14px) saturate(135%) !important;
+    -webkit-backdrop-filter: blur(14px) saturate(135%) !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 100 !important;
+    box-shadow: var(--navbar-shadow) !important;
+    min-height: 72px !important;
+    transition: all 0.3s ease !important;
+}
+
+.navbar.scrolled {
+    background: var(--navbar-bg-scrolled) !important;
+    border-bottom-color: var(--navbar-border-scrolled) !important;
+    padding: 12px 24px !important;
+    min-height: 64px !important;
+    box-shadow: var(--navbar-shadow-scrolled) !important;
+}
+
+/* ==================== LOGO STYLING ==================== */
+.logo {
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    text-decoration: none !important;
+    flex-shrink: 0 !important;
+}
+
+.logo-img {
+    width: 32px !important;
+    height: 32px !important;
+    flex: 0 0 32px !important;
+    filter: drop-shadow(0 0 12px rgba(56, 232, 255, 0.35)) !important;
+    transition: filter 0.3s ease !important;
+}
+
+.logo:hover .logo-img {
+    filter: drop-shadow(0 0 16px rgba(56, 232, 255, 0.5)) !important;
+}
+
+.logo-text {
+    font-size: 1.35rem !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.5px !important;
+    background: linear-gradient(135deg, var(--navbar-accent), var(--navbar-accent-blue)) !important;
+    background-clip: text !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    text-shadow: 0 0 24px rgba(56, 232, 255, 0.18) !important;
+}
+
+/* ==================== USER MENU STYLING ==================== */
+.user-menu {
+    display: flex !important;
+    gap: 16px !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+}
+
+.user-email {
+    color: var(--navbar-text-secondary);
+    font-size: 0.9rem;
+    font-weight: 500;
+    display: none;
+}
+
+@media (min-width: 768px) {
+    .user-email {
+        display: block;
+    }
+}
+
+.user-role-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    background: linear-gradient(135deg, var(--navbar-accent), var(--navbar-accent-blue));
+    color: white;
+    letter-spacing: 0.4px;
+    box-shadow: 0 4px 12px rgba(56, 232, 255, 0.2);
+    white-space: nowrap;
+}
+
+.user-role-badge.standard {
+    background: linear-gradient(135deg, #c07a2b, #8b4f1f);
+    color: #ffffff;
+}
+
+.user-role-badge.premium {
+    background: linear-gradient(135deg, #FFD700, #FFA500);
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.4);
+    color: #111111;
+}
+
+.user-role-badge.admin {
+    background: linear-gradient(135deg, #f5d06f, #ffd86b);
+    box-shadow: 0 0 18px rgba(245, 208, 111, 0.45);
+    color: #0a0a0a;
+}
+
+/* ==================== HAMBURGER MENU ==================== */
+.hamburger-menu {
+    display: flex !important;
+    flex-direction: column !important;
+    background: var(--hamburger-bg) !important;
+    border: 1px solid var(--hamburger-border) !important;
+    cursor: pointer !important;
+    padding: 8px !important;
+    gap: 5px !important;
+    width: 44px !important;
+    height: 44px !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 10px !important;
+    transition: all 0.3s ease !important;
+    flex-shrink: 0 !important;
+    margin-left: 0 !important;
+}
+
+.hamburger-menu:hover {
+    background: rgba(56, 232, 255, 0.12) !important;
+    border-color: var(--hamburger-color) !important;
+    transform: scale(1.05) !important;
+}
+
+.hamburger-menu span {
+    width: 24px !important;
+    height: 2.5px !important;
+    background: var(--hamburger-color) !important;
+    border-radius: 2px !important;
+    transition: all 0.35s cubic-bezier(0.23, 1, 0.32, 1) !important;
+    display: block !important;
+}
+
+.hamburger-menu.active span:nth-child(1) {
+    transform: rotate(45deg) translate(8px, 8px) !important;
+}
+
+.hamburger-menu.active span:nth-child(2) {
+    opacity: 0 !important;
+    transform: translateX(-10px) !important;
+}
+
+.hamburger-menu.active span:nth-child(3) {
+    transform: rotate(-45deg) translate(7px, -7px) !important;
+}
+
+/* ==================== MENU PANEL ==================== */
+.menu-panel {
+    position: fixed !important;
+    right: -350px !important;
+    top: 0 !important;
+    width: 350px !important;
+    height: 100vh !important;
+    background: var(--menu-bg) !important;
+    border-left: 1px solid var(--menu-border) !important;
+    z-index: 999 !important;
+    transition: right 0.35s cubic-bezier(0.23, 1, 0.32, 1) !important;
+    overflow-y: auto !important;
+    box-shadow: -12px 0 40px rgba(0, 0, 0, 0.4) !important;
+}
+
+.menu-panel.active {
+    right: 0 !important;
+}
+
+@media (max-width: 480px) {
+    .menu-panel {
+        width: 280px;
+        right: -280px;
+    }
+}
+
+/* ==================== MENU CLOSE BUTTON ==================== */
+.menu-close {
+    position: absolute !important;
+    top: 16px !important;
+    right: 16px !important;
+    width: 40px !important;
+    height: 40px !important;
+    background: rgba(56, 232, 255, 0.1) !important;
+    border: 1px solid rgba(56, 232, 255, 0.2) !important;
+    color: var(--navbar-accent) !important;
+    font-size: 28px !important;
+    cursor: pointer !important;
+    border-radius: 8px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    transition: all 0.3s ease !important;
+    z-index: 1001 !important;
+}
+
+.menu-close:hover {
+    background: rgba(56, 232, 255, 0.15) !important;
+    border-color: var(--navbar-accent) !important;
+    transform: rotate(90deg) !important;
+}
+
+/* ==================== MENU CONTENT ==================== */
+.menu-content {
+    padding: 80px 24px 24px !important;
+}
+
+.menu-user-info {
+    text-align: center !important;
+    margin-bottom: 32px !important;
+    padding-bottom: 24px !important;
+    border-bottom: 1px solid rgba(56, 232, 255, 0.1) !important;
+}
+
+.menu-user-email {
+    color: var(--navbar-text) !important;
+    font-weight: 600 !important;
+    font-size: 0.95rem !important;
+    margin-bottom: 8px !important;
+}
+
+.menu-user-status {
+    color: var(--navbar-text-secondary) !important;
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+}
+
+.menu-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.menu-item {
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    padding: 12px 16px !important;
+    color: var(--navbar-text) !important;
+    text-decoration: none !important;
+    border-radius: 10px !important;
+    font-weight: 500 !important;
+    transition: all 0.25s ease !important;
+    font-size: 0.95rem !important;
+    border: 1px solid transparent !important;
+    background: transparent !important;
+    cursor: pointer !important;
+    text-align: left !important;
+}
+
+.menu-item i {
+    width: 20px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    color: var(--navbar-accent) !important;
+}
+
+.menu-item:hover {
+    background: var(--menu-item-hover) !important;
+    border-color: rgba(56, 232, 255, 0.1) !important;
+    transform: translateX(4px) !important;
+}
+
+.menu-item.active {
+    background: var(--menu-item-active) !important;
+    border-color: var(--navbar-accent) !important;
+    color: var(--navbar-accent) !important;
+}
+
+.menu-item.logout-item {
+    color: #ff4d6d !important;
+    margin-top: 16px !important;
+    border-top: 1px solid rgba(56, 232, 255, 0.1) !important;
+    padding-top: 12px !important;
+}
+
+.menu-item.logout-item i {
+    color: #ff4d6d !important;
+}
+
+.menu-item.logout-item:hover {
+    background: rgba(255, 77, 109, 0.1) !important;
+    border-color: rgba(255, 77, 109, 0.3) !important;
+    color: #ff6b7a !important;
+}
+
+.menu-item.logout-item:hover i {
+    color: #ff6b7a !important;
+}
+
+/* ==================== MENU OVERLAY ==================== */
+.menu-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0);
+    z-index: 998;
+    transition: background 0.35s ease;
+    pointer-events: none;
+}
+
+.menu-overlay.active {
+    background: rgba(0, 0, 0, 0.5);
+    pointer-events: auto;
+}
+
+/* ==================== BACK BUTTON ==================== */
+.back-btn {
+    background: rgba(56, 232, 255, 0.08);
+    border: 1px solid rgba(56, 232, 255, 0.2);
+    color: var(--navbar-accent);
+    font-size: 20px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    padding: 8px 10px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+}
+
+.back-btn:hover {
+    transform: translateX(-4px);
+    color: var(--navbar-accent-light);
+    background: rgba(56, 232, 255, 0.12);
+    border-color: var(--navbar-accent);
+}
+
+/* ==================== NAVBAR LEFT (FOR PAGES WITH BACK BTN) ==================== */
+.navbar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+/* ==================== SCROLLBAR STYLING ==================== */
+.menu-panel::-webkit-scrollbar {
+    width: 6px;
+}
+
+.menu-panel::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.menu-panel::-webkit-scrollbar-thumb {
+    background: rgba(56, 232, 255, 0.2);
+    border-radius: 3px;
+}
+
+.menu-panel::-webkit-scrollbar-thumb:hover {
+    background: rgba(56, 232, 255, 0.4);
+}
+
+/* ==================== RESPONSIVE DESIGN ==================== */
+@media (max-width: 768px) {
+    .navbar {
+        padding: 12px 16px;
+        min-height: 64px;
+    }
+
+    .navbar.scrolled {
+        padding: 10px 16px;
+        min-height: 56px;
+    }
+
+    .logo-text {
+        font-size: 1.15rem;
+    }
+
+    .user-email {
+        display: none;
+    }
+
+    .user-role-badge {
+        font-size: 11px;
+        padding: 5px 10px;
+    }
+
+    .hamburger-menu {
+        width: 40px;
+        height: 40px;
+    }
+
+    .hamburger-menu span {
+        width: 20px;
+        height: 2.5px;
+    }
+
+    .menu-panel {
+        width: 280px;
+        right: -280px;
+    }
+
+    .menu-content {
+        padding: 70px 20px 20px;
+    }
+
+    .menu-item {
+        padding: 10px 14px;
+        font-size: 0.9rem;
+        gap: 10px;
+    }
+
+    .menu-close {
+        width: 36px;
+        height: 36px;
+        font-size: 24px;
+        top: 12px;
+        right: 12px;
+    }
+}
+
+@media (max-width: 480px) {
+    .navbar {
+        padding: 10px 12px;
+        min-height: 56px;
+    }
+
+    .logo-text {
+        font-size: 1rem;
+    }
+
+    .logo-img {
+        width: 28px;
+        height: 28px;
+    }
+
+    .user-role-badge {
+        display: none;
+    }
+
+    .hamburger-menu {
+        width: 36px;
+        height: 36px;
+        padding: 6px;
+    }
+
+    .hamburger-menu span {
+        width: 18px;
+        height: 2px;
+        gap: 3px;
+    }
+
+    .menu-panel {
+        width: 100%;
+        right: -100%;
+        border-left: none;
+        border-top: 1px solid var(--menu-border);
+    }
+
+    .menu-content {
+        padding: 60px 16px 16px;
+    }
+
+    .menu-item {
+        padding: 10px 12px;
+        font-size: 0.88rem;
+    }
+
+    .logo {
+        gap: 6px;
+    }
+}
+
+/* ==================== ACCESSIBILITY ==================== */
+@media (prefers-reduced-motion: reduce) {
+    .navbar,
+    .hamburger-menu span,
+    .menu-panel,
+    .menu-item,
+    .logo:hover .logo-img {
+        transition: none !important;
+    }
+}
+
+/* ==================== DARK MODE COMPATIBILITY ==================== */
+@media (prefers-color-scheme: dark) {
+    body[data-theme="dark"],
+    html[data-theme="dark"] body {
+        --navbar-bg: rgba(11, 15, 20, 0.88);
+    }
+}

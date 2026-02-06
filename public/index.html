@@ -32,6 +32,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <link rel="stylesheet" href="glass-theme.css?v=20260203">
+    <link rel="stylesheet" href="navbar-unified.css?v=20260206">
     <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js" defer></script>
@@ -40,6 +41,7 @@
     <script src="rate-limiter.js" defer></script>
     <script src="toast-manager.js" defer></script>
     <script src="setup-supabase.js" defer></script>
+    <script src="menu-unified.js" defer></script>
     <!-- Auth Guard -->
     <script src="/api/env.js"></script>
     <script src="config.js"></script>
@@ -159,53 +161,7 @@
             text-align: center;
         }
 
-        .navbar {
-            background: rgba(240, 246, 255, 0.82);
-            border-bottom: 1px solid rgba(124, 92, 255, 0.22);
-            padding: 16px 24px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            backdrop-filter: blur(14px);
-            box-shadow: 0 10px 28px rgba(86, 110, 170, 0.2);
-            min-height: 72px;
-        }
-
-        html[data-theme="dark"] .navbar {
-            background: rgba(11, 15, 20, 0.78);
-            border-bottom: 1px solid rgba(56, 232, 255, 0.12);
-            box-shadow: 0 8px 24px rgba(5, 12, 24, 0.45);
-        }
-
-        html[data-theme="purple"] .navbar {
-            background: rgba(11, 7, 20, 0.82);
-            border-bottom: 1px solid rgba(184, 108, 255, 0.2);
-            box-shadow: 0 8px 24px rgba(10, 6, 18, 0.55);
-        }
-
-        html[data-theme="gold"] .navbar {
-            background: rgba(11, 11, 11, 0.86);
-            border-bottom: 1px solid rgba(245, 208, 111, 0.28);
-            box-shadow: 0 8px 24px rgba(5, 4, 3, 0.65);
-        }
-
-        html[data-theme="purple"] body {
-            background:
-                radial-gradient(circle at 12% 18%, rgba(184, 108, 255, 0.22), transparent 46%),
-                radial-gradient(circle at 88% 12%, rgba(124, 92, 255, 0.18), transparent 42%),
-                linear-gradient(155deg, var(--bg-primary), var(--bg-secondary));
-        }
-
-        html[data-theme="gold"] body {
-            background:
-                radial-gradient(circle at 12% 18%, rgba(245, 208, 111, 0.18), transparent 46%),
-                radial-gradient(circle at 88% 12%, rgba(255, 215, 128, 0.16), transparent 42%),
-                linear-gradient(155deg, var(--bg-primary), var(--bg-secondary));
-        }
-
+        /* Content-specific styles only */
         .logo {
             display: flex;
             align-items: center;
@@ -1380,177 +1336,12 @@
         }
 
         /* Hamburger Menü Stilleri */
-        .hamburger-menu {
-            display: flex;
-            flex-direction: column;
-            background: rgba(13, 168, 232, 0.1);
-            border: 1px solid rgba(13, 168, 232, 0.3);
-            cursor: pointer;
-            padding: 8px;
-            gap: 5px;
-            width: 44px;
-            height: 44px;
-            align-items: center;
-            justify-content: center;
-            margin-left: auto;
-            border-radius: 8px;
-            transition: all 0.3s ease;
-        }
-
-        .hamburger-menu:hover {
-            background: rgba(13, 168, 232, 0.2);
-            border-color: #0da8e8;
-        }
-
-        .hamburger-menu span {
-            width: 26px;
-            height: 3px;
-            background: #0da8e8;
-            border-radius: 2px;
-            transition: all 0.3s ease;
-            display: block;
-        }
-
         /* Dil Seçim Butonları */
         .language-selector {
             display: flex;
             gap: 6px;
             align-items: center;
             margin-right: 12px;
-        }
-
-        .hamburger-menu.active span:nth-child(1) {
-            transform: rotate(45deg) translate(8px, 8px);
-        }
-
-        .hamburger-menu.active span:nth-child(2) {
-            opacity: 0;
-        }
-
-        .hamburger-menu.active span:nth-child(3) {
-            transform: rotate(-45deg) translate(7px, -7px);
-        }
-
-        .menu-panel {
-            position: fixed;
-            right: -350px;
-            top: 0;
-            width: 350px;
-            height: 100vh;
-            background: #000;
-            border-left: 1px solid rgba(255, 255, 255, 0.12);
-            z-index: 998;
-            transition: right 0.3s ease;
-            overflow-y: auto;
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
-        }
-
-        html[data-theme="light"] .menu-panel {
-            background: #000;
-            border-left: 1px solid rgba(255, 255, 255, 0.12);
-        }
-
-        html[data-theme="light"] .menu-item {
-            color: #ffffff;
-        }
-
-        html[data-theme="light"] .menu-item.logout-item {
-            color: #f44336;
-        }
-
-        html[data-theme="purple"] .menu-panel {
-            background: #000;
-            border-left: 1px solid rgba(255, 255, 255, 0.12);
-        }
-
-        html[data-theme="gold"] .menu-panel {
-            background: #000;
-            border-left: 1px solid rgba(255, 255, 255, 0.12);
-        }
-
-        .menu-panel.active {
-            right: 0;
-        }
-
-        .menu-close {
-            position: absolute;
-            top: 16px;
-            right: 16px;
-            background: none;
-            border: none;
-            color: var(--primary);
-            font-size: 32px;
-            cursor: pointer;
-            width: 40px;
-            height: 40px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.3s ease;
-        }
-
-        .menu-close:hover {
-            color: var(--secondary);
-            transform: rotate(90deg);
-        }
-
-        .menu-content {
-            padding: 80px 24px 24px;
-        }
-
-        .menu-user-info {
-            margin-bottom: 32px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .menu-user-email {
-            color: var(--primary);
-            font-size: 14px;
-            font-weight: 600;
-            word-break: break-all;
-        }
-
-        .menu-nav {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .menu-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            width: 100%;
-            padding: 14px 16px;
-            background: #000;
-            border: 1px solid var(--border-color);
-            color: var(--text-primary);
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-align: left;
-            text-decoration: none;
-        }
-
-        .menu-item:hover {
-            background: #0b0b0b;
-            border-color: var(--primary);
-            transform: translateX(4px);
-        }
-
-        .menu-item.logout-item {
-            color: #f44336;
-            background: #0b0b0b;
-            border-color: rgba(244, 67, 54, 0.3);
-        }
-
-        .menu-item.logout-item:hover {
-            background: #140606;
-            border-color: #f44336;
         }
 
         @media (max-width: 1024px) {
