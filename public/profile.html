@@ -31,60 +31,23 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-    <link rel="stylesheet" href="glass-theme.css?v=20260203">
-    <link rel="stylesheet" href="profile-glass.css?v=20260203">
-    <link rel="stylesheet" href="navbar-unified.css?v=20260206">
-    <script src="/api/env.js" defer></script>
-    <script src="config.js" defer></script>
-    <script src="menu-unified.js" defer></script>
+    <script src="/api/env.js"></script>
+    <script src="config.js"></script>
     <script>
         const savedTheme = localStorage.getItem('theme') || 'dark';
         document.documentElement.dataset.theme = savedTheme;
     </script>
-    <script>
-        window.toggleHamburgerMenu = window.toggleHamburgerMenu || function() {};
-        window.closeHamburgerMenu = window.closeHamburgerMenu || function() {};
-    </script>
     <!-- Auth Guard -->
     <script>
-        (function() {
-            let attempts = 0;
-            const maxAttempts = 30;
-            const intervalMs = 100;
-
-            function tryAuthGuard() {
-                if (!window.supabase || !window.supabase.createClient) return false;
-                if (!window.SUPABASE_URL || !window.SUPABASE_ANON_KEY) return false;
-
-                const supabaseClient = window.supabase.createClient(
-                    window.SUPABASE_URL,
-                    window.SUPABASE_ANON_KEY
-                );
-
-                supabaseClient.auth.getSession()
-                    .then(({ data: { session } }) => {
-                        if (!session) {
-                            window.location.replace('login.html');
-                        }
-                    })
-                    .catch(() => {
-                        window.location.replace('login.html');
-                    });
-
-                return true;
+        // Hemen kontrol et - sayfa yüklemeden önce
+        (async () => {
+            const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            
+            if (!session) {
+                // Login olmamışsa login sayfasına yönlendir
+                window.location.replace('login.html');
             }
-
-            const timer = setInterval(() => {
-                attempts += 1;
-                if (tryAuthGuard()) {
-                    clearInterval(timer);
-                    return;
-                }
-                if (attempts >= maxAttempts) {
-                    clearInterval(timer);
-                    window.location.replace('login.html');
-                }
-            }, intervalMs);
         })();
     </script>
     <style>
@@ -110,9 +73,9 @@
         html[data-theme="dark"] {
             --primary: #38e8ff;
             --secondary: #8b5cf6;
-            --surface-dark: #1e2a3a;
-            --bg-surface: #0f141b;
-            --border-color: rgba(56, 232, 255, 0.32);
+            --surface-dark: #141c2a;
+            --bg-surface: #0b0f14;
+            --border-color: rgba(56, 232, 255, 0.28);
             --text-primary: #ffffff;
             --text-secondary: #9aa4b2;
             --success: #35d28c;
@@ -155,7 +118,6 @@
             min-height: 100vh;
             padding: 0;
             margin: 0;
-            overflow-x: hidden;
         }
 
         .navbar {
@@ -171,7 +133,6 @@
             z-index: 100;
             box-shadow: 0 12px 30px rgba(86, 110, 170, 0.22);
             min-height: 72px;
-            width: 100%;
         }
 
         html[data-theme="dark"] .navbar {
@@ -370,51 +331,35 @@
 
         .menu-panel {
             position: fixed;
-                        right: 0;
+            right: -350px;
             top: 0;
             width: 350px;
             height: 100vh;
-            background: #000;
-            border-left: 1px solid rgba(255, 255, 255, 0.12);
-            z-index: 1002;
-                        transition: transform 0.3s ease;
+            background: rgba(15, 18, 28, 0.96);
+            border-left: 1px solid rgba(56, 232, 255, 0.18);
+            z-index: 998;
+            transition: right 0.3s ease;
             overflow-y: auto;
             backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
-                        transform: translateX(100%);
         }
 
         .menu-panel.active {
-                        transform: translateX(0);
+            right: 0;
         }
 
         html[data-theme="light"] .menu-panel {
-            background: #000;
-            border-left: 1px solid rgba(255, 255, 255, 0.12);
-        }
-
-        html[data-theme="light"] .menu-item,
-        html[data-theme="light"] .menu-user-email,
-        html[data-theme="light"] .menu-content,
-        html[data-theme="light"] .menu-user-info {
-            color: #ffffff;
-        }
-
-        @media (max-width: 520px) {
-            .menu-panel {
-                width: 100vw;
-                right: 0;
-            }
+            background: rgba(233, 238, 248, 0.96);
+            border-left: 1px solid rgba(79, 70, 229, 0.18);
         }
 
         html[data-theme="purple"] .menu-panel {
-            background: #000;
-            border-left: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(12, 8, 22, 0.96);
+            border-left: 1px solid rgba(184, 108, 255, 0.25);
         }
 
         html[data-theme="gold"] .menu-panel {
-            background: #000;
-            border-left: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(12, 11, 12, 0.96);
+            border-left: 1px solid rgba(245, 208, 111, 0.28);
         }
 
         .menu-close {
@@ -431,6 +376,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            transition: all 0.3s ease;
         }
 
         .menu-close:hover {
@@ -467,7 +413,7 @@
             gap: 10px;
             width: 100%;
             padding: 14px 16px;
-            background: #000;
+            background: rgba(13, 168, 232, 0.1);
             border: 1px solid var(--border-color);
             border-radius: 8px;
             color: var(--text-primary);
@@ -480,19 +426,19 @@
         }
 
         .menu-item:hover {
-            background: #0b0b0b;
+            background: rgba(13, 168, 232, 0.2);
             border-color: var(--primary);
             transform: translateX(4px);
         }
 
         .menu-item.logout-item {
             color: #f44336;
-            background: #0b0b0b;
+            background: rgba(244, 67, 54, 0.1);
             border-color: rgba(244, 67, 54, 0.3);
         }
 
         .menu-item.logout-item:hover {
-            background: #140606;
+            background: rgba(244, 67, 54, 0.2);
             border-color: #f44336;
         }
 
@@ -942,7 +888,7 @@
         }
 
         /* Tema Seçimi */
-        .navbar {
+        nav {
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -1333,7 +1279,7 @@
                 <span class="logo-text">Rolin Signal</span>
             </a>
         </div>
-        <div class="user-menu" style="display: flex; gap: 10px; align-items: center;">
+        <div style="display: flex; gap: 10px; align-items: center;">
             <div class="user-email-header" id="userEmailHeader">Loading...</div>
             <span class="user-role-badge" id="userRoleBadge" style="display:none;"></span>
             <button class="hamburger-menu" id="hamburgerBtn" onclick="window.toggleHamburgerMenu()" title="Menü">
@@ -1370,10 +1316,6 @@
                 <a href="binance.html" class="menu-item" onclick="closeHamburgerMenu()">
                     <i class="fa-brands fa-bitcoin"></i>
                     Binance Bağlantısı
-                </a>
-                <a href="premium.html" class="menu-item" id="premiumMenuItem" onclick="closeHamburgerMenu()" style="display: none;">
-                    <i class="fa-solid fa-star"></i>
-                    Premium Ol
                 </a>
                 <button class="menu-item logout-item" onclick="window.logout()">
                     <i class="fa-solid fa-right-from-bracket"></i>
@@ -1731,20 +1673,17 @@
                     .eq('id', currentUser.id)
                     .single();
 
-                const membershipType = userProfile?.membership_type || 'standard';
-
                 // Membership badge'ini güncelle
                 if (userProfile) {
-                    updateMembershipBadge(membershipType, userProfile.membership_expires_at, !!userProfile.is_admin);
-                    updateUserRoleBadge(membershipType, !!userProfile.is_admin);
+                    updateMembershipBadge(userProfile.membership_type || 'standard', userProfile.membership_expires_at, !!userProfile.is_admin);
+                    updateUserRoleBadge(userProfile.membership_type || 'standard', !!userProfile.is_admin);
                 } else {
                     updateMembershipBadge('standard', null, isAdminByEmail);
                     updateUserRoleBadge('standard', isAdminByEmail);
                 }
 
                 const isAdmin = isAdminByEmail || !!userProfile?.is_admin;
-                const isPremium = membershipType === 'premium';
-                updatePremiumMenuVisibility(membershipType, isAdmin);
+                const isPremium = (userProfile?.membership_type || 'standard') === 'premium';
                 canUseTelegramChatId = isAdmin || isPremium;
                 const upgradeBtn = document.getElementById('upgradePremiumBtn');
                 if (upgradeBtn) {
@@ -1773,12 +1712,8 @@
                         window.makeTelegramIdReadonly();
                     }
                     if (userSettings.theme) {
-                        const allowedThemes = ['light', 'dark', 'purple', 'gold'];
-                        const storedTheme = localStorage.getItem('theme');
-                        if (!storedTheme || !allowedThemes.includes(storedTheme)) {
-                            localStorage.setItem('theme', userSettings.theme);
-                            document.documentElement.dataset.theme = userSettings.theme;
-                        }
+                        localStorage.setItem('theme', userSettings.theme);
+                        document.documentElement.dataset.theme = userSettings.theme;
                     }
                 } else {
                     document.getElementById('notificationsToggle').checked = true;
@@ -1889,14 +1824,6 @@
             badgeEl.innerHTML = '<i class="fa-solid fa-leaf"></i> Free';
             badgeEl.className = 'user-role-badge standard';
             badgeEl.style.display = 'inline-flex';
-        }
-
-        function updatePremiumMenuVisibility(membershipType, isAdmin) {
-            const premiumItem = document.getElementById('premiumMenuItem');
-            if (!premiumItem) return;
-            const isFree = !isAdmin && membershipType !== 'premium';
-            const displayValue = isFree ? 'flex' : 'none';
-            premiumItem.style.setProperty('display', displayValue, 'important');
         }
 
         async function loadAdminUserList() {

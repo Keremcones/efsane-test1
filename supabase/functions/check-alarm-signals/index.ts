@@ -37,138 +37,10 @@ if (!telegramBotToken) {
 const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
 // =====================
-// CRON Lock Helpers (prevent duplicate runs)
-// =====================
-async function acquireCronLock(lockName: string, ttlSeconds: number = 55): Promise<{ acquired: boolean; requestId: string }> {
-  const requestId = crypto.randomUUID();
-  const nowIso = new Date().toISOString();
-  const cutoffIso = new Date(Date.now() - ttlSeconds * 1000).toISOString();
-
-  try {
-    await supabase
-      .from("cron_locks")
-      .upsert({ name: lockName }, { onConflict: "name", ignoreDuplicates: true });
-
-    const { data, error } = await supabase
-      .from("cron_locks")
-      .update({
-        last_started_at: nowIso,
-        last_status: "RUNNING",
-        last_request_id: requestId,
-        updated_at: nowIso
-      })
-      .eq("name", lockName)
-      .or(`last_started_at.lt.${cutoffIso},last_started_at.is.null`)
-      .select("name");
-
-    if (error) {
-      console.error("❌ Cron lock update error:", error);
-      return { acquired: false, requestId };
-    }
-
-    const acquired = Array.isArray(data) && data.length > 0;
-    return { acquired, requestId };
-  } catch (e) {
-    console.error("❌ Cron lock exception:", e);
-    return { acquired: false, requestId };
-  }
-}
-
-async function releaseCronLock(lockName: string, requestId: string, status: "DONE" | "ERROR"): Promise<void> {
-  const nowIso = new Date().toISOString();
-  try {
-    await supabase
-      .from("cron_locks")
-      .update({
-        last_finished_at: nowIso,
-        last_status: status,
-        updated_at: nowIso
-      })
-      .eq("name", lockName)
-      .eq("last_request_id", requestId);
-  } catch (e) {
-    console.error("❌ Cron lock release error:", e);
-  }
-}
-
-// =====================
 // Binance API bases & price cache
 // =====================
 const BINANCE_SPOT_API_BASE = "https://api.binance.com/api/v3";
 const BINANCE_FUTURES_API_BASE = "https://fapi.binance.com/fapi/v1";
-
-// Exchange info cache (tick size / price precision)
-const exchangeInfoCache: Record<string, { timestamp: number; symbols: Record<string, any> }> = {};
-const EXCHANGE_INFO_TTL = 10 * 60 * 1000; // 10 minutes
-
-function getTickSizeDecimals(tickSize: string): number {
-  if (!tickSize || !tickSize.includes(".")) return 0;
-  const fraction = tickSize.split(".")[1] || "";
-  const trimmed = fraction.replace(/0+$/, "");
-  return trimmed.length;
-}
-
-function roundToTick(value: number, tickSize: number, mode: "NEAREST" | "UP" | "DOWN" = "NEAREST"): number {
-  if (!Number.isFinite(value) || !Number.isFinite(tickSize) || tickSize <= 0) return value;
-  const scaled = value / tickSize;
-  const epsilon = 1e-12;
-  let rounded: number;
-  if (mode === "UP") {
-    rounded = Math.ceil(scaled - epsilon);
-  } else if (mode === "DOWN") {
-    rounded = Math.floor(scaled + epsilon);
-  } else {
-    rounded = Math.round(scaled);
-  }
-  return rounded * tickSize;
-}
-
-async function getSymbolPricePrecision(symbol: string, marketType: "spot" | "futures"): Promise<number | null> {
-  const cacheKey = marketType;
-  const now = Date.now();
-  const cached = exchangeInfoCache[cacheKey];
-  if (cached && (now - cached.timestamp) < EXCHANGE_INFO_TTL) {
-    const info = cached.symbols?.[symbol];
-    if (info) return info.pricePrecision ?? null;
-  }
-
-  const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
-  const url = `${base}/exchangeInfo`;
-  const res = await throttledFetch(url);
-  if (!res.ok) return null;
-  const data = await res.json();
-  const symbols = (data?.symbols || []).reduce((acc: Record<string, any>, item: any) => {
-    const priceFilter = (item.filters || []).find((f: any) => f.filterType === "PRICE_FILTER");
-    const tickSize = priceFilter?.tickSize;
-    const pricePrecision = typeof item.pricePrecision === "number"
-      ? item.pricePrecision
-      : (tickSize ? getTickSizeDecimals(String(tickSize)) : null);
-    acc[String(item.symbol)] = { pricePrecision };
-    return acc;
-  }, {});
-
-  exchangeInfoCache[cacheKey] = { timestamp: now, symbols };
-  const info = symbols?.[symbol];
-  return info ? info.pricePrecision ?? null : null;
-}
-
-function formatPriceWithPrecision(value: number, precision: number | null): string {
-  if (!Number.isFinite(value)) return "0";
-  if (precision === null || precision === undefined) {
-    return value.toFixed(8);
-  }
-  return value.toFixed(Math.max(0, precision));
-}
-
-function formatQuantityWithPrecision(value: number, precision: number): string {
-  const safePrecision = Math.max(0, precision);
-  const fixed = value.toFixed(safePrecision);
-  if (safePrecision === 0) return fixed;
-  return fixed.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
-}
-
-// Global ban cooldown (Binance 418)
-let binanceBanUntil = 0;
 
 // Cache prices to avoid redundant API calls
 const priceCache: Record<string, { price: number; timestamp: number }> = {};
@@ -178,7 +50,7 @@ const PRICE_CACHE_TTL = 5000; // 5 seconds - refresh every 5s max
 // Request throttling & queueing (prevent rate limiting)
 // =====================
 let lastRequestTime = 0;
-const MIN_REQUEST_INTERVAL = 2000; // 2000ms (2s) minimum between ALL requests - CRITICAL for Binance
+const MIN_REQUEST_INTERVAL = 1000; // 1000ms (1s) minimum between ALL requests - CRITICAL for Binance
 let requestQueue: Array<{ url: string; options?: any; resolve: Function; reject: Function }> = [];
 let isProcessingQueue = false;
 
@@ -226,12 +98,14 @@ async function throttledFetch(url: string, options?: any): Promise<Response> {
 }
 
 // =====================
-// Binance klines cache
+// Binance exchangeInfo cache & klines cache
 // =====================
+const exchangeInfoCache: Record<string, any> = {};
+const exchangeInfoCacheTime: Record<string, number> = {};
 
 // Cache klines to avoid redundant API calls
 const klinesCache: Record<string, { data: any[]; timestamp: number }> = {};
-const KLINES_CACHE_TTL = 30000; // 30 seconds - reduce API pressure
+const KLINES_CACHE_TTL = 10000; // 10 seconds - refresh every 10s max
 
 function normalizeMarketType(value: any): "spot" | "futures" {
   const v = String(value || "").toLowerCase();
@@ -259,6 +133,60 @@ function timeframeToMinutes(timeframe: string): number {
   }
 }
 
+async function getExchangeInfo(marketType: "spot" | "futures"): Promise<any | null> {
+  const now = Date.now();
+  const cacheKey = marketType;
+  if (exchangeInfoCache[cacheKey] && (now - (exchangeInfoCacheTime[cacheKey] || 0)) < 60 * 60 * 1000) {
+    return exchangeInfoCache[cacheKey];
+  }
+
+  const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
+  const url = marketType === "futures"
+    ? `${base}/exchangeInfo`
+    : `${base}/exchangeInfo?permissions=SPOT`;
+
+  try {
+    const res = await throttledFetch(url);
+    if (!res.ok) {
+      console.error("❌ exchangeInfo fetch failed:", res.status, await res.text());
+      return null;
+    }
+    exchangeInfoCache[cacheKey] = await res.json();
+    exchangeInfoCacheTime[cacheKey] = now;
+    return exchangeInfoCache[cacheKey];
+  } catch (e) {
+    console.error("❌ Exchange info fetch error:", e);
+    return null;
+  }
+}
+
+function getTickSize(exchangeInfo: any, symbol: string): number | null {
+  try {
+    const s = exchangeInfo?.symbols?.find((x: any) => x.symbol === symbol);
+    const filter = s?.filters?.find((f: any) => f.filterType === "PRICE_FILTER");
+    const tickSizeStr = filter?.tickSize;
+    const tick = tickSizeStr ? Number(tickSizeStr) : NaN;
+    if (!Number.isFinite(tick) || tick <= 0) return null;
+    return tick;
+  } catch {
+    return null;
+  }
+}
+
+// Round price to tick size (safe for comparisons/storage)
+function roundToTick(price: number, tick: number, mode: "DOWN" | "NEAREST" = "NEAREST") {
+  if (!Number.isFinite(price) || !Number.isFinite(tick) || tick <= 0) return price;
+
+  const factor = 1 / tick;
+  const v = price * factor;
+
+  const rounded = mode === "DOWN" ? Math.floor(v) : Math.round(v);
+  const result = rounded / factor;
+
+  // Fix floating point noise
+  const decimals = Math.max(0, Math.round(-Math.log10(tick)));
+  return Number(result.toFixed(decimals));
+}
 
 async function getCurrentPrice(symbol: string, marketType: "spot" | "futures"): Promise<number | null> {
   try {
@@ -270,753 +198,28 @@ async function getCurrentPrice(symbol: string, marketType: "spot" | "futures"): 
       return priceCache[cacheKey].price;
     }
 
-    const klines = await getKlines(symbol, marketType, "1m", 2);
-    if (!klines || klines.length === 0) {
-      console.error(`❌ price fetch failed for ${symbol}: klines unavailable`);
-      return null;
-    }
-    const lastKline = klines[klines.length - 1];
-    const p = Number(lastKline?.[4]);
-    if (!Number.isFinite(p)) return null;
-    
-    // Cache the price
-    priceCache[cacheKey] = { price: p, timestamp: now };
-    
-    return p;
-  } catch (e) {
-    console.error(`❌ price fetch error for ${symbol}:`, e);
-    return null;
-  }
-}
-
-async function getFuturesMarkPrice(symbol: string): Promise<number | null> {
-  try {
-    const url = `https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`;
-    const res = await throttledFetch(url);
+    const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
+    const res = await throttledFetch(`${base}/ticker/price?symbol=${symbol}`);
     if (!res.ok) {
-      console.error("❌ mark price fetch failed:", await res.text());
+      console.error(`❌ price fetch failed for ${symbol}:`, res.status, await res.text());
       return null;
     }
     const data = await res.json();
-    const p = Number(data?.markPrice);
-    return Number.isFinite(p) ? p : null;
+    const p = Number(data?.price);
+    if (!Number.isFinite(p)) return null;
+    
+    // Get tickSize for proper precision
+    const exchangeInfo = await getExchangeInfo(marketType);
+    const tick = exchangeInfo ? getTickSize(exchangeInfo, symbol) : null;
+    const roundedPrice = tick ? roundToTick(p, tick, "NEAREST") : p;
+    
+    // Cache the price
+    priceCache[cacheKey] = { price: roundedPrice, timestamp: now };
+    
+    return roundedPrice;
   } catch (e) {
-    console.error("❌ mark price fetch error:", e);
+    console.error(`❌ price fetch error for ${symbol}:`, e);
     return null;
-  }
-}
-
-async function getLivePrice(symbol: string, marketType: "spot" | "futures"): Promise<number | null> {
-  if (marketType === "futures") {
-    const markPrice = await getFuturesMarkPrice(symbol);
-    if (markPrice !== null) return markPrice;
-  }
-  return await getCurrentPrice(symbol, marketType);
-}
-
-// =====================
-// BINANCE TRADE EXECUTION
-// =====================
-async function createBinanceSignature(queryString: string, apiSecret: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const key = encoder.encode(apiSecret);
-  const message = encoder.encode(queryString);
-
-  const cryptoKey = await crypto.subtle.importKey(
-    "raw",
-    key,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-
-  const signature = await crypto.subtle.sign("HMAC", cryptoKey, message);
-  return Array.from(new Uint8Array(signature))
-    .map(b => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-async function getBinanceBalance(apiKey: string, apiSecret: string, marketType: "spot" | "futures"): Promise<number> {
-  const timestamp = Date.now();
-  const queryString = `timestamp=${timestamp}`;
-  const signature = await createBinanceSignature(queryString, apiSecret);
-
-  const baseUrl = marketType === "futures"
-    ? "https://fapi.binance.com/fapi/v2/balance"
-    : "https://api.binance.com/api/v3/account";
-
-  const url = `${baseUrl}?${queryString}&signature=${signature}`;
-
-  const response = await throttledFetch(url, {
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
-
-  if (!response.ok) {
-    console.error("❌ Binance balance error:", await response.text());
-    return 0;
-  }
-
-  const data = await response.json();
-
-  if (marketType === "futures") {
-    const usdtBalance = data.find((b: any) => b.asset === "USDT");
-    return parseFloat(usdtBalance?.availableBalance || "0");
-  }
-
-  const usdtBalance = data.balances?.find((b: any) => b.asset === "USDT");
-  return parseFloat(usdtBalance?.free || "0");
-}
-
-async function getSymbolInfo(symbol: string, marketType: "spot" | "futures"): Promise<{ quantityPrecision: number; minQty: number; pricePrecision: number; tickSize: number } | null> {
-  const baseUrl = marketType === "futures"
-    ? "https://fapi.binance.com/fapi/v1/exchangeInfo"
-    : "https://api.binance.com/api/v3/exchangeInfo";
-
-  const response = await throttledFetch(baseUrl);
-  if (!response.ok) return null;
-
-  const data = await response.json();
-  const symbolInfo = data.symbols?.find((s: any) => s.symbol === symbol);
-  if (!symbolInfo) return null;
-
-  const lotSizeFilter = symbolInfo.filters?.find((f: any) => f.filterType === "LOT_SIZE");
-  const priceFilter = symbolInfo.filters?.find((f: any) => f.filterType === "PRICE_FILTER");
-
-  const minQty = parseFloat(lotSizeFilter?.minQty || "0.001");
-  const stepSize = lotSizeFilter?.stepSize || "0.001";
-  const tickSize = priceFilter?.tickSize || "0.01";
-
-  const quantityPrecision = stepSize.includes(".")
-    ? stepSize.split(".")[1].replace(/0+$/, "").length
-    : 0;
-
-  const pricePrecision = tickSize.includes(".")
-    ? tickSize.split(".")[1].replace(/0+$/, "").length
-    : 0;
-
-  return { quantityPrecision, minQty, pricePrecision, tickSize: parseFloat(tickSize) };
-}
-
-async function setLeverage(apiKey: string, apiSecret: string, symbol: string, leverage: number): Promise<boolean> {
-  const timestamp = Date.now();
-  const queryString = `symbol=${symbol}&leverage=${leverage}&timestamp=${timestamp}`;
-  const signature = await createBinanceSignature(queryString, apiSecret);
-
-  const url = `https://fapi.binance.com/fapi/v1/leverage?${queryString}&signature=${signature}`;
-
-  const response = await throttledFetch(url, {
-    method: "POST",
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    console.error(`❌ Set leverage error for ${symbol}:`, error);
-    return false;
-  }
-
-  return true;
-}
-
-async function getFuturesPositionMode(apiKey: string, apiSecret: string): Promise<"ONE_WAY" | "HEDGE" | "UNKNOWN"> {
-  const timestamp = Date.now();
-  const queryString = `timestamp=${timestamp}`;
-  const signature = await createBinanceSignature(queryString, apiSecret);
-  const url = `https://fapi.binance.com/fapi/v1/positionSide/dual?${queryString}&signature=${signature}`;
-
-  const response = await fetch(url, {
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
-
-  if (!response.ok) {
-    return "UNKNOWN";
-  }
-
-  const data = await response.json();
-  return data?.dualSidePosition ? "HEDGE" : "ONE_WAY";
-}
-
-async function openBinanceTrade(
-  apiKey: string,
-  apiSecret: string,
-  symbol: string,
-  direction: "LONG" | "SHORT",
-  quantity: string,
-  marketType: "spot" | "futures",
-  positionSide?: "LONG" | "SHORT",
-  orderType: "MARKET" | "LIMIT" = "MARKET",
-  limitPrice?: string
-): Promise<{ success: boolean; orderId?: string; error?: string }> {
-  const timestamp = Date.now();
-  const side = direction === "LONG" ? "BUY" : "SELL";
-
-  let queryString: string;
-  let baseUrl: string;
-
-  if (marketType === "futures") {
-    const positionSideParam = positionSide ? `&positionSide=${positionSide}` : "";
-    if (orderType === "LIMIT") {
-      if (!limitPrice || !String(limitPrice).length) {
-        return { success: false, error: "Limit price required" };
-      }
-      queryString = `symbol=${symbol}&side=${side}&type=LIMIT&timeInForce=GTC&quantity=${quantity}&price=${limitPrice}${positionSideParam}&timestamp=${timestamp}`;
-    } else {
-      queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}${positionSideParam}&timestamp=${timestamp}`;
-    }
-    baseUrl = "https://fapi.binance.com/fapi/v1/order";
-  } else {
-    queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
-    baseUrl = "https://api.binance.com/api/v3/order";
-  }
-
-  const signature = await createBinanceSignature(queryString, apiSecret);
-  const url = `${baseUrl}?${queryString}&signature=${signature}`;
-
-  const response = await throttledFetch(url, {
-    method: "POST",
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    return { success: false, error: data?.msg || "Order failed" };
-  }
-
-  return { success: true, orderId: String(data.orderId) };
-}
-
-async function placeTakeProfitStopLoss(
-  apiKey: string,
-  apiSecret: string,
-  symbol: string,
-  direction: "LONG" | "SHORT",
-  takeProfit: number,
-  stopLoss: number,
-  pricePrecision: number,
-  tickSize: number,
-  positionSide?: "LONG" | "SHORT"
-): Promise<{ tpOrderId?: string; slOrderId?: string; tpError?: string; slError?: string }> {
-  const closeSide = direction === "LONG" ? "SELL" : "BUY";
-  const positionSideParam = positionSide ? `&positionSide=${positionSide}` : "";
-  const tpRounded = roundToTick(
-    takeProfit,
-    tickSize,
-    direction === "LONG" ? "UP" : "DOWN"
-  );
-  const slRounded = roundToTick(
-    stopLoss,
-    tickSize,
-    direction === "LONG" ? "DOWN" : "UP"
-  );
-  const tpPrice = tpRounded.toFixed(pricePrecision);
-  const slPrice = slRounded.toFixed(pricePrecision);
-
-  // Prevent immediate-trigger errors (Binance -2021)
-  const markPrice = await getFuturesMarkPrice(symbol) ?? await getCurrentPrice(symbol, "futures");
-  const isTpImmediate = Number.isFinite(markPrice)
-    ? (direction === "LONG" ? markPrice >= tpRounded : markPrice <= tpRounded)
-    : false;
-  const isSlImmediate = Number.isFinite(markPrice)
-    ? (direction === "LONG" ? markPrice <= slRounded : markPrice >= slRounded)
-    : false;
-
-  let tpOrderId: string | undefined;
-  let slOrderId: string | undefined;
-  let tpError: string | undefined;
-  let slError: string | undefined;
-
-  if (isTpImmediate) {
-    tpError = `TP zaten tetiklenmiş olabilir (mark: ${formatPriceWithPrecision(markPrice as number, pricePrecision)})`;
-  } else {
-    const tpTimestamp = Date.now();
-    const algoTp = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "TAKE_PROFIT_MARKET", tpPrice, positionSide);
-    if (algoTp.ok) {
-      tpOrderId = algoTp.orderId;
-    } else {
-      const tpQueryBase = `symbol=${symbol}&side=${closeSide}&type=TAKE_PROFIT_MARKET&stopPrice=${tpPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true`;
-      const tpQuery = `${tpQueryBase}${positionSideParam}&timestamp=${tpTimestamp}`;
-      const tpSignature = await createBinanceSignature(tpQuery, apiSecret);
-      const tpResponse = await throttledFetch(`https://fapi.binance.com/fapi/v1/order?${tpQuery}&signature=${tpSignature}`, {
-        method: "POST",
-        headers: { "X-MBX-APIKEY": apiKey }
-      });
-
-      if (tpResponse.ok) {
-        const tpData = await tpResponse.json();
-        tpOrderId = String(tpData.orderId);
-      } else {
-        const tpErr = await tpResponse.text();
-        console.error("❌ TP order failed:", tpErr);
-        tpError = algoTp.error || tpErr;
-      }
-    }
-  }
-
-  if (isSlImmediate) {
-    slError = `SL zaten tetiklenmiş olabilir (mark: ${formatPriceWithPrecision(markPrice as number, pricePrecision)})`;
-  } else {
-    const slTimestamp = Date.now();
-    const algoSl = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "STOP_MARKET", slPrice, positionSide);
-    if (algoSl.ok) {
-      slOrderId = algoSl.orderId;
-    } else {
-      const slQueryBase = `symbol=${symbol}&side=${closeSide}&type=STOP_MARKET&stopPrice=${slPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true`;
-      const slQuery = `${slQueryBase}${positionSideParam}&timestamp=${slTimestamp}`;
-      const slSignature = await createBinanceSignature(slQuery, apiSecret);
-      const slResponse = await throttledFetch(`https://fapi.binance.com/fapi/v1/order?${slQuery}&signature=${slSignature}`, {
-        method: "POST",
-        headers: { "X-MBX-APIKEY": apiKey }
-      });
-
-      if (slResponse.ok) {
-        const slData = await slResponse.json();
-        slOrderId = String(slData.orderId);
-      } else {
-        const slErr = await slResponse.text();
-        console.error("❌ SL order failed:", slErr);
-        slError = algoSl.error || slErr;
-      }
-    }
-  }
-
-  return { tpOrderId, slOrderId, tpError, slError };
-}
-
-async function placeFuturesAlgoOrder(
-  apiKey: string,
-  apiSecret: string,
-  symbol: string,
-  side: "BUY" | "SELL",
-  type: "TAKE_PROFIT_MARKET" | "STOP_MARKET",
-  stopPrice: string,
-  positionSide?: "LONG" | "SHORT"
-): Promise<{ ok: boolean; orderId?: string; error?: string }> {
-  const timestamp = Date.now();
-  const positionSideParam = positionSide ? `&positionSide=${positionSide}` : "";
-  const query = `algoType=CONDITIONAL&symbol=${symbol}&side=${side}&type=${type}&triggerPrice=${stopPrice}`
-    + `&closePosition=true&workingType=MARK_PRICE&priceProtect=TRUE${positionSideParam}&timestamp=${timestamp}`;
-  const signature = await createBinanceSignature(query, apiSecret);
-  const url = `https://fapi.binance.com/fapi/v1/algoOrder?${query}&signature=${signature}`;
-
-  const response = await throttledFetch(url, {
-    method: "POST",
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
-
-  if (!response.ok) {
-    const contentType = response.headers.get("content-type") || "";
-    const text = await response.text();
-    console.error("❌ Algo order failed:", text);
-    if (contentType.includes("text/html") || text.trim().startsWith("<!DOCTYPE")) {
-      return { ok: false, error: "Algo endpoint HTML yanıtı döndü (erişim/engel olabilir)." };
-    }
-    return { ok: false, error: text };
-  }
-
-  const data = await response.json();
-  return { ok: true, orderId: String(data?.orderId || data?.algoId || data?.clientAlgoId || "") };
-}
-
-function escapeTelegram(text: string): string {
-  return String(text || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-async function setFuturesMarginType(apiKey: string, apiSecret: string, symbol: string, marginType: "CROSS" | "ISOLATED"): Promise<void> {
-  const timestamp = Date.now();
-  const queryString = `symbol=${symbol}&marginType=${marginType}&timestamp=${timestamp}`;
-  const signature = await createBinanceSignature(queryString, apiSecret);
-  const url = `https://fapi.binance.com/fapi/v1/marginType?${queryString}&signature=${signature}`;
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    if (text.includes("No need to change margin type")) {
-      return;
-    }
-    throw new Error(text || "Margin type update failed");
-  }
-}
-
-async function placeSpotOco(
-  apiKey: string,
-  apiSecret: string,
-  symbol: string,
-  quantity: number,
-  takeProfit: number,
-  stopLoss: number,
-  pricePrecision: number,
-  tickSize: number
-): Promise<{ success: boolean; error?: string }> {
-  const timestamp = Date.now();
-  const tpRounded = roundToTick(takeProfit, tickSize, "UP");
-  const slRounded = roundToTick(stopLoss, tickSize, "DOWN");
-  const tpPrice = tpRounded.toFixed(pricePrecision);
-  const slPrice = slRounded.toFixed(pricePrecision);
-  const slValue = Number(slRounded);
-  const offset = Math.max(slValue * 0.001, 1 / Math.pow(10, pricePrecision));
-  const stopLimitValue = Math.max(0, slValue - offset);
-  const stopLimitRounded = roundToTick(stopLimitValue, tickSize, "DOWN");
-  const stopLimitPrice = stopLimitRounded.toFixed(pricePrecision);
-
-  const queryString = `symbol=${symbol}&side=SELL&type=OCO&quantity=${quantity}`
-    + `&price=${tpPrice}&stopPrice=${slPrice}&stopLimitPrice=${stopLimitPrice}`
-    + `&stopLimitTimeInForce=GTC&timestamp=${timestamp}`;
-  const signature = await createBinanceSignature(queryString, apiSecret);
-  const url = `https://api.binance.com/api/v3/order/oco?${queryString}&signature=${signature}`;
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    return { success: false, error: errorText };
-  }
-
-  return { success: true };
-}
-
-async function hasOpenFuturesPosition(apiKey: string, apiSecret: string, symbol: string): Promise<boolean> {
-  const timestamp = Date.now();
-  const queryString = `symbol=${symbol}&timestamp=${timestamp}`;
-  const signature = await createBinanceSignature(queryString, apiSecret);
-  const url = `https://fapi.binance.com/fapi/v2/positionRisk?${queryString}&signature=${signature}`;
-
-  const response = await throttledFetch(url, {
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
-
-  if (!response.ok) {
-    console.error("❌ Binance futures position check failed:", await response.text());
-    throw new Error("Futures position check failed");
-  }
-
-  const data = await response.json();
-  const position = Array.isArray(data) ? data[0] : data;
-  const positionAmt = Number(position?.positionAmt || 0);
-  return Math.abs(positionAmt) > 0;
-}
-
-async function hasOpenSpotOrders(apiKey: string, apiSecret: string, symbol: string): Promise<boolean> {
-  const timestamp = Date.now();
-  const queryString = `symbol=${symbol}&timestamp=${timestamp}`;
-  const signature = await createBinanceSignature(queryString, apiSecret);
-  const url = `https://api.binance.com/api/v3/openOrders?${queryString}&signature=${signature}`;
-
-  const response = await throttledFetch(url, {
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
-
-  if (!response.ok) {
-    console.error("❌ Binance spot open orders check failed:", await response.text());
-    throw new Error("Spot open orders check failed");
-  }
-
-  const data = await response.json();
-  return Array.isArray(data) && data.length > 0;
-}
-
-async function hasOpenFuturesOrders(apiKey: string, apiSecret: string, symbol: string): Promise<boolean> {
-  const timestamp = Date.now();
-  const queryString = `symbol=${symbol}&timestamp=${timestamp}`;
-  const signature = await createBinanceSignature(queryString, apiSecret);
-  const url = `https://fapi.binance.com/fapi/v1/openOrders?${queryString}&signature=${signature}`;
-
-  const response = await throttledFetch(url, {
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
-
-  if (!response.ok) {
-    console.error("❌ Binance futures open orders check failed:", await response.text());
-    throw new Error("Futures open orders check failed");
-  }
-
-  const data = await response.json();
-  return Array.isArray(data) && data.length > 0;
-}
-
-async function getFuturesOrderStatus(apiKey: string, apiSecret: string, symbol: string, orderId: string): Promise<string | null> {
-  const timestamp = Date.now();
-  const queryString = `symbol=${symbol}&orderId=${orderId}&timestamp=${timestamp}`;
-  const signature = await createBinanceSignature(queryString, apiSecret);
-  const url = `https://fapi.binance.com/fapi/v1/order?${queryString}&signature=${signature}`;
-
-  const response = await throttledFetch(url, {
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
-
-  if (!response.ok) {
-    console.error("❌ Binance futures order status failed:", await response.text());
-    return null;
-  }
-
-  const data = await response.json();
-  return String(data?.status || "");
-}
-
-async function cancelFuturesOrder(apiKey: string, apiSecret: string, symbol: string, orderId: string): Promise<boolean> {
-  const timestamp = Date.now();
-  const queryString = `symbol=${symbol}&orderId=${orderId}&timestamp=${timestamp}`;
-  const signature = await createBinanceSignature(queryString, apiSecret);
-  const url = `https://fapi.binance.com/fapi/v1/order?${queryString}&signature=${signature}`;
-
-  const response = await throttledFetch(url, {
-    method: "DELETE",
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
-
-  if (!response.ok) {
-    console.error("❌ Binance futures cancel order failed:", await response.text());
-    return false;
-  }
-
-  return true;
-}
-
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-async function executeAutoTrade(
-  userId: string,
-  symbol: string,
-  direction: "LONG" | "SHORT",
-  entryPrice: number,
-  takeProfit: number,
-  stopLoss: number,
-  marketType: "spot" | "futures"
-): Promise<{ success: boolean; message: string; orderId?: string }> {
-  try {
-    const { data: userKeys, error: keysError } = await supabase
-      .from("user_binance_keys")
-      .select("*")
-      .eq("user_id", userId)
-      .eq("auto_trade_enabled", true)
-      .maybeSingle();
-
-    if (keysError || !userKeys) {
-      return { success: false, message: "Auto-trade not enabled" };
-    }
-
-    if (marketType === "futures" && !userKeys.futures_enabled) {
-      return { success: false, message: "Futures auto-trade not enabled" };
-    }
-    if (marketType === "spot" && !userKeys.spot_enabled) {
-      return { success: false, message: "Spot auto-trade not enabled" };
-    }
-
-    const {
-      api_key,
-      api_secret,
-      futures_leverage,
-      futures_position_size_percent,
-      spot_position_size_percent,
-      futures_margin_type,
-      futures_order_type,
-      futures_limit_tolerance_percent,
-      futures_limit_timeout_seconds,
-      futures_limit_fallback_to_market
-    } = userKeys;
-
-    if (marketType === "spot" && direction === "SHORT") {
-      return { success: false, message: "Spot SHORT not supported" };
-    }
-
-    try {
-      if (marketType === "futures") {
-        const [hasPosition, hasOrders] = await Promise.all([
-          hasOpenFuturesPosition(api_key, api_secret, symbol),
-          hasOpenFuturesOrders(api_key, api_secret, symbol)
-        ]);
-        if (hasPosition) {
-          return { success: false, message: `Açık futures pozisyonu var (${symbol}). Yeni işlem açılmadı.` };
-        }
-        if (hasOrders) {
-          return { success: false, message: `Açık futures emri var (${symbol}). Yeni işlem açılmadı.` };
-        }
-      } else {
-        const hasOpen = await hasOpenSpotOrders(api_key, api_secret, symbol);
-        if (hasOpen) {
-          return { success: false, message: `Açık spot emri var (${symbol}). Yeni işlem açılmadı.` };
-        }
-      }
-    } catch (e) {
-      return { success: false, message: "Açık pozisyon/emtir kontrolü başarısız. İşlem açılmadı." };
-    }
-
-    const leverage = marketType === "futures" ? Number(futures_leverage || 10) : 1;
-    const positionSizePercent = marketType === "futures" ? Number(futures_position_size_percent || 5) : Number(spot_position_size_percent || 5);
-
-    const balance = await getBinanceBalance(api_key, api_secret, marketType);
-    if (balance <= 0) {
-      return { success: false, message: "Insufficient balance" };
-    }
-
-    const tradeAmount = balance * (positionSizePercent / 100);
-    const symbolInfo = await getSymbolInfo(symbol, marketType);
-    if (!symbolInfo) {
-      return { success: false, message: "Symbol info not found" };
-    }
-
-    const executionPrice = marketType === "futures"
-      ? (await getFuturesMarkPrice(symbol)) ?? entryPrice
-      : entryPrice;
-
-    if (!Number.isFinite(executionPrice) || executionPrice <= 0) {
-      return { success: false, message: "Geçersiz fiyat. İşlem açılmadı." };
-    }
-
-    if (marketType === "futures") {
-      if (direction === "LONG") {
-        if (executionPrice >= takeProfit) {
-          return { success: false, message: "TP zaten tetiklenmiş olabilir. İşlem açılmadı." };
-        }
-        if (executionPrice <= stopLoss) {
-          return { success: false, message: "SL zaten tetiklenmiş olabilir. İşlem açılmadı." };
-        }
-      } else {
-        if (executionPrice <= takeProfit) {
-          return { success: false, message: "TP zaten tetiklenmiş olabilir. İşlem açılmadı." };
-        }
-        if (executionPrice >= stopLoss) {
-          return { success: false, message: "SL zaten tetiklenmiş olabilir. İşlem açılmadı." };
-        }
-      }
-    }
-
-    let quantity = tradeAmount / executionPrice;
-    if (marketType === "futures") {
-      quantity = (tradeAmount * leverage) / executionPrice;
-    }
-
-    quantity = Math.floor(quantity * Math.pow(10, symbolInfo.quantityPrecision)) / Math.pow(10, symbolInfo.quantityPrecision);
-
-    if (quantity < symbolInfo.minQty) {
-      return { success: false, message: `Quantity too small: ${quantity} < ${symbolInfo.minQty}` };
-    }
-
-    let positionSide: "LONG" | "SHORT" | undefined;
-    if (marketType === "futures") {
-      const positionMode = await getFuturesPositionMode(api_key, api_secret);
-      if (positionMode === "HEDGE") {
-        positionSide = direction === "LONG" ? "LONG" : "SHORT";
-      }
-      const resolvedMarginType = String(futures_margin_type || "CROSS").toUpperCase() === "ISOLATED" ? "ISOLATED" : "CROSS";
-      try {
-        await setFuturesMarginType(api_key, api_secret, symbol, resolvedMarginType as "CROSS" | "ISOLATED");
-      } catch (e) {
-        console.error("❌ Margin type set failed:", e);
-        return { success: false, message: "Marjin türü ayarlanamadı. İşlem açılmadı." };
-      }
-      await setLeverage(api_key, api_secret, symbol, leverage);
-    }
-
-    let orderType: "MARKET" | "LIMIT" = "MARKET";
-    let limitPrice: number | undefined;
-    let limitPriceStr: string | undefined;
-    if (marketType === "futures") {
-      const rawOrderType = String(futures_order_type || "market").toLowerCase();
-      orderType = rawOrderType === "limit" ? "LIMIT" : "MARKET";
-      if (orderType === "LIMIT") {
-        const tolerance = Number(futures_limit_tolerance_percent ?? 0.3);
-        const toleranceRatio = Number.isFinite(tolerance) ? Math.max(0, tolerance) / 100 : 0.003;
-        const rawLimit = direction === "LONG"
-          ? executionPrice * (1 + toleranceRatio)
-          : executionPrice * (1 - toleranceRatio);
-        const rounded = roundToTick(rawLimit, symbolInfo.tickSize, direction === "LONG" ? "UP" : "DOWN");
-        limitPrice = rounded;
-        limitPriceStr = formatPriceWithPrecision(rounded, symbolInfo.pricePrecision);
-      }
-    }
-
-    const quantityStr = formatQuantityWithPrecision(quantity, symbolInfo.quantityPrecision);
-
-    const orderResult = await openBinanceTrade(
-      api_key,
-      api_secret,
-      symbol,
-      direction,
-      quantityStr,
-      marketType,
-      positionSide,
-      orderType,
-      limitPriceStr
-    );
-    if (!orderResult.success) {
-      return { success: false, message: orderResult.error || "Order failed" };
-    }
-
-    let finalOrderId = orderResult.orderId;
-    if (marketType === "futures" && orderType === "LIMIT") {
-      const timeoutSecondsRaw = Number(futures_limit_timeout_seconds ?? 60);
-      const timeoutSeconds = Number.isFinite(timeoutSecondsRaw) ? Math.min(Math.max(timeoutSecondsRaw, 10), 300) : 60;
-      const fallbackToMarket = futures_limit_fallback_to_market !== false;
-
-      await sleep(timeoutSeconds * 1000);
-      const status = finalOrderId ? await getFuturesOrderStatus(api_key, api_secret, symbol, String(finalOrderId)) : null;
-      if (status && status !== "FILLED") {
-        if (!fallbackToMarket) {
-          return { success: true, message: `⏳ Limit emir beklemede (${status}). TP/SL kurulmadı.`, orderId: finalOrderId };
-        }
-        if (finalOrderId) {
-          await cancelFuturesOrder(api_key, api_secret, symbol, String(finalOrderId));
-        }
-        const marketFallback = await openBinanceTrade(
-          api_key,
-          api_secret,
-          symbol,
-          direction,
-          quantityStr,
-          marketType,
-          positionSide,
-          "MARKET"
-        );
-        if (!marketFallback.success) {
-          return { success: false, message: marketFallback.error || "Market fallback failed" };
-        }
-        finalOrderId = marketFallback.orderId;
-      }
-    }
-
-    if (marketType === "futures") {
-      const tpSlResult = await placeTakeProfitStopLoss(api_key, api_secret, symbol, direction, takeProfit, stopLoss, symbolInfo.pricePrecision, symbolInfo.tickSize, positionSide);
-      let warningText = "";
-      if (!tpSlResult.tpOrderId && tpSlResult.tpError) {
-        warningText += ` TP oluşturulamadı: ${escapeTelegram(tpSlResult.tpError)}`;
-      }
-      if (!tpSlResult.slOrderId && tpSlResult.slError) {
-        warningText += ` SL oluşturulamadı: ${escapeTelegram(tpSlResult.slError)}`;
-      }
-      if (warningText) {
-        return {
-          success: true,
-          message: `✅ ${direction} ${quantity} ${symbol} (${leverage}x) @ $${entryPrice.toFixed(symbolInfo.pricePrecision)}\n⚠️ ${warningText.trim()}`,
-          orderId: finalOrderId
-        };
-      }
-    } else {
-      const ocoResult = await placeSpotOco(api_key, api_secret, symbol, quantity, takeProfit, stopLoss, symbolInfo.pricePrecision, symbolInfo.tickSize);
-      if (!ocoResult.success) {
-        return { success: false, message: `Spot TP/SL OCO failed: ${ocoResult.error || "unknown"}` };
-      }
-    }
-
-    const leverageText = marketType === "futures" ? ` (${leverage}x)` : "";
-    return {
-      success: true,
-      message: `✅ ${direction} ${quantity} ${symbol}${leverageText} @ $${executionPrice.toFixed(symbolInfo.pricePrecision)}`,
-      orderId: finalOrderId
-    };
-  } catch (e) {
-    console.error(`❌ Auto-trade error for ${userId}:`, e);
-    return { success: false, message: e instanceof Error ? e.message : "Unknown error" };
   }
 }
 
@@ -1024,12 +227,12 @@ async function executeAutoTrade(
 // Technical Indicators (Simple)
 // =====================
 function calculateRSI(prices: number[], period: number = 14): number {
-  if (prices.length < period + 1) return 50; // Default middle value
+  if (prices.length < period) return 50; // Default middle value
 
   let gains = 0;
   let losses = 0;
 
-  for (let i = prices.length - period; i < prices.length; i++) {
+  for (let i = 1; i < prices.length; i++) {
     const change = prices[i] - prices[i - 1];
     if (change > 0) gains += change;
     else losses += Math.abs(change);
@@ -1044,137 +247,96 @@ function calculateRSI(prices: number[], period: number = 14): number {
   return rsi;
 }
 
-function calculateSMA(prices: number[], period: number): number | null {
-  if (prices.length < period) return null;
+function calculateSMA(prices: number[], period: number): number {
+  if (prices.length < period) return prices[prices.length - 1];
   const sum = prices.slice(-period).reduce((a, b) => a + b, 0);
   return sum / period;
 }
 
-function calculateEMA(prices: number[], period: number): number | null {
-  if (prices.length < period) return null;
-  const multiplier = 2 / (period + 1);
-  let ema = calculateSMA(prices.slice(0, period), period);
-  if (ema === null) return null;
-  for (let i = period; i < prices.length; i++) {
-    ema = (prices[i] - ema) * multiplier + ema;
+function calculateEMA(prices: number[], period: number): number {
+  if (prices.length < period) return prices[prices.length - 1];
+  const k = 2 / (period + 1);
+  let ema = prices[0];
+  for (let i = 1; i < prices.length; i++) {
+    ema = prices[i] * k + ema * (1 - k);
   }
   return ema;
 }
 
-function calculateStochastic(closes: number[], highs: number[], lows: number[], period: number = 14): { k: number; d: number } | null {
-  if (closes.length < period) return null;
-
-  const recentHighs = highs.slice(-period);
-  const recentLows = lows.slice(-period);
-  const currentClose = closes[closes.length - 1];
-  const highestHigh = Math.max(...recentHighs);
-  const lowestLow = Math.min(...recentLows);
-  const k = ((currentClose - lowestLow) / (highestHigh - lowestLow)) * 100;
-  return { k, d: k };
-}
-
-function calculateATR(highs: number[], lows: number[], closes: number[], period: number = 14): number | null {
-  if (closes.length < period + 1) return null;
-
-  const tr: number[] = [];
-  for (let i = 1; i < closes.length; i++) {
-    const high = highs[i];
-    const low = lows[i];
-    const prevClose = closes[i - 1];
-    const tr1 = high - low;
-    const tr2 = Math.abs(high - prevClose);
-    const tr3 = Math.abs(low - prevClose);
-    tr.push(Math.max(tr1, tr2, tr3));
+function calculateStochastic(closes: number[], highs: number[], lows: number[], period: number = 14, smoothK: number = 3, smoothD: number = 3): { K: number; D: number } {
+  if (closes.length < period) return { K: 50, D: 50 };
+  
+  let lowestLow = lows[lows.length - 1];
+  let highestHigh = highs[highs.length - 1];
+  
+  for (let i = Math.max(0, closes.length - period); i < closes.length; i++) {
+    if (lows[i] < lowestLow) lowestLow = lows[i];
+    if (highs[i] > highestHigh) highestHigh = highs[i];
   }
-
-  return tr.slice(-period).reduce((a, b) => a + b, 0) / period;
+  
+  const range = highestHigh - lowestLow;
+  const rawK = range === 0 ? 50 : ((closes[closes.length - 1] - lowestLow) / range) * 100;
+  
+  const kValues: number[] = [rawK];
+  for (let i = 1; i < smoothK; i++) {
+    kValues.push(rawK);
+  }
+  const K = kValues.reduce((a, b) => a + b) / smoothK;
+  const D = K;
+  
+  return { K: Math.max(0, Math.min(100, K)), D: Math.max(0, Math.min(100, D)) };
 }
 
-function calculateADX(highs: number[], lows: number[], closes: number[], period: number = 14): number | null {
-  const atr = calculateATR(highs, lows, closes, period);
-  if (atr === null) return null;
-
-  let dmPlus = 0;
-  let dmMinus = 0;
-  for (let i = 1; i < highs.length; i++) {
+function calculateADX(highs: number[], lows: number[], closes: number[], period: number = 14): number {
+  if (closes.length < period + 1) return 25;
+  
+  const trueRanges: number[] = [];
+  const plusDMs: number[] = [];
+  const minusDMs: number[] = [];
+  
+  for (let i = 1; i < closes.length; i++) {
+    const tr = Math.max(
+      highs[i] - lows[i],
+      Math.abs(highs[i] - closes[i - 1]),
+      Math.abs(lows[i] - closes[i - 1])
+    );
+    trueRanges.push(tr);
+    
     const upMove = highs[i] - highs[i - 1];
     const downMove = lows[i - 1] - lows[i];
-    if (upMove > downMove && upMove > 0) dmPlus += upMove;
-    if (downMove > upMove && downMove > 0) dmMinus += downMove;
-  }
-
-  const diPlus = (dmPlus / period / atr) * 100;
-  const diMinus = (dmMinus / period / atr) * 100;
-  const dx = Math.abs(diPlus - diMinus) / (diPlus + diMinus) * 100;
-  return dx;
-}
-
-function calculateMACD(prices: number[]): { macd: number; signal: number; histogram: number } | null {
-  const ema12 = calculateEMA(prices, 12);
-  const ema26 = calculateEMA(prices, 26);
-  if (ema12 === null || ema26 === null) return null;
-  const macdLine = ema12 - ema26;
-  return { macd: macdLine, signal: 0, histogram: 0 };
-}
-
-function findSupportResistance(highs: number[], lows: number[], closes: number[]): { supports: { price: number; type: string }[]; resistances: { price: number; type: string }[] } {
-  const period = Math.min(50, closes.length);
-  const recentHighs = highs.slice(-period);
-  const recentLows = lows.slice(-period);
-
-  const pivots: { price: number; type: string }[] = [];
-  for (let i = 2; i < period - 2; i++) {
-    if (
-      recentHighs[i] > recentHighs[i - 1] &&
-      recentHighs[i] > recentHighs[i - 2] &&
-      recentHighs[i] > recentHighs[i + 1] &&
-      recentHighs[i] > recentHighs[i + 2]
-    ) {
-      pivots.push({ price: recentHighs[i], type: "resistance" });
+    
+    let plusDM = 0;
+    let minusDM = 0;
+    
+    if (upMove > downMove && upMove > 0) {
+      plusDM = upMove;
     }
-    if (
-      recentLows[i] < recentLows[i - 1] &&
-      recentLows[i] < recentLows[i - 2] &&
-      recentLows[i] < recentLows[i + 1] &&
-      recentLows[i] < recentLows[i + 2]
-    ) {
-      pivots.push({ price: recentLows[i], type: "support" });
+    if (downMove > upMove && downMove > 0) {
+      minusDM = downMove;
     }
+    
+    plusDMs.push(plusDM);
+    minusDMs.push(minusDM);
   }
-
-  const currentPrice = closes[closes.length - 1];
-  const supports = pivots
-    .filter(p => p.type === "support" && p.price < currentPrice)
-    .sort((a, b) => b.price - a.price)
-    .slice(0, 3);
-  const resistances = pivots
-    .filter(p => p.type === "resistance" && p.price > currentPrice)
-    .sort((a, b) => a.price - b.price)
-    .slice(0, 3);
-
-  while (supports.length < 3) {
-    const minPrice = Math.min(...recentLows);
-    const level = currentPrice - (currentPrice - minPrice) * (0.3 * (supports.length + 1));
-    supports.push({ price: level, type: "support" });
-  }
-  while (resistances.length < 3) {
-    const maxPrice = Math.max(...recentHighs);
-    const level = currentPrice + (maxPrice - currentPrice) * (0.3 * (resistances.length + 1));
-    resistances.push({ price: level, type: "resistance" });
-  }
-
-  return { supports, resistances };
+  
+  const atrSum = trueRanges.slice(-period).reduce((a, b) => a + b, 0) / period;
+  const plusDISum = plusDMs.slice(-period).reduce((a, b) => a + b, 0) / period;
+  const minusDISum = minusDMs.slice(-period).reduce((a, b) => a + b, 0) / period;
+  
+  if (atrSum === 0) return 25;
+  
+  const plusDI = (plusDISum / atrSum) * 100;
+  const minusDI = (minusDISum / atrSum) * 100;
+  
+  const diSum = plusDI + minusDI;
+  const adx = diSum === 0 ? 25 : Math.abs(plusDI - minusDI) / diSum * 100;
+  
+  return Math.min(100, adx);
 }
 
 async function getKlines(symbol: string, marketType: "spot" | "futures", timeframe: string = "1h", limit: number = 100, retries: number = 3): Promise<any[] | null> {
   const cacheKey = `${symbol}:${marketType}:${timeframe}`;
   const now = Date.now();
-
-  if (binanceBanUntil && now < binanceBanUntil) {
-    const waitMs = binanceBanUntil - now;
-    console.warn(`⛔ Binance ban active. Skipping klines for ${symbol} (wait ${(waitMs / 1000).toFixed(0)}s)`);
-    return null;
-  }
   
   // Check klines cache first
   if (klinesCache[cacheKey] && (now - klinesCache[cacheKey].timestamp) < KLINES_CACHE_TTL) {
@@ -1191,20 +353,6 @@ async function getKlines(symbol: string, marketType: "spot" | "futures", timefra
       
       // 418 = Rate Limit, 429 = Too Many Requests
       if (res.status === 418 || res.status === 429) {
-        const errorText = await res.text();
-
-        // Parse ban-until timestamp if present
-        const banMatch = errorText.match(/banned until (\d+)/i);
-        if (banMatch && banMatch[1]) {
-          const until = Number(banMatch[1]);
-          if (Number.isFinite(until) && until > now) {
-            binanceBanUntil = until;
-          }
-        } else if (res.status === 418) {
-          // Fallback: short cooldown if no timestamp provided
-          binanceBanUntil = now + 5 * 60 * 1000;
-        }
-
         // ULTRA-AGGRESSIVE backoff: 4s, 16s, 64s with random jitter (±20%)
         const baseBackoff = Math.pow(4, attempt) * 1000; // 4s, 16s, 64s
         const jitter = baseBackoff * (0.8 + Math.random() * 0.4); // ±20% random
@@ -1216,6 +364,7 @@ async function getKlines(symbol: string, marketType: "spot" | "futures", timefra
           continue;
         } else {
           // Last attempt failed - return null immediately
+          const errorText = await res.text();
           console.error(`❌ klines fetch failed for ${symbol} after ${retries} attempts:`, res.status, errorText);
           return null;
         }
@@ -1251,56 +400,40 @@ interface TechnicalIndicators {
   ema12: number;
   ema26: number;
   price: number;
-  lastClosedCandleCloseTime: number;
   closes: number[];
   volumes: number[];
   highs: number[];
   lows: number[];
-  macd: { macd: number; signal: number; histogram: number };
+  macd: number;
   histogram: number;
   obv: number;
   obvTrend: "rising" | "falling" | "neutral";
   resistance: number;
   support: number;
-  stoch: { k: number; d: number };
+  stoch: { K: number; D: number };
   adx: number;
   volumeMA: number;
-  atr: number;
-  sr: { supports: { price: number; type: string }[]; resistances: { price: number; type: string }[] };
-}
-
-function formatTurkeyTimeFromMs(timestampMs: number): string {
-  const turkeyTime = new Date(new Date(timestampMs).toLocaleString("en-US", { timeZone: "Europe/Istanbul" }));
-  const day = String(turkeyTime.getDate()).padStart(2, "0");
-  const month = String(turkeyTime.getMonth() + 1).padStart(2, "0");
-  const year = turkeyTime.getFullYear();
-  const hours = String(turkeyTime.getHours()).padStart(2, "0");
-  const minutes = String(turkeyTime.getMinutes()).padStart(2, "0");
-  const seconds = String(turkeyTime.getSeconds()).padStart(2, "0");
-  return `${day}.${month}.${year} ${hours}:${minutes}:${seconds}`;
 }
 
 async function calculateIndicators(symbol: string, marketType: "spot" | "futures", timeframe: string = "1h"): Promise<TechnicalIndicators | null> {
   const klines = await getKlines(symbol, marketType, timeframe, 100);
-  if (!klines || klines.length < 2) return null;
+  if (!klines || klines.length < 50) return null;
 
-  // ✅ Backtest ile birebir uyum için açık (son) bar'ı dahil etme
-  const closedKlines = klines.slice(0, -1);
-  if (closedKlines.length < 50) return null;
-
-  const lastClosedKline = closedKlines[closedKlines.length - 1];
-  const lastClosedCandleCloseTime = Number(lastClosedKline?.[6] ?? lastClosedKline?.[0]);
-
-  const closes = closedKlines.map((k: any) => parseFloat(k[4]));
-  const volumes = closedKlines.map((k: any) => parseFloat(k[5]));
-  const highs = closedKlines.map((k: any) => parseFloat(k[2]));
-  const lows = closedKlines.map((k: any) => parseFloat(k[3]));
+  const closes = klines.map((k: any) => parseFloat(k[4]));
+  const volumes = klines.map((k: any) => parseFloat(k[5]));
+  const highs = klines.map((k: any) => parseFloat(k[2]));
+  const lows = klines.map((k: any) => parseFloat(k[3]));
   const lastPrice = closes[closes.length - 1];
 
   // Calculate MACD
   const ema12 = calculateEMA(closes, 12);
   const ema26 = calculateEMA(closes, 26);
-  const macdObj = calculateMACD(closes);
+  const macdLine = ema12 - ema26;
+  const signalLine = calculateEMA(closes.map((_, i) => {
+    const c = closes.slice(0, i + 1);
+    return c.length >= 26 ? calculateEMA(c, 12) - calculateEMA(c, 26) : 0;
+  }), 9);
+  const histogram = macdLine - signalLine;
 
   // Calculate OBV
   let obv = 0;
@@ -1313,157 +446,231 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
   if (closes[closes.length - 1] > closes[closes.length - 2]) obvTrend = "rising";
   else if (closes[closes.length - 1] < closes[closes.length - 2]) obvTrend = "falling";
 
-  const sr = findSupportResistance(highs, lows, closes);
-  const support = sr.supports[0]?.price ?? 0;
-  const resistance = sr.resistances[0]?.price ?? 0;
+  // Support/Resistance
+  const highs20 = highs.slice(-20);
+  const lows20 = lows.slice(-20);
+  const resistance = Math.max(...highs20);
+  const support = Math.min(...lows20);
 
   // Calculate Stochastic and ADX
   const stoch = calculateStochastic(closes, highs, lows);
-  const adx = calculateADX(highs, lows, closes, 14);
-  const atr = calculateATR(highs, lows, closes, 14);
-
-  const volumeMA = volumes.length > 0
-    ? volumes.reduce((a, b) => a + b, 0) / volumes.length
-    : 0;
+  const adx = calculateADX(highs, lows, closes);
+  
+  // Calculate Volume Moving Average
+  const volumeMA = volumes.length > 0 ? volumes.reduce((a, b) => a + b, 0) / volumes.length : 0;
 
   return {
     rsi: calculateRSI(closes, 14),
-    sma20: calculateSMA(closes, 20) ?? 0,
-    sma50: calculateSMA(closes, 50) ?? 0,
-    ema12: ema12 ?? 0,
-    ema26: ema26 ?? 0,
+    sma20: calculateSMA(closes, 20),
+    sma50: calculateSMA(closes, 50),
+    ema12: ema12,
+    ema26: ema26,
     price: lastPrice,
-    lastClosedCandleCloseTime: Number.isFinite(lastClosedCandleCloseTime) ? lastClosedCandleCloseTime : Date.now(),
     closes: closes,
     volumes: volumes,
     highs: highs,
     lows: lows,
-    macd: macdObj ?? { macd: 0, signal: 0, histogram: 0 },
-    histogram: macdObj?.histogram ?? 0,
+    macd: macdLine,
+    histogram: histogram,
     obv: obv,
     obvTrend: obvTrend,
     resistance: resistance,
     support: support,
-    stoch: stoch ?? { k: 0, d: 0 },
-    adx: adx ?? 0,
+    stoch: stoch,
+    adx: adx,
     volumeMA: volumeMA,
-    atr: atr ?? 0,
-    sr: sr,
   };
 }
 
 // =====================
 // Full Signal Generation (Back Test Aligned - 40-30-15-15 weights)
 // =====================
-function generateSignalScore(
-  indicators: TechnicalIndicators,
-  userConfidenceThreshold: number = 70
-): { direction: "LONG" | "SHORT"; score: number; triggered: boolean; breakdown: { trend: number; momentum: number; volume: number; sr: number } } {
-  const price = Number(indicators.price || 0);
-  const macdValue = Number(indicators.macd?.macd ?? 0);
-  const stochK = Number(indicators.stoch?.k ?? 0);
-  const atrValue = Number(indicators.atr ?? 0);
-  const atrPercent = price > 0 ? (atrValue / price) : 0;
+function generateSignalScore(indicators: TechnicalIndicators, userConfidenceThreshold: number = 70): { direction: "LONG" | "SHORT"; score: number; triggered: boolean; breakdown: any } {
+  const breakdown: any = {};
 
-  const isTrending = Number(indicators.adx ?? 0) >= 25;
-  const regime = isTrending ? "trend" : "range";
-
-  let trendWeight = 40;
-  let momentumWeight = 30;
-  let volumeWeight = 15;
-  let srWeight = 15;
-
-  if (regime === "trend") {
-    trendWeight = 50;
-    momentumWeight = 20;
-    volumeWeight = 20;
-    srWeight = 10;
-  } else {
-    trendWeight = 25;
-    momentumWeight = 35;
-    volumeWeight = 15;
-    srWeight = 25;
-  }
-
+  // ===== TREND ANALİZİ (%40) =====
   let trendScore = 0;
+  let trendDetails = {
+    emaAlignment: 0,
+    adxBonus: 0
+  };
+
+  // Multi Timeframe trend alignment (EMA12/EMA26 + SMA20/SMA50)
   if (indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50) {
-    trendScore += 30;
+    trendScore += 30; // LONG alignment
+    trendDetails.emaAlignment = 30;
   } else if (indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50) {
-    trendScore -= 30;
+    trendScore -= 30; // SHORT alignment
+    trendDetails.emaAlignment = -30;
   }
+
+  // ADX trend gücü
   if (indicators.adx > 25) {
-    trendScore += Math.min((indicators.adx - 25) * 0.8, 20);
+    const adxBonus = Math.min((indicators.adx - 25) * 0.8, 20);
+    trendScore += adxBonus;
+    trendDetails.adxBonus = adxBonus;
   }
 
+  breakdown.TREND_ANALIZI = {
+    score: trendScore,
+    weight: "40%",
+    details: {
+      "EMA12/EMA26 & SMA20/SMA50": `${trendDetails.emaAlignment > 0 ? "✅ LONG" : trendDetails.emaAlignment < 0 ? "⚠️ SHORT" : "-"} (${trendDetails.emaAlignment})`,
+      "ADX > 25 Bonus": `${trendDetails.adxBonus > 0 ? "+" : ""}${trendDetails.adxBonus.toFixed(2)}`,
+      "ADX Value": indicators.adx.toFixed(2),
+      "EMA12": indicators.ema12.toFixed(8),
+      "EMA26": indicators.ema26.toFixed(8),
+      "SMA20": indicators.sma20.toFixed(8),
+      "SMA50": indicators.sma50.toFixed(8)
+    }
+  };
+
+  // ===== MOMENTUM ANALİZİ (%30) =====
   let momentumScore = 0;
-  if (indicators.rsi < 30) momentumScore += 25;
-  else if (indicators.rsi < 40) momentumScore += 15;
-  else if (indicators.rsi > 70) momentumScore -= 25;
-  else if (indicators.rsi > 60) momentumScore -= 15;
+  let momentumDetails = {
+    rsiScore: 0,
+    macdScore: 0,
+    stochScore: 0
+  };
 
-  momentumScore += macdValue > 0 ? 10 : -10;
-  if (stochK < 20) momentumScore += 10;
-  else if (stochK > 80) momentumScore -= 10;
+  // RSI
+  if (indicators.rsi < 30) {
+    momentumScore += 25;
+    momentumDetails.rsiScore = 25;
+  } else if (indicators.rsi < 40) {
+    momentumScore += 15;
+    momentumDetails.rsiScore = 15;
+  } else if (indicators.rsi > 70) {
+    momentumScore -= 25;
+    momentumDetails.rsiScore = -25;
+  } else if (indicators.rsi > 60) {
+    momentumScore -= 15;
+    momentumDetails.rsiScore = -15;
+  }
 
+  // MACD
+  const macdScore = indicators.macd > 0 ? 10 : -10;
+  momentumScore += macdScore;
+  momentumDetails.macdScore = macdScore;
+
+  // Stochastic
+  if (indicators.stoch.K < 20) {
+    momentumScore += 10; // Oversold
+    momentumDetails.stochScore = 10;
+  } else if (indicators.stoch.K > 80) {
+    momentumScore -= 10; // Overbought
+    momentumDetails.stochScore = -10;
+  }
+
+  breakdown.MOMENTUM_ANALIZI = {
+    score: momentumScore,
+    weight: "30%",
+    details: {
+      "RSI": `${indicators.rsi.toFixed(2)} → ${momentumDetails.rsiScore > 0 ? "+" : ""}${momentumDetails.rsiScore}`,
+      "MACD": `${indicators.macd > 0 ? "Positive" : "Negative"} → ${momentumDetails.macdScore > 0 ? "+" : ""}${momentumDetails.macdScore}`,
+      "Stochastic K": `${indicators.stoch.K.toFixed(2)} → ${momentumDetails.stochScore > 0 ? "+" : ""}${momentumDetails.stochScore}`,
+      "MACD Value": indicators.macd.toFixed(8),
+      "Stochastic D": indicators.stoch.D.toFixed(2)
+    }
+  };
+
+  // ===== VOLUME ANALİZİ (%15) =====
   let volumeScore = 0;
-  let obvTrend = "flat";
-  if (Array.isArray(indicators.closes) && indicators.closes.length >= 2) {
-    const last = indicators.closes[indicators.closes.length - 1];
-    const prev = indicators.closes[indicators.closes.length - 2];
-    if (last > prev) obvTrend = "rising";
-    else if (last < prev) obvTrend = "falling";
+  let volumeDetails = {
+    obvScore: 0,
+    volumeMAScore: 0
+  };
+
+  // OBV trend
+  if (indicators.obvTrend === "rising") {
+    volumeScore += 10;
+    volumeDetails.obvScore = 10;
+  } else if (indicators.obvTrend === "falling") {
+    volumeScore -= 10;
+    volumeDetails.obvScore = -10;
   }
-  if (obvTrend === "rising") volumeScore += 10;
-  else if (obvTrend === "falling") volumeScore -= 10;
 
-  const volumeMA = Array.isArray(indicators.volumes) && indicators.volumes.length > 0
-    ? indicators.volumes.reduce((a, b) => a + b, 0) / indicators.volumes.length
-    : 0;
-  const lastVolume = Array.isArray(indicators.volumes) && indicators.volumes.length > 0
-    ? indicators.volumes[indicators.volumes.length - 1]
-    : 0;
-  if (lastVolume > volumeMA) volumeScore += 15;
-  else volumeScore -= 10;
+  // Volume MA check
+  if (indicators.volumeMA > 0) {
+    volumeScore += 15;
+    volumeDetails.volumeMAScore = 15;
+  } else {
+    volumeScore -= 10;
+    volumeDetails.volumeMAScore = -10;
+  }
 
+  breakdown.VOLUME_ANALIZI = {
+    score: volumeScore,
+    weight: "15%",
+    details: {
+      "OBV Trend": `${indicators.obvTrend} → ${volumeDetails.obvScore > 0 ? "+" : ""}${volumeDetails.obvScore}`,
+      "Volume MA": `${indicators.volumeMA > 0 ? "Positive" : "Negative"} → ${volumeDetails.volumeMAScore > 0 ? "+" : ""}${volumeDetails.volumeMAScore}`,
+      "OBV Value": indicators.obv.toFixed(2)
+    }
+  };
+
+  // ===== SUPPORT/RESISTANCE ANALİZİ (%15) =====
   let srScore = 0;
-  const nearestSupport = indicators.sr?.supports?.[0]?.price || (price * 0.95);
-  const nearestResistance = indicators.sr?.resistances?.[0]?.price || (price * 1.05);
-  if (nearestSupport > 0 && nearestResistance > 0 && price > 0) {
-    const distanceToSupport = (price - nearestSupport) / price;
-    const distanceToResistance = (nearestResistance - price) / price;
-    if (distanceToSupport < 0.02) srScore += 15;
-    if (distanceToResistance < 0.02) srScore -= 15;
+  let srDetails = {
+    supportProximity: 0,
+    resistanceProximity: 0,
+    fibonacciBonus: 0
+  };
+
+  if (indicators.resistance > 0 && indicators.support > 0 && indicators.price > 0) {
+    const distanceToSupport = (indicators.price - indicators.support) / indicators.price;
+    const distanceToResistance = (indicators.resistance - indicators.price) / indicators.price;
+
+    // Support'a yakınlık < 2%
+    if (distanceToSupport < 0.02) {
+      srScore += 15;
+      srDetails.supportProximity = 15;
+    }
+    // Direnç'e yakınlık < 2%
+    if (distanceToResistance < 0.02) {
+      srScore -= 15;
+      srDetails.resistanceProximity = -15;
+    }
+
+    breakdown.SUPPORT_RESISTANCE_ANALIZI = {
+      score: srScore,
+      weight: "15%",
+      details: {
+        "Support Proximity": `${(distanceToSupport * 100).toFixed(2)}% → ${srDetails.supportProximity > 0 ? "+" : ""}${srDetails.supportProximity}`,
+        "Resistance Proximity": `${(distanceToResistance * 100).toFixed(2)}% → ${srDetails.resistanceProximity}`,
+        "Support Level": indicators.support.toFixed(8),
+        "Resistance Level": indicators.resistance.toFixed(8),
+        "Current Price": indicators.price.toFixed(8)
+      }
+    };
   }
 
-  const normalizedTrendScore = (trendScore / 50) * trendWeight;
-  const normalizedMomentumScore = (momentumScore / 50) * momentumWeight;
-  const normalizedVolumeScore = (volumeScore / 25) * volumeWeight;
-  const normalizedSRScore = (srScore / 30) * srWeight;
-  const totalScore = normalizedTrendScore + normalizedMomentumScore + normalizedVolumeScore + normalizedSRScore;
+  // ===== NORMALIZE VE AĞIRLIKLA =====
+  const normalizedTrendScore = (trendScore / 50) * 40; // -50 to +50 → ±40
+  const normalizedMomentumScore = (momentumScore / 50) * 30; // -50 to +50 → ±30
+  const normalizedVolumeScore = (volumeScore / 25) * 15; // -25 to +25 → ±15
+  const normalizedSRScore = (srScore / 30) * 15; // -30 to +30 → ±15
 
-  const direction = totalScore > 0 ? "LONG" : "SHORT";
-  const confidence = Math.min(Math.max(Math.abs(totalScore), 0), 100);
-  let adjustedThreshold = userConfidenceThreshold;
-  if (atrPercent > 0 && atrPercent < 0.001) adjustedThreshold += 20;
-  else if (atrPercent > 0 && atrPercent < 0.002) adjustedThreshold += 10;
-  adjustedThreshold = Math.min(95, adjustedThreshold);
+  let score = normalizedTrendScore + normalizedMomentumScore + normalizedVolumeScore + normalizedSRScore;
 
-  let triggered = confidence >= adjustedThreshold;
-  const trendUp = indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50;
-  const trendDown = indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50;
-  if (trendDown && direction === "LONG") triggered = false;
-  if (trendUp && direction === "SHORT") triggered = false;
+  // Clamp to 0-100
+  const direction = score > 0 ? "LONG" : "SHORT";
+  const confidence = Math.min(Math.max(Math.abs(score), 0), 100);
+  const triggered = confidence >= userConfidenceThreshold;
+
+  breakdown.normalizedScore = {
+    trend: normalizedTrendScore.toFixed(2),
+    momentum: normalizedMomentumScore.toFixed(2),
+    volume: normalizedVolumeScore.toFixed(2),
+    sr: normalizedSRScore.toFixed(2),
+    total: score.toFixed(2),
+  };
 
   return {
     direction,
     score: Math.round(confidence),
     triggered,
-    breakdown: {
-      trend: Number(normalizedTrendScore.toFixed(2)),
-      momentum: Number(normalizedMomentumScore.toFixed(2)),
-      volume: Number(normalizedVolumeScore.toFixed(2)),
-      sr: Number(normalizedSRScore.toFixed(2)),
-    }
+    breakdown,
   };
 }
 
@@ -1516,54 +723,6 @@ async function sendTelegramNotification(userId: string, message: string): Promis
   }
 }
 
-async function sendTelegramToChatId(chatId: string, message: string): Promise<{ ok: boolean; description?: string; error_code?: number }> {
-  try {
-    const botUrl = `https://api.telegram.org/bot${telegramBotToken}/sendMessage`;
-    const resp = await fetch(botUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: "HTML" })
-    });
-    const data = await resp.json();
-    if (!resp.ok) {
-      console.error("❌ Telegram test send failed:", resp.status, data);
-    }
-    return data;
-  } catch (e) {
-    console.error("❌ Telegram test notification error:", e);
-    return { ok: false, description: e instanceof Error ? e.message : "Unknown error" };
-  }
-}
-
-async function hasSignalForCandle(
-  userId: string,
-  symbol: string,
-  timeframe: string,
-  candleCloseTimeMs: number
-): Promise<boolean> {
-  const tfMinutes = timeframeToMinutes(timeframe);
-  if (!Number.isFinite(tfMinutes) || tfMinutes <= 0) return false;
-  const windowStart = new Date(candleCloseTimeMs).toISOString();
-  const windowEnd = new Date(candleCloseTimeMs + tfMinutes * 60 * 1000).toISOString();
-
-  const { data, error } = await supabase
-    .from("active_signals")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("symbol", symbol)
-    .eq("timeframe", timeframe)
-    .gte("created_at", windowStart)
-    .lt("created_at", windowEnd)
-    .limit(1);
-
-  if (error) {
-    console.error("❌ Candle dedupe lookup error:", error);
-    return false;
-  }
-
-  return Array.isArray(data) && data.length > 0;
-}
-
 // =====================
 // User alarm trigger logic (WITH SIGNAL GENERATION)
 // =====================
@@ -1595,31 +754,23 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
   console.log(`📌 Open ACTIVE_TRADE symbols: ${Array.from(openTradeSymbols).join(", ") || "None"}`);
 
   // 🔴 ÖNEMLI: Fetch all open auto_signal sinyalleri - spam'ı engelle
-    const { data: openAutoSignals, error: openAutoSignalsError } = await supabase
-      .from("active_signals")
-      .select("user_id, symbol, status, alarm_id")
-      .eq("status", "ACTIVE")
+  const { data: openAutoSignals, error: openAutoSignalsError } = await supabase
+                                                           .from("active_signals")
+    .select("user_id, symbol, status")
 
   const openSignalKeys = new Set();
-  const openSignalSymbols = new Set();
   if (openAutoSignals && !openAutoSignalsError) {
     openAutoSignals.forEach((sig: any) => {
       // user_id + symbol kombinasyonu key oluştur
-      const key = `${sig.user_id}:${String(sig.alarm_id || "")}`;
+      const key = `${sig.user_id}:${String(sig.symbol || "").toUpperCase()}`;
       openSignalKeys.add(key);
-      const symbolKey = `${sig.user_id}:${String(sig.symbol || "").toUpperCase()}`;
-      openSignalSymbols.add(symbolKey);
     });
   }
   console.log(`📌 Open auto_signal count: ${openSignalKeys.size}`);
 
-  const openPositionCache = new Map<string, boolean>();
-  const userKeysCache = new Map<string, { api_key: string; api_secret: string; futures_enabled: boolean }>();
-
   // ⚠️ SEQUENTIAL (NOT parallel): Calculate indicators one-by-one to avoid rate limiting
   // 🔴 ÖNEMLİ: Back test'e göre hep 100 bar kullanılıyor, AMA o barların timeframe'i user'ın alarm.timeframe'i ile aynı olmalı!
   const indicatorsResults: (any)[] = [];
-  const delayMs = Math.max(50, Math.min(250, Math.floor(3000 / Math.max(1, alarms.length))));
   console.log(`📊 Starting to calculate indicators for ${alarms.length} alarms...`);
   for (const alarm of alarms) {
     console.log(`  ⏳ Calculating indicators for ${alarm.symbol}...`);
@@ -1629,7 +780,6 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         normalizeMarketType(alarm.market_type || alarm.marketType || "spot"),
         String(alarm.timeframe || "1h")  // ✅ BACK TEST ALİNMENT: User'ın timeframe'ini kullan
       );
-      await new Promise(resolve => setTimeout(resolve, delayMs));
       if (indicators) {
         console.log(`  ✅ Indicators calculated for ${alarm.symbol}`);
       } else {
@@ -1645,77 +795,15 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
 
   // Process alarms with calculated indicators
   const telegramPromises: Promise<void>[] = [];
-  const candleDedupCache = new Map<string, number>();
 
   for (let i = 0; i < (alarms || []).length; i++) {
     try {
       const alarm = alarms[i];
       const indicators = indicatorsResults[i];
-      const alarmSymbol = String(alarm?.symbol || "").toUpperCase();
-      const alarmMarketType = normalizeMarketType(alarm.market_type || alarm.marketType || "spot");
-      const alarmPricePrecision = alarmSymbol
-        ? await getSymbolPricePrecision(alarmSymbol, alarmMarketType)
-        : null;
+
       if (!indicators) {
         console.log(`⚠️ No indicators calculated for ${alarm.symbol}`);
         continue;
-      }
-
-      const livePrice = await getLivePrice(alarmSymbol, alarmMarketType);
-      const candleCloseTimeMs = indicators.lastClosedCandleCloseTime;
-      const candleTimeKey = `${alarm.user_id}:${alarmSymbol}:${String(alarm.timeframe || "1h")}`;
-      const signalPrice = indicators.price;
-      const priceForSignal = signalPrice;
-      const priceForPriceAlarm = Number.isFinite(livePrice as number) ? (livePrice as number) : signalPrice;
-      const priceForActiveTrade = Number.isFinite(livePrice as number) ? (livePrice as number) : signalPrice;
-
-      if (alarm.created_at) {
-        const createdAtMs = new Date(alarm.created_at).getTime();
-        if (Number.isFinite(createdAtMs) && candleCloseTimeMs <= createdAtMs) {
-          console.log(`⏭️ Skipping alarm ${alarm.id}: candle close before alarm creation.`);
-          continue;
-        }
-      }
-
-      if (alarmMarketType === "futures" && alarm.auto_trade_enabled === true) {
-        const positionKey = `${alarm.user_id}:${alarmSymbol}`;
-        if (!openPositionCache.has(positionKey)) {
-          try {
-            let keys = userKeysCache.get(String(alarm.user_id));
-            if (!keys) {
-              const { data: userKeys, error: keysError } = await supabase
-                .from("user_binance_keys")
-                .select("api_key, api_secret, futures_enabled")
-                .eq("user_id", alarm.user_id)
-                .eq("auto_trade_enabled", true)
-                .maybeSingle();
-
-              if (!keysError && userKeys) {
-                keys = {
-                  api_key: userKeys.api_key,
-                  api_secret: userKeys.api_secret,
-                  futures_enabled: userKeys.futures_enabled === true
-                };
-                userKeysCache.set(String(alarm.user_id), keys);
-              }
-            }
-
-            if (keys && keys.futures_enabled) {
-              const hasOpen = await hasOpenFuturesPosition(keys.api_key, keys.api_secret, alarmSymbol);
-              openPositionCache.set(positionKey, hasOpen);
-            } else {
-              openPositionCache.set(positionKey, false);
-            }
-          } catch (e) {
-            console.error(`❌ Open position check failed for ${alarmSymbol}:`, e);
-            openPositionCache.set(positionKey, false);
-          }
-        }
-
-        if (openPositionCache.get(positionKey)) {
-          console.log(`⏹️ Skipping alarm ${alarm.id} for ${alarmSymbol}: open futures position exists.`);
-          continue;
-        }
       }
 
       let shouldTrigger = false;
@@ -1725,16 +813,19 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       // STRATEGY 1: USER_ALARM (user-defined signals with TP/SL)
       if (alarm.type === "user_alarm") {
         const symbol = String(alarm.symbol || "").toUpperCase();
-        const signalKey = `${alarm.user_id}:${String(alarm.id || "")}`;
-        const symbolKey = `${alarm.user_id}:${symbol}`;
+        const signalKey = `${alarm.user_id}:${symbol}`;
         
         // 🔴 ÖNEMLİ: Aynı user'ın aynı symbol'ü için açık sinyal varsa SKIP!
-        if (openSignalSymbols.has(symbolKey)) {
-          console.log(`⏹️ Skipping user_alarm for ${symbol}: signal already active for this symbol (user: ${alarm.user_id})`);
+        if (openSignalKeys.has(signalKey)) {
+          console.log(`⏹️ Skipping user_alarm for ${symbol}: signal already active (user: ${alarm.user_id})`);
         } else {
-          const tpPercent = Math.abs(Number(alarm.tp_percent || 5));
-          const slPercent = Math.abs(Number(alarm.sl_percent || 3));
-          const entryPrice = priceForSignal;
+          const tpPercent = Number(alarm.tp_percent || 5);
+          const slPercent = Number(alarm.sl_percent || 3);
+          const entryPrice = indicators.price;
+          const takeProfit = entryPrice * (1 + tpPercent / 100);
+          const stopLoss = entryPrice * (1 - slPercent / 100);
+          const tpGain = ((takeProfit - entryPrice) / entryPrice) * 100;
+          const slLoss = ((stopLoss - entryPrice) / entryPrice) * 100;
           
           console.log(`📊 User alarm check: ${symbol}, TP=${tpPercent}%, SL=${slPercent}%`);
           
@@ -1742,15 +833,6 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
           const signal = generateSignalScore(indicators, Number(alarm.confidence_score || 70));
           if (signal.triggered) {
             shouldTrigger = true;
-            const takeProfit = signal.direction === "SHORT"
-              ? entryPrice * (1 - tpPercent / 100)
-              : entryPrice * (1 + tpPercent / 100);
-            const stopLoss = signal.direction === "SHORT"
-              ? entryPrice * (1 + slPercent / 100)
-              : entryPrice * (1 - slPercent / 100);
-            const tpGain = tpPercent;
-            const slLoss = -slPercent;
-
             detectedSignal = {
               direction: signal.direction,
               score: signal.score,
@@ -1762,18 +844,18 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             };
             
             const directionEmoji = signal.direction === "LONG" ? "🟢" : "🔴";
-            const now = formatTurkeyTimeFromMs(candleCloseTimeMs);
+            const now = new Date().toLocaleString('tr-TR');
             
             triggerMessage = `🔔 ALARM AKTİVE! 🔔\n\n` +
               `💰 Çift: ${symbol}\n` +
               `🎯 ${directionEmoji} ${signal.direction} Sinyali Tespit Edildi!\n\n` +
               `📊 Piyasa: ${(alarm.market_type || "spot").toUpperCase()} | Zaman: ${alarm.timeframe || "1h"}\n` +
-              `💹 Fiyat: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}\n\n` +
+              `💹 Fiyat: $${entryPrice.toFixed(8)}\n\n` +
               `📈 Sinyal: Güven: ${Number(alarm.confidence_score || 70)}%\n` +
               `📊 Gelen Sinyalin Güveni: ${signal.score}%\n\n` +
               `🎯 Hedefler:\n` +
-              `   TP: $${formatPriceWithPrecision(takeProfit, alarmPricePrecision)} (+${tpGain.toFixed(2)}%)\n` +
-              `   SL: $${formatPriceWithPrecision(stopLoss, alarmPricePrecision)} (${slLoss.toFixed(2)}%)\n\n` +
+              `   TP: $${takeProfit.toFixed(8)} (+${tpGain.toFixed(2)}%)\n` +
+              `   SL: $${stopLoss.toFixed(8)} (${slLoss.toFixed(2)}%)\n\n` +
               `⏱️ Bar Sınırı: ${alarm.bar_close_limit || 5}\n\n` +
               `⏰ Zaman: ${now}`;
             
@@ -1786,32 +868,26 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       if (!shouldTrigger && (alarm.type === "PRICE_LEVEL" || alarm.condition)) {
         const targetPrice = Number(alarm.target_price || alarm.targetPrice);
         const condition = String(alarm.condition || "").toLowerCase();
-        const symbol = String(alarm.symbol || "").toUpperCase();
-        const symbolKey = `${alarm.user_id}:${symbol}`;
 
-        if (openSignalSymbols.has(symbolKey)) {
-          console.log(`⏹️ Skipping PRICE_LEVEL alarm for ${symbol}: signal already active for this symbol (user: ${alarm.user_id})`);
-        }
-
-        if (Number.isFinite(targetPrice) && !openSignalSymbols.has(symbolKey)) {
-          if (condition === "above" && priceForPriceAlarm >= targetPrice) {
+        if (Number.isFinite(targetPrice)) {
+          if (condition === "above" && indicators.price >= targetPrice) {
             shouldTrigger = true;
-            triggerMessage = `🚀 Price ${formatPriceWithPrecision(targetPrice, alarmPricePrecision)}$ reached! (Current: $${formatPriceWithPrecision(priceForPriceAlarm, alarmPricePrecision)})`;
+            triggerMessage = `🚀 Price ${targetPrice}$ reached! (Current: $${indicators.price.toFixed(2)})`;
             // Use alarm's confidence score directly for PRICE_LEVEL
             const confidenceScore = Number(alarm.confidence_score || 50);
             detectedSignal = {
-              direction: priceForPriceAlarm > targetPrice ? "LONG" : "SHORT",
+              direction: indicators.price > targetPrice ? "LONG" : "SHORT",
               score: confidenceScore,
               triggered: true,
               breakdown: { trend: 0, momentum: 0, volume: 0, sr: 0 }
             };
-          } else if (condition === "below" && priceForPriceAlarm <= targetPrice) {
+          } else if (condition === "below" && indicators.price <= targetPrice) {
             shouldTrigger = true;
-            triggerMessage = `📉 Price dropped below ${formatPriceWithPrecision(targetPrice, alarmPricePrecision)}$! (Current: $${formatPriceWithPrecision(priceForPriceAlarm, alarmPricePrecision)})`;
+            triggerMessage = `📉 Price dropped below ${targetPrice}$! (Current: $${indicators.price.toFixed(2)})`;
             // Use alarm's confidence score directly for PRICE_LEVEL
             const confidenceScore = Number(alarm.confidence_score || 50);
             detectedSignal = {
-              direction: priceForPriceAlarm < targetPrice ? "SHORT" : "LONG",
+              direction: indicators.price < targetPrice ? "SHORT" : "LONG",
               score: confidenceScore,
               triggered: true,
               breakdown: { trend: 0, momentum: 0, volume: 0, sr: 0 }
@@ -1824,14 +900,13 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       // ⏹️ Skip SIGNAL alarms if there's an open ACTIVE_TRADE OR open auto_signal for this symbol
       if (!shouldTrigger && alarm.type === "SIGNAL") {
         const symbol = String(alarm.symbol || "").toUpperCase();
-        const signalKey = `${alarm.user_id}:${String(alarm.id || "")}`;
-        const symbolKey = `${alarm.user_id}:${symbol}`;
+        const signalKey = `${alarm.user_id}:${symbol}`;
 
         if (openTradeSymbols.has(symbol)) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: ACTIVE_TRADE in progress`);
-        } else if (openSignalSymbols.has(symbolKey)) {
-          // 🔴 ÖNEMLI: Aynı symbol için açık auto_signal varsa skip!
-          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: auto_signal already active for this symbol (user: ${alarm.user_id})`);
+        } else if (openSignalKeys.has(signalKey)) {
+          // 🔴 ÖNEMLI: Aynı user'ın aynı symbol'ü için açık auto_signal varsa skip!
+          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: auto_signal in progress (user: ${alarm.user_id})`);
         } else {
           const userConfidenceThreshold = Number(alarm.confidence_score || 70);
           const signal = generateSignalScore(indicators, userConfidenceThreshold);
@@ -1840,7 +915,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             `📊 ${alarm.symbol}: ` +
             `RSI=${indicators.rsi.toFixed(1)} | ` +
             `EMA12=${indicators.ema12.toFixed(2)} vs EMA26=${indicators.ema26.toFixed(2)} | ` +
-            `Price=$${formatPriceWithPrecision(priceForSignal, alarmPricePrecision)} | ` +
+            `Price=$${indicators.price.toFixed(2)} | ` +
             `[Trend:${signal.breakdown.trend} Momentum:${signal.breakdown.momentum} Volume:${signal.breakdown.volume} SR:${signal.breakdown.sr}] ` +
             `→ ${signal.direction}(${signal.score}%)`
           );
@@ -1856,7 +931,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             };
             triggerMessage = `🎯 <b>${signal.direction}</b> Signal detected!\n` +
               `Confidence: <b>${signal.score}%</b>\n` +
-              `RSI: ${indicators.rsi.toFixed(1)} | Price: $${formatPriceWithPrecision(priceForSignal, alarmPricePrecision)}\n` +
+              `RSI: ${indicators.rsi.toFixed(1)} | Price: $${indicators.price.toFixed(2)}\n` +
               `📈 Analysis: Trend=${signal.breakdown.trend} Momentum=${signal.breakdown.momentum} Volume=${signal.breakdown.volume} SR=${signal.breakdown.sr}`;
           }
         }
@@ -1870,9 +945,9 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         const stopLoss = Number(alarm.stop_loss || alarm.stopLoss);
 
         if (direction === "LONG" && Number.isFinite(entryPrice) && Number.isFinite(takeProfit) && Number.isFinite(stopLoss)) {
-          if (priceForActiveTrade >= takeProfit) {
+          if (indicators.price >= takeProfit) {
             shouldTrigger = true;
-            triggerMessage = `✅ LONG TP Hit! (Entry: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}, TP: $${formatPriceWithPrecision(takeProfit, alarmPricePrecision)}, Current: $${formatPriceWithPrecision(priceForActiveTrade, alarmPricePrecision)})`;
+            triggerMessage = `✅ LONG TP Hit! (Entry: $${entryPrice}, TP: $${takeProfit}, Current: $${indicators.price.toFixed(2)})`;
             // Use alarm's confidence score directly for ACTIVE_TRADE
             const confidenceScore = Number(alarm.confidence_score || 50);
             detectedSignal = {
@@ -1881,9 +956,9 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
               triggered: true,
               breakdown: { trend: 0, momentum: 0, volume: 0, sr: 0 }
             };
-          } else if (priceForActiveTrade <= stopLoss) {
+          } else if (indicators.price <= stopLoss) {
             shouldTrigger = true;
-            triggerMessage = `⛔ LONG SL Hit! (Entry: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}, SL: $${formatPriceWithPrecision(stopLoss, alarmPricePrecision)}, Current: $${formatPriceWithPrecision(priceForActiveTrade, alarmPricePrecision)})`;
+            triggerMessage = `⛔ LONG SL Hit! (Entry: $${entryPrice}, SL: $${stopLoss}, Current: $${indicators.price.toFixed(2)})`;
             // Use alarm's confidence score directly for ACTIVE_TRADE
             const confidenceScore = Number(alarm.confidence_score || 50);
             detectedSignal = {
@@ -1894,9 +969,9 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             };
           }
         } else if (direction === "SHORT" && Number.isFinite(entryPrice) && Number.isFinite(takeProfit) && Number.isFinite(stopLoss)) {
-          if (priceForActiveTrade <= takeProfit) {
+          if (indicators.price <= takeProfit) {
             shouldTrigger = true;
-            triggerMessage = `✅ SHORT TP Hit! (Entry: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}, TP: $${formatPriceWithPrecision(takeProfit, alarmPricePrecision)}, Current: $${formatPriceWithPrecision(priceForActiveTrade, alarmPricePrecision)})`;
+            triggerMessage = `✅ SHORT TP Hit! (Entry: $${entryPrice}, TP: $${takeProfit}, Current: $${indicators.price.toFixed(2)})`;
             // Use alarm's confidence score directly for ACTIVE_TRADE
             const confidenceScore = Number(alarm.confidence_score || 50);
             detectedSignal = {
@@ -1905,9 +980,9 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
               triggered: true,
               breakdown: { trend: 0, momentum: 0, volume: 0, sr: 0 }
             };
-          } else if (priceForActiveTrade >= stopLoss) {
+          } else if (indicators.price >= stopLoss) {
             shouldTrigger = true;
-            triggerMessage = `⛔ SHORT SL Hit! (Entry: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}, SL: $${formatPriceWithPrecision(stopLoss, alarmPricePrecision)}, Current: $${formatPriceWithPrecision(priceForActiveTrade, alarmPricePrecision)})`;
+            triggerMessage = `⛔ SHORT SL Hit! (Entry: $${entryPrice}, SL: $${stopLoss}, Current: $${indicators.price.toFixed(2)})`;
             // Use alarm's confidence score directly for ACTIVE_TRADE
             const confidenceScore = Number(alarm.confidence_score || 50);
             detectedSignal = {
@@ -1921,187 +996,91 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       }
 
       if (shouldTrigger && triggerMessage) {
-        if (Number.isFinite(candleCloseTimeMs)) {
-          const cached = candleDedupCache.get(candleTimeKey);
-          if (cached === candleCloseTimeMs) {
-            console.log(`⏹️ Skipping duplicate candle trigger for ${alarmSymbol} (${alarm.timeframe})`);
-            continue;
-          }
-          const alreadyHasSignal = await hasSignalForCandle(
-            String(alarm.user_id),
-            alarmSymbol,
-            String(alarm.timeframe || "1h"),
-            candleCloseTimeMs
-          );
-          if (alreadyHasSignal) {
-            console.log(`⏹️ Signal already exists for candle ${alarmSymbol} (${alarm.timeframe})`);
-            candleDedupCache.set(candleTimeKey, candleCloseTimeMs);
-            continue;
-          }
-        }
-
         const symbol = String(alarm.symbol || "").toUpperCase();
         const marketType = String(alarm.market_type || "spot").toLowerCase() === "futures" ? "Futures" : "Spot";
         const timeframe = String(alarm.timeframe || "1h");
-        const tpPercent = Math.abs(Number(alarm.tp_percent || 5));
-        const slPercent = Math.abs(Number(alarm.sl_percent || 3));
-        const barClose = alarm.bar_close_limit === null ? null : Number(alarm.bar_close_limit || 5);
-        const direction = detectedSignal?.direction || "LONG";
-        const directionTR = direction === "LONG" ? "🟢 LONG" : "🔴 SHORT";
+        const tpPercent = Number(alarm.tp_percent || 5);
+        const slPercent = Number(alarm.sl_percent || 3);
+        const barClose = Number(alarm.bar_close_limit || 5);
+        const directionTR = detectedSignal?.direction === "LONG" ? "🟢 LONG" : "🔴 SHORT";
         
-        const decimals = alarmPricePrecision;
+        // Get exchange info for proper decimal precision
+        const marketTypeNorm = normalizeMarketType(alarm.market_type || "spot");
+        const exchangeInfo = await getExchangeInfo(marketTypeNorm);
+        const tick = exchangeInfo ? getTickSize(exchangeInfo, symbol) : null;
+        const decimals = tick ? Math.max(0, Math.round(-Math.log10(tick))) : 2;
         
         // Calculate TP/SL prices based on current price and percentages
-        const rawTpPrice = direction === "SHORT"
-          ? priceForSignal * (1 - tpPercent / 100)
-          : priceForSignal * (1 + tpPercent / 100);
-        const rawSlPrice = direction === "SHORT"
-          ? priceForSignal * (1 + slPercent / 100)
-          : priceForSignal * (1 - slPercent / 100);
-        const tpPrice = rawTpPrice;
-        const slPrice = rawSlPrice;
-
-        // 🚀 AUTO TRADE EXECUTION
-        let tradeResult = { success: false, message: "Otomatik işlem tetiklenmedi (auto-trade kapalı/izin yok/açık pozisyon/işlem hatası)" } as { success: boolean; message: string; orderId?: string };
-        let tradeNotificationText = "";
-        const autoTradeEnabled = alarm.auto_trade_enabled === true;
-
-        if (autoTradeEnabled) {
-          tradeResult = await executeAutoTrade(
-            alarm.user_id,
-            symbol,
-            direction,
-            priceForSignal,
-            tpPrice,
-            slPrice,
-            normalizeMarketType(alarm.market_type || "spot")
-          );
-
-          if (tradeResult.success) {
-            tradeNotificationText = `\n\n🤖 <b>OTOMATİK İŞLEM:</b>\n${tradeResult.message}`;
-            if (tradeResult.orderId) {
-              await supabase
-                .from("alarms")
-                .update({ binance_order_id: tradeResult.orderId })
-                .eq("id", alarm.id);
-            }
-          } else if (
-            tradeResult.message !== "Auto-trade not enabled" &&
-            tradeResult.message !== "Futures auto-trade not enabled" &&
-            tradeResult.message !== "Spot auto-trade not enabled"
-          ) {
-            const needsWidenHint = /TP zaten tetiklenmiş olabilir|SL zaten tetiklenmiş olabilir/i.test(tradeResult.message || "");
-            const hintText = needsWidenHint
-              ? "\n<i>Not:</i> Fiyat hızlı hareket etti. TP/SL oranını biraz genişletmeyi veya limit toleransını artırmayı deneyin."
-              : "";
-            tradeNotificationText = `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${tradeResult.message}${hintText}`;
-          }
-        }
-
-        if (!tradeNotificationText) {
-          tradeNotificationText = autoTradeEnabled
-            ? `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${tradeResult.message}`
-            : `\n\nℹ️ <b>Otomatik işlem:</b> Kapalı`;
-        }
+        const tpPrice = tick ? roundToTick(indicators.price * (1 + tpPercent / 100), tick, "NEAREST") : indicators.price * (1 + tpPercent / 100);
+        const slPrice = tick ? roundToTick(indicators.price * (1 - slPercent / 100), tick, "NEAREST") : indicators.price * (1 - slPercent / 100);
         
         // Format date as DD.MM.YYYY HH:MM:SS in GMT+3 (Turkey timezone)
-        const formattedDateTime = formatTurkeyTimeFromMs(candleCloseTimeMs);
+        const now = new Date();
+        const turkeyTime = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Istanbul" }));
+        const day = String(turkeyTime.getDate()).padStart(2, "0");
+        const month = String(turkeyTime.getMonth() + 1).padStart(2, "0");
+        const year = turkeyTime.getFullYear();
+        const hours = String(turkeyTime.getHours()).padStart(2, "0");
+        const minutes = String(turkeyTime.getMinutes()).padStart(2, "0");
+        const seconds = String(turkeyTime.getSeconds()).padStart(2, "0");
+        const formattedDateTime = `${day}.${month}.${year} ${hours}:${minutes}:${seconds}`;
 
         // Get signal analysis score for market strength
         const userConfidenceThreshold = Number(alarm.confidence_score || 70);
         const signalAnalysis = generateSignalScore(indicators, userConfidenceThreshold);
 
-        let telegramMessage = `
+        const telegramMessage = `
 🔔 <b>ALARM AKTİVE!</b> 🔔
 
 💰 Çift: <b>${symbol}</b>
 🎯 ${directionTR} Sinyali Tespit Edildi!
 
 📊 Piyasa: <b>${marketType}</b> | Zaman: <b>${timeframe}</b>
-💹 Fiyat: <b>$${formatPriceWithPrecision(priceForSignal, decimals)}</b>
+💹 Fiyat: <b>$${indicators.price.toFixed(decimals)}</b>
 
 📈 Sinyal: Güven: <b>${userConfidenceThreshold}%</b>
 📊 Gelen Sinyalin Güveni: <b>${signalAnalysis.score}%</b>
 
 🎯 Hedefler:
-  TP: <b>$${formatPriceWithPrecision(tpPrice, decimals)}</b> (<b>+${tpPercent}%</b>)
-  SL: <b>$${formatPriceWithPrecision(slPrice, decimals)}</b> (<b>-${slPercent}%</b>)
+   TP: <b>$${tpPrice.toFixed(decimals)}</b> (<b>+${tpPercent}%</b>)
+   SL: <b>$${slPrice.toFixed(decimals)}</b> (<b>-${slPercent}%</b>)
 
-${barClose === null ? "" : `⏱️ Bar Sınırı: <b>${barClose}</b>\n`}
+⏱️ Bar Sınırı: <b>${barClose}</b>
 
 ⏰ Zaman: <b>${formattedDateTime}</b>
-${tradeNotificationText}
-
-<i>Not:</i> Otomatik al-sat işlemleri market fiyatından anlık alındığı için, sinyalin giriş fiyatına göre farklılık gösterebilir.
 `;
 
         // 🚀 INSERT active signal INTO DATABASE
-        let signalInserted = false;
         try {
-          const { data: alarmCheck, error: alarmCheckError } = await supabase
-            .from("alarms")
-            .select("id, is_active, status")
-            .eq("id", alarm.id)
-            .eq("user_id", alarm.user_id)
-            .eq("type", "user_alarm")
-            .maybeSingle();
-
-          const alarmStatus = String(alarmCheck?.status || "").toUpperCase();
-          const alarmStillActive = !!alarmCheck && alarmCheck.is_active !== false && (!alarmStatus || alarmStatus === "ACTIVE");
-
-          if (alarmCheckError || !alarmStillActive) {
-            console.warn(`⚠️ Alarm artık aktif değil veya yok (id=${alarm.id}). Sinyal kaydı atlandı.`);
-            continue;
-          }
-
           const marketTypeNorm = normalizeMarketType(alarm.market_type || "spot");
-          const signalCreatedAt = Number.isFinite(candleCloseTimeMs)
-            ? new Date(candleCloseTimeMs).toISOString()
-            : new Date().toISOString();
           const newActiveSignal = {
             user_id: alarm.user_id,
             alarm_id: alarm.id,
             symbol: symbol,
             market_type: marketTypeNorm,
             timeframe: String(alarm.timeframe || "1h"),
-            direction,
-            entry_price: priceForSignal,
+            direction: detectedSignal?.direction || "LONG",
+            entry_price: indicators.price,
             take_profit: tpPrice,
             stop_loss: slPrice,
             tp_percent: tpPercent,
             sl_percent: slPercent,
             bar_close_limit: barClose,
             status: "ACTIVE",
-            score: detectedSignal?.score || 50,
-            created_at: signalCreatedAt,
-            signal_timestamp: signalCreatedAt
+            score: detectedSignal?.score || 50  // ✅ ADD SCORE
           };
 
           const { error: insertError } = await supabase.from("active_signals").insert(newActiveSignal);
           if (insertError) {
             console.error(`❌ Failed to insert signal for ${symbol}:`, insertError);
-            signalInserted = false;
           } else {
             console.log(`✅ Signal created in active_signals for ${symbol}`);
-            signalInserted = true;
-            const symbolKey = `${alarm.user_id}:${symbol}`;
-            openSignalSymbols.add(symbolKey);
-            openSignalKeys.add(`${alarm.user_id}:${String(alarm.id || "")}`);
           }
         } catch (e) {
           console.error(`❌ Error creating signal for ${symbol}:`, e);
-          signalInserted = false;
-        }
-
-        if (!signalInserted) {
-          console.warn(`⚠️ active_signals insert failed for ${symbol}`);
-          telegramMessage += `\n\n⚠️ <b>Not:</b> Sinyal kaydı oluşturulamadı. Sistem yöneticisine bildirin.`;
         }
 
         telegramPromises.push(sendTelegramNotification(alarm.user_id, telegramMessage));
-        if (Number.isFinite(candleCloseTimeMs)) {
-          candleDedupCache.set(candleTimeKey, candleCloseTimeMs);
-        }
         console.log(`✅ User alarm triggered for ${symbol}: ${triggerMessage}`);
       }
     } catch (e) {
@@ -2120,7 +1099,6 @@ type ClosedSignal = {
   price: number;
   user_id: string;
   profitLoss?: number;
-  market_type?: string;
 };
 
 async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
@@ -2138,43 +1116,23 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
     const signals = rawSignals || [];
     if (!signals || signals.length === 0) return [];
 
-    const alarmIdList = Array.from(new Set(
-      signals
-        .map(signal => signal.alarm_id)
-        .filter(id => id !== null && id !== undefined)
-        .map(id => Number(id))
-        .filter(id => Number.isFinite(id))
-    ));
-    const alarmBarMap = new Map<string, number | null>();
-    if (alarmIdList.length > 0) {
-      const { data: alarmRows, error: alarmError } = await supabase
-        .from("alarms")
-        .select("id, bar_close_limit")
-        .in("id", alarmIdList);
-
-      if (alarmError) {
-        console.warn("⚠️ Alarm bar_close_limit fetch failed:", alarmError);
-      } else {
-        (alarmRows || []).forEach(row => {
-          const rawBar = row?.bar_close_limit;
-          const barValue = (rawBar === null || rawBar === undefined) ? null : Number(rawBar);
-          alarmBarMap.set(String(row.id), Number.isFinite(barValue) ? barValue : null);
-        });
-      }
-    }
-
     // 🚀 PARALLELIZED: Fetch all prices in parallel
-    const pricePromises = signals.map(signal => {
-      const marketType = normalizeMarketType(signal.market_type || signal.marketType || signal.market);
-      const symbol = String(signal.symbol || "");
-      if (marketType === "futures") {
-        return getFuturesMarkPrice(symbol).then(p => (p === null ? getCurrentPrice(symbol, marketType) : p));
-      }
-      return getCurrentPrice(symbol, marketType);
-    });
+    const pricePromises = signals.map(signal =>
+      getCurrentPrice(
+        String(signal.symbol || ""),
+        normalizeMarketType(signal.market_type || signal.marketType || signal.market)
+      )
+    );
     const prices = await Promise.all(pricePromises);
 
+    // 🚀 PARALLELIZED: Get exchange info for all market types
+    const marketTypes = [...new Set(signals.map(s => normalizeMarketType(s.market_type || s.marketType || s.market)))];
+    const exchangeInfoPromises = marketTypes.map(mt => getExchangeInfo(mt));
+    const exchangeInfoResults = await Promise.all(exchangeInfoPromises);
+    const exchangeInfoMap = Object.fromEntries(marketTypes.map((mt, i) => [mt, exchangeInfoResults[i]]));
+
     const closedSignals: ClosedSignal[] = [];
+    const updatePromises: Promise<any>[] = [];
 
     for (let idx = 0; idx < signals.length; idx++) {
       try {
@@ -2183,6 +1141,8 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         
         if (rawPrice === null) continue;
 
+        const marketType = normalizeMarketType(signal.market_type || signal.marketType || signal.market);
+        const exchangeInfo = exchangeInfoMap[marketType];
         const symbol = String(signal.symbol || "");
         const direction = (signal.condition || signal.direction) as "LONG" | "SHORT";
         
@@ -2191,7 +1151,9 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           continue;
         }
 
-        const currentPrice = rawPrice;
+        // tickSize rounding
+        const tick = exchangeInfo ? getTickSize(exchangeInfo, symbol) : null;
+        const currentPrice = tick ? roundToTick(rawPrice, tick, "NEAREST") : rawPrice;
 
         const tp = Number(signal.take_profit);
         const sl = Number(signal.stop_loss);
@@ -2201,89 +1163,33 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           continue;
         }
 
-        const takeProfit = tp;
-        const stopLoss = sl;
+        const takeProfit = tick ? roundToTick(tp, tick, "NEAREST") : tp;
+        const stopLoss = tick ? roundToTick(sl, tick, "NEAREST") : sl;
 
         let shouldClose = false;
         let closeReason: "TP_HIT" | "SL_HIT" | "BAR_CLOSE" | "" = "";
-        let closePrice = currentPrice;
 
         if (direction === "LONG") {
-          if (currentPrice <= stopLoss) {
-            shouldClose = true;
-            closeReason = "SL_HIT";
-            closePrice = stopLoss;
-          } else if (currentPrice >= takeProfit) {
+          if (currentPrice >= takeProfit) {
             shouldClose = true;
             closeReason = "TP_HIT";
-            closePrice = takeProfit;
+          } else if (currentPrice <= stopLoss) {
+            shouldClose = true;
+            closeReason = "SL_HIT";
           }
         } else if (direction === "SHORT") {
-          if (currentPrice >= stopLoss) {
-            shouldClose = true;
-            closeReason = "SL_HIT";
-            closePrice = stopLoss;
-          } else if (currentPrice <= takeProfit) {
+          if (currentPrice <= takeProfit) {
             shouldClose = true;
             closeReason = "TP_HIT";
-            closePrice = takeProfit;
+          } else if (currentPrice >= stopLoss) {
+            shouldClose = true;
+            closeReason = "SL_HIT";
           }
         }
 
         if (!shouldClose) {
-          let candleHigh: number | null = null;
-          let candleLow: number | null = null;
-          try {
-            const recentKlines = await getKlines(symbol, normalizeMarketType(signal.market_type || signal.marketType || signal.market), "1m", 2, 1);
-            if (recentKlines && recentKlines.length >= 2) {
-              const lastClosed = recentKlines[recentKlines.length - 2];
-              const high = Number(lastClosed?.[2]);
-              const low = Number(lastClosed?.[3]);
-              candleHigh = Number.isFinite(high) ? high : null;
-              candleLow = Number.isFinite(low) ? low : null;
-            }
-          } catch (e) {
-            console.warn(`⚠️ 1m kline read failed for ${symbol}:`, e);
-          }
-
-          if (direction === "LONG") {
-            const hitSl = candleLow !== null && candleLow <= stopLoss;
-            const hitTp = candleHigh !== null && candleHigh >= takeProfit;
-            if (hitSl) {
-              shouldClose = true;
-              closeReason = "SL_HIT";
-              closePrice = stopLoss;
-            } else if (hitTp) {
-              shouldClose = true;
-              closeReason = "TP_HIT";
-              closePrice = takeProfit;
-            }
-          } else if (direction === "SHORT") {
-            const hitSl = candleHigh !== null && candleHigh >= stopLoss;
-            const hitTp = candleLow !== null && candleLow <= takeProfit;
-            if (hitSl) {
-              shouldClose = true;
-              closeReason = "SL_HIT";
-              closePrice = stopLoss;
-            } else if (hitTp) {
-              shouldClose = true;
-              closeReason = "TP_HIT";
-              closePrice = takeProfit;
-            }
-          }
-        }
-
-        if (!shouldClose) {
-          const rawBarCloseLimit = signal.bar_close_limit;
-          let barCloseLimit = (rawBarCloseLimit === null || rawBarCloseLimit === undefined)
-            ? NaN
-            : Number(rawBarCloseLimit);
-          if (!Number.isFinite(barCloseLimit) || barCloseLimit <= 0) {
-            const fallbackBar = alarmBarMap.get(String(signal.alarm_id));
-            barCloseLimit = (fallbackBar === null || fallbackBar === undefined) ? NaN : Number(fallbackBar);
-          }
-          const createdAtSource = signal.signal_timestamp || signal.created_at;
-          const createdAt = createdAtSource ? new Date(createdAtSource) : null;
+          const barCloseLimit = Number(signal.bar_close_limit);
+          const createdAt = signal.created_at ? new Date(signal.created_at) : null;
           const timeframeMinutes = timeframeToMinutes(String(signal.timeframe || "1h"));
           if (
             Number.isFinite(barCloseLimit) &&
@@ -2303,45 +1209,50 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
 
         if (!shouldClose || !closeReason) continue;
 
-        // Calculate profit/loss (store for UI + notifications)
+        // Calculate profit/loss (for logging/notification, not stored in DB)
         const profitLoss = direction === "LONG"
-          ? ((closePrice - Number(signal.entry_price)) / Number(signal.entry_price)) * 100
-          : ((Number(signal.entry_price) - closePrice) / Number(signal.entry_price)) * 100;
+          ? ((currentPrice - Number(signal.entry_price)) / Number(signal.entry_price)) * 100
+          : ((Number(signal.entry_price) - currentPrice) / Number(signal.entry_price)) * 100;
 
-        const updateResult = await supabase
-          .from("active_signals")
-          .update({
-            status: "CLOSED",
-            close_reason: closeReason,
-            closed_at: new Date().toISOString(),
-            profit_loss: profitLoss
-          })
-          .eq("id", signal.id)
-          .eq("status", "ACTIVE");
-
-        if (updateResult.error) {
-          console.error(`❌ updateError for signal ${signal.id}:`, updateResult.error);
-          continue;
-        }
-
-        console.log(`✅ Signal ${signal.id} (${signal.symbol}) CLOSED: ${closeReason} | P&L: ${profitLoss.toFixed(2)}%`);
+        // Update signal status to CLOSED (instead of deleting)
+        updatePromises.push(
+          supabase
+            .from("active_signals")
+            .update({
+              status: "CLOSED",
+              close_reason: closeReason,
+              closed_at: new Date().toISOString()
+            })
+            .eq("id", signal.id)
+            .eq("status", "ACTIVE") // avoid race condition
+            .then(result => {
+              if (result.error) {
+                console.error(`❌ updateError for signal ${signal.id}:`, result.error);
+                return null;
+              }
+              console.log(`✅ Signal ${signal.id} (${signal.symbol}) CLOSED: ${closeReason} | P&L: ${profitLoss.toFixed(2)}%`);
+              return { signal, direction, closeReason, currentPrice, profitLoss };
+            })
+        );
 
         closedSignals.push({
           id: signal.id,
           symbol,
           direction,
           close_reason: closeReason,
-          price: closePrice,
+          price: currentPrice,
           user_id: signal.user_id,
-          market_type: signal.market_type || signal.marketType || signal.market,
           profitLoss: direction === "LONG"
-            ? ((closePrice - Number(signal.entry_price)) / Number(signal.entry_price)) * 100
-            : ((Number(signal.entry_price) - closePrice) / Number(signal.entry_price)) * 100,
+            ? ((currentPrice - Number(signal.entry_price)) / Number(signal.entry_price)) * 100
+            : ((Number(signal.entry_price) - currentPrice) / Number(signal.entry_price)) * 100,
         });
       } catch (e) {
         console.error(`❌ Error checking signal ${signals[idx]?.id}:`, e);
       }
     }
+
+    // 🚀 PARALLELIZED: Execute all database updates in parallel
+    await Promise.all(updatePromises);
 
     return closedSignals;
   } catch (e) {
@@ -2380,14 +1291,13 @@ type NewSignal = {
 };
 
 async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; duplicate: boolean }> {
-  const directionCandidate = body?.direction ?? body?.signal_direction ?? body?.signalDirection;
-  if (!body || !body.symbol || !directionCandidate || !body.user_id) {
+  if (!body || !body.symbol || !body.direction || !body.user_id) {
     return { inserted: false, duplicate: false };
   }
 
   const userId = String(body.user_id);
   const symbol = String(body.symbol).toUpperCase();
-  const rawDirection = String(directionCandidate ?? "").toUpperCase();
+  const rawDirection = String(body.direction ?? body.signal_direction ?? body.signalDirection ?? "").toUpperCase();
   const direction = rawDirection === "SHORT" ? "SHORT" : "LONG";
   const marketType = normalizeMarketType(body.market_type ?? body.marketType ?? body.market);
 
@@ -2446,55 +1356,6 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
     type: "auto_signal",
   };
 
-  // ✅ Alarm exists check: skip orphan signals
-  try {
-    if (newSignal.alarm_id) {
-      const alarmIdNum = Number(newSignal.alarm_id);
-      if (!Number.isFinite(alarmIdNum)) {
-        console.warn("⚠️ Invalid alarm_id for signal insert, skipping:", newSignal.alarm_id);
-        return { inserted: false, duplicate: false };
-      }
-      const { data: alarmRow, error: alarmError } = await supabase
-        .from("alarms")
-        .select("id, is_active, status")
-        .eq("id", alarmIdNum)
-        .eq("user_id", newSignal.user_id)
-        .eq("type", "user_alarm")
-        .maybeSingle();
-
-      if (alarmError) {
-        console.error("❌ Alarm lookup failed:", alarmError);
-        return { inserted: false, duplicate: false };
-      }
-      const status = String(alarmRow?.status || "").toUpperCase();
-      if (!alarmRow || alarmRow.is_active === false || (status && status !== "ACTIVE")) {
-        console.warn("⚠️ Alarm not active/exists, skipping signal insert:", newSignal.alarm_id);
-        return { inserted: false, duplicate: false };
-      }
-    } else {
-      const { data: activeAlarm, error: activeAlarmError } = await supabase
-        .from("alarms")
-        .select("id")
-        .eq("user_id", newSignal.user_id)
-        .eq("type", "user_alarm")
-        .eq("is_active", true)
-        .eq("symbol", newSignal.symbol)
-        .maybeSingle();
-
-      if (activeAlarmError) {
-        console.error("❌ Active alarm lookup failed:", activeAlarmError);
-        return { inserted: false, duplicate: false };
-      }
-      if (!activeAlarm?.id) {
-        console.warn("⚠️ No active alarm for user/symbol, skipping signal insert:", newSignal.symbol);
-        return { inserted: false, duplicate: false };
-      }
-    }
-  } catch (e) {
-    console.error("❌ Alarm validation error:", e);
-    return { inserted: false, duplicate: false };
-  }
-
   // Duplicate check - prevent same signal from being inserted twice
   const { data: existing, error } = await supabase
     .from("active_signals")
@@ -2530,8 +1391,7 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
     sl_percent: newSignal.sl_percent,
     bar_close_limit: newSignal.bar_close_limit,
     status: "ACTIVE",
-    created_at: newSignal.created_at,
-    signal_timestamp: newSignal.signal_timestamp || newSignal.created_at || new Date().toISOString()
+    created_at: newSignal.created_at
   };
 
   const { error: insertError } = await supabase.from("active_signals").insert(activeSignalData);
@@ -2567,26 +1427,17 @@ serve(async (req: any) => {
     });
   }
 
-  // ✅ Auth guard (optional - enabled when CRON_SECRET is set)
-  if (cronSecret) {
-    const auth = req.headers.get("authorization") || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-    if (token !== cronSecret) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-  }
-
-  const lockName = "check-alarm-signals";
-  const lock = await acquireCronLock(lockName, 55);
-  if (!lock.acquired) {
-    return new Response(JSON.stringify({ ok: true, skipped: true, reason: "duplicate-run" }), {
-      status: 202,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
+  // ✅ Auth guard (optional - currently disabled for cron compatibility)
+  // if (cronSecret) {
+  //   const auth = req.headers.get("authorization") || "";
+  //   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  //   if (token !== cronSecret) {
+  //     return new Response(JSON.stringify({ error: "Unauthorized" }), {
+  //       status: 401,
+  //       headers: { ...corsHeaders, "Content-Type": "application/json" },
+  //     });
+  //   }
+  // }
 
   try {
     console.log("🚀 [CRON] Starting alarm signals check");
@@ -2616,64 +1467,6 @@ serve(async (req: any) => {
         } catch (e) {
           console.log("📥 [DEBUG] Could not decode JWT token");
         }
-      }
-    }
-
-    // ✅ Test notification request
-    if (body?.action === "test_notification") {
-      const chatId = String(body?.telegramUsername || body?.telegram_chat_id || body?.chatId || "").trim();
-      if (!chatId) {
-        return new Response(JSON.stringify({ ok: false, error: "Missing telegram chat id" }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-      }
-
-      const now = new Date().toLocaleString("tr-TR");
-      const message = `✅ Test bildirimi başarılı!\n\n⏰ Zaman: ${now}`;
-      const result = await sendTelegramToChatId(chatId, message);
-
-      return new Response(JSON.stringify(result), {
-        status: result.ok ? 200 : 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-    }
-
-    // ✅ Test Binance connection request
-    if (body?.action === "test_binance_connection") {
-      const apiKey = String(body?.api_key || "").trim();
-      const apiSecret = String(body?.api_secret || "").trim();
-
-      if (!apiKey || !apiSecret) {
-        return new Response(JSON.stringify({
-          success: false,
-          error: "Missing API key or secret"
-        }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-      }
-
-      try {
-        const futuresBalance = await getBinanceBalance(apiKey, apiSecret, "futures");
-        const spotBalance = await getBinanceBalance(apiKey, apiSecret, "spot");
-
-        return new Response(JSON.stringify({
-          success: true,
-          futures_balance: futuresBalance,
-          spot_balance: spotBalance
-        }), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-      } catch (e) {
-        return new Response(JSON.stringify({
-          success: false,
-          error: e instanceof Error ? e.message : "Connection failed"
-        }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
       }
     }
 
@@ -2753,7 +1546,7 @@ serve(async (req: any) => {
     const closedSignals = await checkAndCloseSignals();
 
     // ✅ Notify - 🚀 PARALLELIZED
-    const notificationPromises = closedSignals.map(async signal => {
+    const notificationPromises = closedSignals.map(signal => {
       let statusMessage = "⛔ KAPANDI - STOP LOSS HIT!";
       let emoji = "⚠️";
       if (signal.close_reason === "TP_HIT") {
@@ -2764,19 +1557,15 @@ serve(async (req: any) => {
         emoji = "⏱️";
       }
 
-      const precision = await getSymbolPricePrecision(
-        String(signal.symbol || "").toUpperCase(),
-        normalizeMarketType(signal.market_type || "spot")
-      );
-
       const telegramMessage = `
 🔔 <b>İŞLEM KAPANDI</b> 🔔
 
 📊 Coin: <b>${signal.symbol}</b>
 📈 İşlem Yönü: <b>${signal.direction}</b>
 ${emoji} ${statusMessage}
-💰 Kapanış Fiyatı: <b>$${formatPriceWithPrecision(signal.price, precision)}</b>
-    📈 Kar/Zarar: <b>${signal.profitLoss !== undefined ? (signal.profitLoss >= 0 ? '+' : '') + signal.profitLoss.toFixed(2) + '%' : 'N/A'}</b>
+💰 Kapanış Fiyatı: <b>$${signal.price.toFixed(8)}</b>
+
+Detaylı rapor için dashboard'u kontrol edin.
 `;
 
       return sendTelegramNotification(signal.user_id, telegramMessage);
@@ -2784,7 +1573,6 @@ ${emoji} ${statusMessage}
     
     await Promise.all(notificationPromises);
 
-    await releaseCronLock(lockName, lock.requestId, "DONE");
     return new Response(
       JSON.stringify({
         success: true,
@@ -2798,7 +1586,6 @@ ${emoji} ${statusMessage}
     );
   } catch (e) {
     console.error("❌ Fatal error:", e);
-    await releaseCronLock(lockName, lock.requestId, "ERROR");
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

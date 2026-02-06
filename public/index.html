@@ -31,8 +31,6 @@
     <meta name="theme-color" content="#0b0f14">
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-    <link rel="stylesheet" href="glass-theme.css?v=20260203">
-    <link rel="stylesheet" href="navbar-unified.css?v=20260206">
     <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js" defer></script>
@@ -41,17 +39,12 @@
     <script src="rate-limiter.js" defer></script>
     <script src="toast-manager.js" defer></script>
     <script src="setup-supabase.js" defer></script>
-    <script src="menu-unified.js" defer></script>
     <!-- Auth Guard -->
     <script src="/api/env.js"></script>
     <script src="config.js"></script>
     <script>
         const savedTheme = localStorage.getItem('theme') || 'dark';
         document.documentElement.dataset.theme = savedTheme;
-    </script>
-    <script>
-        window.toggleHamburgerMenu = window.toggleHamburgerMenu || function() {};
-        window.closeHamburgerMenu = window.closeHamburgerMenu || function() {};
     </script>
     <script>
         // Hemen kontrol et - sayfa yüklemeden önce
@@ -104,16 +97,16 @@
         }
 
         html[data-theme="dark"] {
-            --bg-primary: #0f141b;
-            --bg-secondary: #182230;
-            --bg-card: #1e2a3a;
+            --bg-primary: #0b0f14;
+            --bg-secondary: #0f1621;
+            --bg-card: #141c2a;
             --accent: #38e8ff;
             --accent-red: #ff4d6d;
             --accent-blue: #8b5cf6;
             --accent-yellow: #f5b75b;
             --text-primary: #ffffff;
             --text-secondary: #9aa4b2;
-            --border: #2f3c52;
+            --border: #263044;
         }
 
         html[data-theme="purple"] {
@@ -161,7 +154,53 @@
             text-align: center;
         }
 
-        /* Content-specific styles only */
+        .navbar {
+            background: rgba(240, 246, 255, 0.82);
+            border-bottom: 1px solid rgba(124, 92, 255, 0.22);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(14px);
+            box-shadow: 0 10px 28px rgba(86, 110, 170, 0.2);
+            min-height: 72px;
+        }
+
+        html[data-theme="dark"] .navbar {
+            background: rgba(11, 15, 20, 0.78);
+            border-bottom: 1px solid rgba(56, 232, 255, 0.12);
+            box-shadow: 0 8px 24px rgba(5, 12, 24, 0.45);
+        }
+
+        html[data-theme="purple"] .navbar {
+            background: rgba(11, 7, 20, 0.82);
+            border-bottom: 1px solid rgba(184, 108, 255, 0.2);
+            box-shadow: 0 8px 24px rgba(10, 6, 18, 0.55);
+        }
+
+        html[data-theme="gold"] .navbar {
+            background: rgba(11, 11, 11, 0.86);
+            border-bottom: 1px solid rgba(245, 208, 111, 0.28);
+            box-shadow: 0 8px 24px rgba(5, 4, 3, 0.65);
+        }
+
+        html[data-theme="purple"] body {
+            background:
+                radial-gradient(circle at 12% 18%, rgba(184, 108, 255, 0.22), transparent 46%),
+                radial-gradient(circle at 88% 12%, rgba(124, 92, 255, 0.18), transparent 42%),
+                linear-gradient(155deg, var(--bg-primary), var(--bg-secondary));
+        }
+
+        html[data-theme="gold"] body {
+            background:
+                radial-gradient(circle at 12% 18%, rgba(245, 208, 111, 0.18), transparent 46%),
+                radial-gradient(circle at 88% 12%, rgba(255, 215, 128, 0.16), transparent 42%),
+                linear-gradient(155deg, var(--bg-primary), var(--bg-secondary));
+        }
+
         .logo {
             display: flex;
             align-items: center;
@@ -479,7 +518,7 @@
         
         /* Backtest Section */
         .backtest-results {
-            background: #000;
+            background: var(--bg-card);
             border-radius: 12px;
             padding: 24px;
             margin: 24px 0;
@@ -494,7 +533,6 @@
             border-bottom: 1px solid var(--border);
             cursor: pointer;
             transition: all 0.3s;
-            background: #000;
         }
         
         .result-row:hover {
@@ -524,7 +562,6 @@
             max-height: 0;
             overflow: hidden;
             transition: all 0.3s ease;
-            background: #000;
         }
         
         .result-row.expanded .result-row-details {
@@ -655,8 +692,8 @@
         
         /* AI Prediction */
         .prediction-card {
-            background: var(--glass-bg);
-            border: 1px solid var(--glass-border);
+            background: linear-gradient(135deg, var(--bg-secondary), var(--bg-card));
+            border: 1px solid var(--border);
             border-radius: 12px;
             padding: 24px;
             margin: 0;
@@ -679,15 +716,6 @@
         .prediction-card .prediction-section {
             width: 100%;
             text-align: center;
-        }
-
-        .prediction-card .prediction-highlight {
-            background: var(--glass-bg);
-            border: 1px solid var(--glass-border);
-            border-radius: 12px;
-            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-            backdrop-filter: blur(14px);
-            -webkit-backdrop-filter: blur(14px);
         }
 
         .prediction-card .card-title {
@@ -1336,12 +1364,168 @@
         }
 
         /* Hamburger Menü Stilleri */
+        .hamburger-menu {
+            display: flex;
+            flex-direction: column;
+            background: rgba(13, 168, 232, 0.1);
+            border: 1px solid rgba(13, 168, 232, 0.3);
+            cursor: pointer;
+            padding: 8px;
+            gap: 5px;
+            width: 44px;
+            height: 44px;
+            align-items: center;
+            justify-content: center;
+            margin-left: auto;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .hamburger-menu:hover {
+            background: rgba(13, 168, 232, 0.2);
+            border-color: #0da8e8;
+        }
+
+        .hamburger-menu span {
+            width: 26px;
+            height: 3px;
+            background: #0da8e8;
+            border-radius: 2px;
+            transition: all 0.3s ease;
+            display: block;
+        }
+
         /* Dil Seçim Butonları */
         .language-selector {
             display: flex;
             gap: 6px;
             align-items: center;
             margin-right: 12px;
+        }
+
+        .hamburger-menu.active span:nth-child(1) {
+            transform: rotate(45deg) translate(8px, 8px);
+        }
+
+        .hamburger-menu.active span:nth-child(2) {
+            opacity: 0;
+        }
+
+        .hamburger-menu.active span:nth-child(3) {
+            transform: rotate(-45deg) translate(7px, -7px);
+        }
+
+        .menu-panel {
+            position: fixed;
+            right: -350px;
+            top: 0;
+            width: 350px;
+            height: 100vh;
+            background: rgba(15, 18, 28, 0.96);
+            border-left: 1px solid rgba(56, 232, 255, 0.18);
+            z-index: 998;
+            transition: right 0.3s ease;
+            overflow-y: auto;
+            backdrop-filter: blur(8px);
+        }
+
+        html[data-theme="light"] .menu-panel {
+            background: rgba(233, 238, 248, 0.96);
+            border-left: 1px solid rgba(79, 70, 229, 0.18);
+        }
+
+        html[data-theme="purple"] .menu-panel {
+            background: rgba(12, 8, 22, 0.96);
+            border-left: 1px solid rgba(184, 108, 255, 0.25);
+        }
+
+        html[data-theme="gold"] .menu-panel {
+            background: rgba(12, 11, 12, 0.96);
+            border-left: 1px solid rgba(245, 208, 111, 0.28);
+        }
+
+        .menu-panel.active {
+            right: 0;
+        }
+
+        .menu-close {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: none;
+            border: none;
+            color: var(--primary);
+            font-size: 32px;
+            cursor: pointer;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .menu-close:hover {
+            color: var(--secondary);
+            transform: rotate(90deg);
+        }
+
+        .menu-content {
+            padding: 80px 24px 24px;
+        }
+
+        .menu-user-info {
+            margin-bottom: 32px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .menu-user-email {
+            color: var(--primary);
+            font-size: 14px;
+            font-weight: 600;
+            word-break: break-all;
+        }
+
+        .menu-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 14px 16px;
+            background: rgba(13, 168, 232, 0.1);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: left;
+            text-decoration: none;
+        }
+
+        .menu-item:hover {
+            background: rgba(13, 168, 232, 0.2);
+            border-color: var(--primary);
+            transform: translateX(4px);
+        }
+
+        .menu-item.logout-item {
+            color: #f44336;
+            background: rgba(244, 67, 54, 0.1);
+            border-color: rgba(244, 67, 54, 0.3);
+        }
+
+        .menu-item.logout-item:hover {
+            background: rgba(244, 67, 54, 0.2);
+            border-color: #f44336;
         }
 
         @media (max-width: 1024px) {
@@ -1375,7 +1559,7 @@
             position: absolute;
             top: 100%;
             right: 0;
-            background: #000;
+            background: var(--surface-dark);
             border: 1px solid var(--border-color);
             border-radius: 8px;
             min-width: 200px;
@@ -1681,7 +1865,6 @@
                 opacity: 0;
             }
         }
-
     </style>
 </head>
 <body>
@@ -1699,46 +1882,42 @@
                 <span></span>
                 <span></span>
             </button>
+            <div class="menu-panel" id="menuPanel">
+                <button class="menu-close" onclick="closeHamburgerMenu()">×</button>
+                <div class="menu-content">
+                    <div class="menu-user-info">
+                        <div class="menu-user-email" id="menuUserEmail">Yükleniyor...</div>
+                    </div>
+                    <nav class="menu-nav">
+                        <a href="profile.html" class="menu-item" onclick="closeHamburgerMenu()">
+                            <i class="fa-solid fa-user"></i>
+                            Profil
+                        </a>
+                        <a href="index.html" class="menu-item" onclick="closeHamburgerMenu()">
+                            <i class="fa-solid fa-chart-line"></i>
+                            Dashboard
+                        </a>
+                        <a href="her-durumda.html" class="menu-item" onclick="closeHamburgerMenu()">
+                            <i class="fa-solid fa-layer-group"></i>
+                            Her Durumda
+                        </a>
+                        <a href="kazananlar.html" class="menu-item" onclick="closeHamburgerMenu()">
+                            <i class="fa-solid fa-trophy"></i>
+                            Kazananlar
+                        </a>
+                        <a href="binance.html" class="menu-item" onclick="closeHamburgerMenu()">
+                            <i class="fa-brands fa-bitcoin"></i>
+                            Binance Bağlantısı
+                        </a>
+                        <button class="menu-item logout-item" onclick="logout()">
+                            <i class="fa-solid fa-right-from-bracket"></i>
+                            Çıkış Yap
+                        </button>
+                    </nav>
+                </div>
+            </div>
         </div>
     </nav>
-    <div class="menu-panel" id="menuPanel">
-        <button class="menu-close" onclick="window.closeHamburgerMenu()">×</button>
-        <div class="menu-content">
-            <div class="menu-user-info">
-                <div class="menu-user-email" id="menuUserEmail">Yükleniyor...</div>
-            </div>
-            <nav class="menu-nav">
-                <a href="profile.html" class="menu-item" onclick="window.closeHamburgerMenu()">
-                    <i class="fa-solid fa-user"></i>
-                    Profil
-                </a>
-                <a href="index.html" class="menu-item active" onclick="window.closeHamburgerMenu()">
-                    <i class="fa-solid fa-chart-line"></i>
-                    Dashboard
-                </a>
-                <a href="her-durumda.html" class="menu-item" onclick="window.closeHamburgerMenu()">
-                    <i class="fa-solid fa-layer-group"></i>
-                    Her Durumda
-                </a>
-                <a href="kazananlar.html" class="menu-item" onclick="window.closeHamburgerMenu()">
-                    <i class="fa-solid fa-trophy"></i>
-                    Kazananlar
-                </a>
-                <a href="binance.html" class="menu-item" onclick="window.closeHamburgerMenu()">
-                    <i class="fa-brands fa-bitcoin"></i>
-                    Binance Bağlantısı
-                </a>
-                <a href="premium.html" class="menu-item" id="premiumMenuItem" onclick="window.closeHamburgerMenu()" style="display: none;">
-                    <i class="fa-solid fa-star"></i>
-                    Premium Ol
-                </a>
-                <button class="menu-item logout-item" onclick="logout()">
-                    <i class="fa-solid fa-right-from-bracket"></i>
-                    Çıkış Yap
-                </button>
-            </nav>
-        </div>
-    </div>
 
     <div class="container">
         <div class="header">
@@ -1807,7 +1986,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="telegram-notification-templates.js"></script>
     <script src="indicators.js"></script>
-    <script src="advanced-indicators.js?v=20260204c"></script>
+    <script src="advanced-indicators.js?v=20260129"></script>
     <script>
         // CORS Proxy wrapper - Binance API isteklerini proxy üzerinden yap
         const originalFetch = window.fetch;
@@ -1843,7 +2022,6 @@
         let wsConnection = null;
         let currentMembershipType = 'standard';
         let currentIsAdmin = false;
-        const ADMIN_EMAIL = 'asd@asd.com';
         let isApplyingDashboardFilters = false;
         const DASHBOARD_FILTERS_KEY = 'dashboard_filters_v1';
 
@@ -1990,12 +2168,8 @@
                         .eq('user_id', currentUser.id)
                         .maybeSingle();
                     if (userSettings?.theme) {
-                        const allowedThemes = ['light', 'dark', 'purple', 'gold'];
-                        const storedTheme = localStorage.getItem('theme');
-                        if (!storedTheme || !allowedThemes.includes(storedTheme)) {
-                            localStorage.setItem('theme', userSettings.theme);
-                            document.documentElement.dataset.theme = userSettings.theme;
-                        }
+                        localStorage.setItem('theme', userSettings.theme);
+                        document.documentElement.dataset.theme = userSettings.theme;
                     }
                     
                     alarmSystem.setSupabaseClient(supabaseClient, currentUser.id, userSettings?.telegram_chat_id);
@@ -2019,12 +2193,8 @@
                         .eq('user_id', currentUser.id)
                         .maybeSingle();
                     if (userSettings?.theme) {
-                        const allowedThemes = ['light', 'dark', 'purple', 'gold'];
-                        const storedTheme = localStorage.getItem('theme');
-                        if (!storedTheme || !allowedThemes.includes(storedTheme)) {
-                            localStorage.setItem('theme', userSettings.theme);
-                            document.documentElement.dataset.theme = userSettings.theme;
-                        }
+                        localStorage.setItem('theme', userSettings.theme);
+                        document.documentElement.dataset.theme = userSettings.theme;
                     }
                     
                     if (alarmSystem) {
@@ -2119,87 +2289,8 @@
             
             console.log('\n===== TEST BİTTİ =====\n');
         };
-
-        // DEBUG: Active signals data health check
-        window.testActiveSignalsHealth = async function() {
-            console.log('\n===== ACTIVE_SIGNALS HEALTH CHECK =====');
-
-            if (!currentUser) {
-                console.error('Kullanıcı giriş yapmamış!');
-                return;
-            }
-
-            try {
-                const { data: signals, error } = await supabaseClient
-                    .from('active_signals')
-                    .select('id, alarm_id, symbol, status, created_at, closed_at, close_reason, profit_loss, entry_price, take_profit, stop_loss')
-                    .eq('user_id', currentUser.id)
-                    .order('created_at', { ascending: false });
-
-                if (error) {
-                    console.error('active_signals sorgu hatası:', error.message);
-                    return;
-                }
-
-                const all = signals || [];
-                const active = all.filter(s => String(s.status || '').toUpperCase() === 'ACTIVE');
-                const closed = all.filter(s => String(s.status || '').toUpperCase() === 'CLOSED');
-
-                const closedMissing = closed.filter(s =>
-                    !s.closed_at ||
-                    !s.close_reason ||
-                    !Number.isFinite(Number(s.profit_loss))
-                );
-
-                const activeWithCloseFields = active.filter(s =>
-                    s.closed_at ||
-                    s.close_reason ||
-                    Number.isFinite(Number(s.profit_loss))
-                );
-
-                const alarmIds = Array.from(new Set(all.map(s => s.alarm_id).filter(Boolean)));
-                let missingAlarmIds = [];
-
-                if (alarmIds.length > 0) {
-                    const { data: alarms, error: alarmErr } = await supabaseClient
-                        .from('alarms')
-                        .select('id')
-                        .in('id', alarmIds);
-
-                    if (!alarmErr) {
-                        const existingIds = new Set((alarms || []).map(a => Number(a.id)));
-                        missingAlarmIds = alarmIds.filter(id => !existingIds.has(Number(id)));
-                    }
-                }
-
-                console.log(`Toplam sinyal: ${all.length}`);
-                console.log(`Aktif: ${active.length} | Kapalı: ${closed.length}`);
-                console.log(`Kapalı ama eksik alanlar: ${closedMissing.length}`);
-                console.log(`Aktif ama kapanış alanı var: ${activeWithCloseFields.length}`);
-                console.log(`Alarm kaydı bulunamayan sinyal: ${missingAlarmIds.length}`);
-
-                if (closedMissing.length) {
-                    console.warn('⚠️ Kapalı ama eksik alanlar:', closedMissing);
-                }
-                if (activeWithCloseFields.length) {
-                    console.warn('⚠️ Aktif ama kapanış alanı var:', activeWithCloseFields);
-                }
-                if (missingAlarmIds.length) {
-                    console.warn('⚠️ Alarm kaydı yok:', missingAlarmIds);
-                }
-
-                if (typeof showUpdateToast === 'function') {
-                    showUpdateToast('Active signals denetimi tamamlandı. Detaylar console’da.', 'success');
-                }
-
-            } catch (e) {
-                console.error('Active signals health check hata:', e);
-            }
-
-            console.log('===== HEALTH CHECK BİTTİ =====\n');
-        };
         
-        console.log('Test komutları: testSupabaseSettings(), testActiveSignalsHealth() yazıp Enter tuşuna bas');
+        console.log('Test komutu: testSupabaseSettings() yazıp Enter tuşuna bas');
         
         
         // Supabase real-time subscription
@@ -2275,24 +2366,6 @@
             } else {
                 return '-';
             }
-        }
-
-        function formatTurkeyDate(value) {
-            if (!value) return '-';
-            const date = new Date(value);
-            if (Number.isNaN(date.getTime())) return '-';
-            const parts = new Intl.DateTimeFormat('tr-TR', {
-                timeZone: 'Europe/Istanbul',
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                hour12: false
-            }).formatToParts(date);
-            const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
-            return `${map.day}.${map.month}.${map.year} ${map.hour}:${map.minute}:${map.second}`;
         }
 
         // Verilen fiyata göre ondalık hassasiyeti belirle (maks 8)
@@ -2719,7 +2792,6 @@
             document.getElementById('menuUserEmail').textContent = currentUser.email;
 
             try {
-                const isAdminByEmail = String(currentUser.email || '').toLowerCase() === ADMIN_EMAIL;
                 await supabaseClient
                     .from('user_profiles')
                     .upsert({
@@ -2735,9 +2807,9 @@
                     .maybeSingle();
 
                 if (userProfileError) {
-                    updateUserRoleBadge('standard', isAdminByEmail);
+                    updateUserRoleBadge('standard', false);
                     currentMembershipType = 'standard';
-                    currentIsAdmin = isAdminByEmail;
+                    currentIsAdmin = false;
                 } else if (!userProfile) {
                     await supabaseClient
                         .from('user_profiles')
@@ -2746,22 +2818,18 @@
                             email: currentUser.email,
                             membership_type: 'standard'
                         });
-                    updateUserRoleBadge('standard', isAdminByEmail);
+                    updateUserRoleBadge('standard', false);
                     currentMembershipType = 'standard';
-                    currentIsAdmin = isAdminByEmail;
+                    currentIsAdmin = false;
                 } else {
-                    const isAdmin = isAdminByEmail || !!userProfile.is_admin;
-                    updateUserRoleBadge(userProfile.membership_type || 'standard', isAdmin);
+                    updateUserRoleBadge(userProfile.membership_type || 'standard', !!userProfile.is_admin);
                     currentMembershipType = userProfile.membership_type || 'standard';
-                    currentIsAdmin = isAdmin;
+                    currentIsAdmin = !!userProfile.is_admin;
                 }
-                updatePremiumMenuVisibility(currentMembershipType, currentIsAdmin);
             } catch {
-                const isAdminByEmail = String(currentUser.email || '').toLowerCase() === ADMIN_EMAIL;
-                updateUserRoleBadge('standard', isAdminByEmail);
+                updateUserRoleBadge('standard', false);
                 currentMembershipType = 'standard';
-                currentIsAdmin = isAdminByEmail;
-                updatePremiumMenuVisibility(currentMembershipType, currentIsAdmin);
+                currentIsAdmin = false;
             }
 
             // Supabase'den user settings'i yükle ve localStorage'a kaydet
@@ -2813,18 +2881,9 @@
             badgeEl.style.display = 'inline-flex';
         }
 
-        function updatePremiumMenuVisibility(membershipType, isAdmin) {
-            const premiumItem = document.getElementById('premiumMenuItem');
-            if (!premiumItem) return;
-            const isFree = !isAdmin && membershipType !== 'premium';
-            const displayValue = isFree ? 'flex' : 'none';
-            premiumItem.style.setProperty('display', displayValue, 'important');
-        }
-
         // Çıkış Yap
         async function logout() {
             try {
-                stopLiveUpdates();
                 const { error } = await supabaseClient.auth.signOut();
                 if (error) throw error;
                 window.location.replace('login.html');
@@ -2836,7 +2895,47 @@
             }
         }
         
-        // Hamburger Menü - menu-unified.js tarafından yönetilir
+        // Hamburger Menü Toggle
+        function toggleHamburgerMenu() {
+            const hamburgerBtn = document.getElementById('hamburgerBtn');
+            const menuPanel = document.getElementById('menuPanel');
+            
+            hamburgerBtn.classList.toggle('active');
+            menuPanel.classList.toggle('active');
+            
+            // Body scroll'u engelle
+            if (menuPanel.classList.contains('active')) {
+                document.body.style.overflow = 'hidden';
+            } else {
+                document.body.style.overflow = 'auto';
+            }
+        }
+        
+        function closeHamburgerMenu() {
+            const hamburgerBtn = document.getElementById('hamburgerBtn');
+            const menuPanel = document.getElementById('menuPanel');
+            
+            hamburgerBtn.classList.remove('active');
+            menuPanel.classList.remove('active');
+            document.body.style.overflow = 'auto';
+        }
+        
+        // Dışa tıklanırsa menüyü kapat
+        document.addEventListener('click', (event) => {
+            const menuPanel = document.getElementById('menuPanel');
+            const hamburgerBtn = document.getElementById('hamburgerBtn');
+            
+            if (!menuPanel.contains(event.target) && !hamburgerBtn.contains(event.target)) {
+                closeHamburgerMenu();
+            }
+        });
+        
+        // Çıkış
+        async function logout() {
+            stopLiveUpdates();
+            await supabaseClient.auth.signOut();
+            window.location.href = 'index.html';
+        }
         
         // Canlı güncellemeyi durdur
         function stopLiveUpdates() {
@@ -2857,8 +2956,8 @@
         }
         
         // WebSocket ile canlı fiyat güncellemesi
-        var wsReconnectAttempts = 0;
-        var wsReconnectTimeout = null;
+        let wsReconnectAttempts = 0;
+        let wsReconnectTimeout = null;
         const WS_RECONNECT_MAX_ATTEMPTS = 5;
         const WS_RECONNECT_DELAY = 3000; // 3 saniye
         
@@ -3765,7 +3864,7 @@
                             <div class="prediction-section" style="color: var(--text-secondary);">
                                 ${prediction.model} ile tahmin
                             </div>
-                            <div class="prediction-section prediction-highlight" style="display: flex; flex-direction: column; align-items: center; padding: 12px;">
+                            <div class="prediction-section" style="display: flex; flex-direction: column; align-items: center; padding: 12px; background: var(--bg-secondary); border-radius: 8px;">
                                 <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">Tahmin Fiyat</div>
                                 <div class="prediction-value">
                                     $${predictionPriceFormatted}
@@ -3950,7 +4049,6 @@
                 `;
             }
 
-
             const canCreateAlarm = currentIsAdmin || currentMembershipType === 'premium';
             
             document.getElementById('analysisContent').innerHTML = `
@@ -4053,7 +4151,7 @@
                         </div>
                         
                         <!-- Destek ve Direnç Seviyeleri -->
-                        <div class="glass-section support-resistance-block" style="margin-top: 24px; padding: 16px; border-radius: 8px; border-left: 3px solid var(--accent-blue);">
+                        <div style="margin-top: 24px; padding: 16px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid var(--accent-blue);">
                             <div style="font-weight: 600; color: var(--accent-blue); margin-bottom: 12px; font-size: 0.95rem;"><i class="fa-solid fa-location-dot"></i> Destek & Direnç Seviyeleri</div>
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                                 <div>
@@ -4241,7 +4339,6 @@
                 <div style="margin-bottom: 32px;">
                     ${backtestHtml}
                 </div>
-
                 
                 <!-- Haberler Bölümü -->
                 <div class="grid">
@@ -4262,10 +4359,7 @@
                     
                     <!-- Alarm Sinyalleri Container -->
                     <div class="card">
-                        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
-                            <span><i class="fa-solid fa-satellite-dish"></i> Alarm Sinyalleri</span>
-                            <span id="alarmSignalsTotalPnl" class="price-change" style="font-size:0.8rem;padding:4px 8px;">Toplam PnL: 0%</span>
-                        </div>
+                        <div class="card-title"><i class="fa-solid fa-satellite-dish"></i> Alarm Sinyalleri</div>
                         <div id="closedAlarmContainer" style="min-height: 100px;">
                             <!-- Bu container farklı bir amaçla kullanılacaktır -->
                         </div>
@@ -4713,34 +4807,8 @@
         
         // Risk calculator removed
         
-        function getActiveAlarmCount() {
-            const alarms = (alarmSystem && alarmSystem.alarms) ? alarmSystem.alarms : [];
-            return alarms.filter(alarm => alarm.active !== false && alarm.status !== 'KAPANDI').length;
-        }
-
-        function canCreatePremiumAlarm() {
-            if (currentIsAdmin) return true;
-            if (currentMembershipType !== 'premium') return true;
-            const activeCount = getActiveAlarmCount();
-            if (activeCount >= 5) {
-                if (typeof showUpdateToast === 'function') {
-                    showUpdateToast('Premium kullanıcılar en fazla 5 aktif alarm kurabilir', 'warning');
-                } else {
-                    alert('Premium kullanıcılar en fazla 5 aktif alarm kurabilir');
-                }
-                return false;
-            }
-            return true;
-        }
-
         // Alarm ekle modal
         async function showAddAlarmModal() {
-            const canCreateAlarm = currentIsAdmin || currentMembershipType === 'premium';
-            if (!canCreateAlarm) {
-                showUpdateToast('Alarm kurmak için Premium gerekli', 'warning');
-                return;
-            }
-            if (!canCreatePremiumAlarm()) return;
             const alarmType = prompt('Alarm tipi seçin:\n1. Fiyat Alarmı\n2. RSI Alarmı', '1');
             
             if (!alarmType) return;
@@ -4805,7 +4873,6 @@
                     const isAutoTrade = alarm.auto_trade_enabled || alarm.autoTradeEnabled;
                     const autoTradeLabel = isAutoTrade ? ' - OTOMATİK TRADE' : '';
                     const alarmTitleSuffix = isAutoTrade ? 'Otomatik İşlem' : (alarm.name || 'Alarm');
-                    const alarmCreatedAt = formatTurkeyDate(alarm.createdAt || alarm.created_at);
                     
                     // Description'dan TP/SL/Bar bilgilerini parse et
                     const descriptionMatch = alarm.description ? alarm.description.match(/TP:\s*([\d.]+)%,\s*SL:\s*([\d.-]+)%,\s*Bar:\s*(\d+)/) : null;
@@ -4819,9 +4886,9 @@
                         : (barLimitValue === null ? (isAutoTrade ? 99 : '-') : barLimitValue);
                     
                     if (alarm.type === 'ACTIVE_TRADE') {
-                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;">${logoHtml}<div><span style="font-weight: 600;">${coinSymbol} ${alarm.direction}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span><br><span style="font-size: 0.75rem; color: var(--text-secondary);">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></span></div></div></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;"><div><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div><i class="fa-regular fa-clock"></i> Timeframe: <strong>${alarm.timeframe || '-'}</strong></div><div><i class="fa-regular fa-calendar"></i> Kurulum: <strong>${alarmCreatedAt}</strong></div><div style="margin-top: 4px;"><i class="fa-solid fa-bullseye"></i> TP: ${alarm.tpPercent}% | <i class="fa-solid fa-circle-stop"></i> SL: ${alarm.slPercent}% | <i class="fa-regular fa-clock"></i> Bar: ${bar}</div></div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
+                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;">${logoHtml}<div><span style="font-weight: 600;">${coinSymbol} ${alarm.direction}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span><br><span style="font-size: 0.75rem; color: var(--text-secondary);">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></span></div></div></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;"><div><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div><i class="fa-regular fa-clock"></i> Timeframe: <strong>${alarm.timeframe || '-'}</strong></div><div style="margin-top: 4px;"><i class="fa-solid fa-bullseye"></i> TP: ${alarm.tpPercent}% | <i class="fa-solid fa-circle-stop"></i> SL: ${alarm.slPercent}% | <i class="fa-regular fa-clock"></i> Bar: ${bar}</div></div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
                     } else {
-                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;"><div>${logoHtml}</div><div><span style="font-weight: 600;">${coinSymbol} - ${alarmTitleSuffix}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe || '1h'}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span></div></div><span style="font-size: 0.85rem; color: var(--text-secondary);"><i class="fa-solid fa-circle"></i> Aktif</span></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-regular fa-calendar"></i> Kurulum: <strong>${alarmCreatedAt}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">Timeframe: ${alarm.timeframe || '1h'} | TP: ${tp}% | SL: ${sl}% | Bar: ${bar}</div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
+                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;"><div>${logoHtml}</div><div><span style="font-weight: 600;">${coinSymbol} - ${alarmTitleSuffix}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe || '1h'}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span></div></div><span style="font-size: 0.85rem; color: var(--text-secondary);"><i class="fa-solid fa-circle"></i> Aktif</span></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">Timeframe: ${alarm.timeframe || '1h'} | TP: ${tp}% | SL: ${sl}% | Bar: ${bar}</div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
                     }
                 });
                 activeGrid.innerHTML = activeHtml;
@@ -4833,7 +4900,7 @@
                     const activeAlarmIds = new Set(activeAlarms.map(a => Number(a.id)));
                     const { data: activeSignals, error } = await supabaseClient
                         .from('active_signals')
-                        .select('id, alarm_id, symbol, direction, entry_price, take_profit, stop_loss, tp_percent, sl_percent, bar_close_limit, score, status, created_at, signal_timestamp, profit_loss, close_reason, closed_at')
+                        .select('id, alarm_id, symbol, direction, entry_price, take_profit, stop_loss, tp_percent, sl_percent, bar_close_limit, score, status, created_at')
                         .eq('user_id', currentUser.id)
                         .order('created_at', { ascending: false });
 
@@ -4843,36 +4910,6 @@
                     } else {
                         const filteredSignals = (activeSignals || [])
                             .filter(sig => activeAlarmIds.has(Number(sig.alarm_id)));
-                        const totalPnlEl = document.getElementById('alarmSignalsTotalPnl');
-                        const totalPnlValue = (filteredSignals || []).reduce((sum, sig) => {
-                            const entryPrice = parseFloat(sig.entry_price);
-                            if (!Number.isFinite(entryPrice) || entryPrice <= 0) return sum;
-                            const statusRaw = String(sig.status || '').toUpperCase();
-                            const isClosed = statusRaw === 'CLOSED';
-                            const storedPnl = Number(sig.profit_loss);
-                            if (isClosed && Number.isFinite(storedPnl)) return sum + storedPnl;
-                            const livePrice = parseFloat(localStorage.getItem(`price_${sig.symbol}`) || String(entryPrice));
-                            if (!Number.isFinite(livePrice)) return sum;
-                            const rawPnl = sig.direction === 'SHORT'
-                                ? ((entryPrice - livePrice) / entryPrice) * 100
-                                : ((livePrice - entryPrice) / entryPrice) * 100;
-                            const tpPercent = Number(sig.tp_percent);
-                            const slPercent = Number(sig.sl_percent);
-                            const tpLimit = Number.isFinite(tpPercent) ? Math.abs(tpPercent) : null;
-                            const slLimit = Number.isFinite(slPercent) ? Math.abs(slPercent) : null;
-                            let openPnl = Number.isFinite(rawPnl) ? rawPnl : 0;
-                            if (tpLimit !== null && openPnl > tpLimit) openPnl = tpLimit;
-                            if (slLimit !== null && openPnl < -slLimit) openPnl = -slLimit;
-                            return sum + openPnl;
-                        }, 0);
-                        if (totalPnlEl) {
-                            const pnlRounded = Number.isFinite(totalPnlValue) ? totalPnlValue.toFixed(2) : '0.00';
-                            const pnlSign = totalPnlValue >= 0 ? '+' : '';
-                            totalPnlEl.textContent = `Toplam PnL: ${pnlSign}${pnlRounded}%`;
-                            totalPnlEl.classList.remove('positive', 'negative');
-                            totalPnlEl.classList.add(totalPnlValue >= 0 ? 'positive' : 'negative');
-                        }
-                        const activeAlarmById = new Map(activeAlarms.map(alarm => [String(alarm.id), alarm]));
 
                         if (filteredSignals.length === 0) {
                             closedContainerEl.innerHTML = '<div style="text-align: center; padding: 24px; color: var(--text-secondary);">Henüz sinyal yok.</div>';
@@ -4882,55 +4919,22 @@
                                 const logoHtml = createCoinLogoElement(coinSymbol, 20);
                                 const score = Number(sig.score || 0);
                                 const entryPrice = parseFloat(sig.entry_price);
-                                const statusRaw = String(sig.status || '').toUpperCase();
-                                const isClosed = statusRaw === 'CLOSED';
-                                const storedPnl = Number(sig.profit_loss);
                                 const livePrice = parseFloat(localStorage.getItem(`price_${sig.symbol}`) || String(entryPrice));
                                 const rawPnl = sig.direction === 'SHORT'
                                     ? ((entryPrice - livePrice) / entryPrice) * 100
                                     : ((livePrice - entryPrice) / entryPrice) * 100;
-                                let pnlPercent = isClosed && Number.isFinite(storedPnl)
-                                    ? parseFloat(storedPnl.toFixed(2))
-                                    : (Number.isFinite(rawPnl) ? parseFloat(rawPnl.toFixed(2)) : 0);
+                                const pnlPercent = Number.isFinite(rawPnl) ? parseFloat(rawPnl.toFixed(2)) : 0;
                                 const pnlClass = pnlPercent >= 0 ? 'positive' : 'negative';
                                 const pnlSign = pnlPercent >= 0 ? '+' : '';
                                 const tpPercent = Number(sig.tp_percent);
                                 const slPercent = Number(sig.sl_percent);
-                                if (!isClosed) {
-                                    const tpLimit = Number.isFinite(tpPercent) ? Math.abs(tpPercent) : null;
-                                    const slLimit = Number.isFinite(slPercent) ? Math.abs(slPercent) : null;
-                                    if (tpLimit !== null && pnlPercent > tpLimit) pnlPercent = tpLimit;
-                                    if (slLimit !== null && pnlPercent < -slLimit) pnlPercent = -slLimit;
-                                }
-                                const barLimitRaw = sig.bar_close_limit;
-                                let barLimitValue = (barLimitRaw === null || barLimitRaw === undefined) ? null : Number(barLimitRaw);
-                                if (!Number.isFinite(barLimitValue) || barLimitValue <= 0) {
-                                    barLimitValue = null;
-                                }
-                                const alarmMatch = activeAlarmById.get(String(sig.alarm_id));
-                                const alarmAutoTrade = !!(alarmMatch && (alarmMatch.auto_trade_enabled || alarmMatch.autoTradeEnabled));
+                                const barLimit = Number(sig.bar_close_limit);
                                 const tpText = Number.isFinite(tpPercent) ? `${tpPercent}%` : '-';
                                 const slText = Number.isFinite(slPercent) ? `${slPercent}%` : '-';
-                                const barText = barLimitValue === null ? (alarmAutoTrade ? '99' : '-') : `${barLimitValue}`;
-                                const closeReasonRaw = String(sig.close_reason || '').toUpperCase();
-                                const closeReasonText = closeReasonRaw === 'TP_HIT'
-                                    ? 'TP'
-                                    : closeReasonRaw === 'SL_HIT'
-                                        ? 'SL'
-                                        : closeReasonRaw === 'BAR_CLOSE'
-                                            ? 'BAR'
-                                            : closeReasonRaw === 'CLOSED_BY_USER'
-                                                ? 'KULLANICI'
-                                                : '';
-                                const statusText = isClosed ? `KAPALI${closeReasonText ? ` (${closeReasonText})` : ''}` : 'AKTİF';
-                                const statusClass = isClosed ? 'negative' : 'positive';
-                                const tpAttr = Number.isFinite(tpPercent) ? tpPercent : '';
-                                const slAttr = Number.isFinite(slPercent) ? slPercent : '';
-                                const pnlAttrs = isClosed && Number.isFinite(storedPnl)
-                                    ? ''
-                                    : ` data-alarm-signal-pnl="1" data-symbol="${sig.symbol}" data-direction="${sig.direction}" data-entry="${sig.entry_price}" data-tp-percent="${tpAttr}" data-sl-percent="${slAttr}"`;
-                                const signalTime = formatTurkeyDate(isClosed ? sig.closed_at : (sig.signal_timestamp || sig.created_at));
-                                const signalTimeLabel = isClosed ? 'Kapanış' : 'Oluşum';
+                                const barText = Number.isFinite(barLimit) ? `${barLimit}` : '-';
+                                const statusRaw = String(sig.status || '').toUpperCase();
+                                const statusText = statusRaw === 'CLOSED' ? 'KAPALI' : 'AKTİF';
+                                const statusClass = statusRaw === 'CLOSED' ? 'negative' : 'positive';
                                 return `
                                     <div class="alarm-card" style="margin-bottom: 12px;">
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;">
@@ -4943,14 +4947,13 @@
                                             </div>
                                             <div style="display:flex;align-items:center;gap:8px;">
                                                 <span class="price-change ${statusClass}" style="font-size:0.75rem;padding:3px 8px;">${statusText}</span>
-                                                <span class="price-change ${pnlClass}"${pnlAttrs}>${pnlSign}${pnlPercent}%</span>
+                                                <span class="price-change ${pnlClass}" data-alarm-signal-pnl="1" data-symbol="${sig.symbol}" data-direction="${sig.direction}" data-entry="${sig.entry_price}">${pnlSign}${pnlPercent}%</span>
                                             </div>
                                         </div>
                                         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
                                             <span class="price-change positive" style="padding:3px 8px;font-size:0.75rem;">TP: ${tpText}</span>
                                             <span class="price-change negative" style="padding:3px 8px;font-size:0.75rem;">SL: ${slText}</span>
                                             <span class="price-change" style="background:rgba(255,255,255,0.06);color:var(--text-secondary);padding:3px 8px;font-size:0.75rem;">Bar: ${barText}</span>
-                                            <span class="price-change" style="background:rgba(255,255,255,0.06);color:var(--text-secondary);padding:3px 8px;font-size:0.75rem;">${signalTimeLabel}: ${signalTime}</span>
                                         </div>
                                         <div style="font-size:0.85rem;color:var(--text-secondary);">
                                             Giriş: <strong>$${formatPrice(parseFloat(sig.entry_price))}</strong><br>
@@ -5125,7 +5128,6 @@
                 showUpdateToast('Alarm kurmak için Premium gerekli', 'warning');
                 return;
             }
-            if (!canCreatePremiumAlarm()) return;
             if (!currentAnalysis) {
                 showUpdateToast('Lütfen önce bir coin seçin ve analiz yapılmasını bekleyin', 'warning');
                 return;
@@ -5684,7 +5686,6 @@ Detaylar:
                 }
             }
         }
-
         
         function refreshAnalysisDisplay() {
             // Analiz bölümünü yeniden render et
@@ -5749,10 +5750,6 @@ Detaylar:
                 const symbol = el.getAttribute('data-symbol');
                 const direction = String(el.getAttribute('data-direction') || '').toUpperCase();
                 const entry = parseFloat(el.getAttribute('data-entry') || '0');
-                const tpRaw = parseFloat(el.getAttribute('data-tp-percent') || '');
-                const slRaw = parseFloat(el.getAttribute('data-sl-percent') || '');
-                const tpLimit = Number.isFinite(tpRaw) ? Math.abs(tpRaw) : null;
-                const slLimit = Number.isFinite(slRaw) ? Math.abs(slRaw) : null;
                 if (!symbol || !entry) return;
 
                 const livePrice = parseFloat(localStorage.getItem(`price_${symbol}`) || String(entry));
@@ -5762,9 +5759,7 @@ Detaylar:
                     ? ((entry - livePrice) / entry) * 100
                     : ((livePrice - entry) / entry) * 100;
 
-                let pnlPercent = Number.isFinite(rawPnl) ? parseFloat(rawPnl.toFixed(2)) : 0;
-                if (tpLimit !== null && pnlPercent > tpLimit) pnlPercent = tpLimit;
-                if (slLimit !== null && pnlPercent < -slLimit) pnlPercent = -slLimit;
+                const pnlPercent = Number.isFinite(rawPnl) ? parseFloat(rawPnl.toFixed(2)) : 0;
                 const pnlSign = pnlPercent >= 0 ? '+' : '';
                 el.textContent = `${pnlSign}${pnlPercent}%`;
                 el.className = `price-change ${pnlPercent >= 0 ? 'positive' : 'negative'}`;

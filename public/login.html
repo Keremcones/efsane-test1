@@ -27,26 +27,12 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
     <link rel="manifest" href="/site.webmanifest">
         <meta name="theme-color" content="#0b0f14">
-    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-    <link rel="stylesheet" href="glass-theme.css?v=20260203">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script>
-        (function () {
-            if (window.supabase) return;
-            var fallbackScript = document.createElement('script');
-            fallbackScript.src = 'https://unpkg.com/@supabase/supabase-js@2';
-            fallbackScript.defer = true;
-            document.head.appendChild(fallbackScript);
-        })();
-    </script>
     <script>
         const savedTheme = localStorage.getItem('theme') || 'dark';
         document.documentElement.dataset.theme = savedTheme;
-    </script>
-    <script>
-        window.toggleHamburgerMenu = window.toggleHamburgerMenu || function() {};
-        window.closeHamburgerMenu = window.closeHamburgerMenu || function() {};
     </script>
     <style>
         * {
@@ -75,16 +61,16 @@
         }
 
         html[data-theme="dark"] {
-            --login-bg-1: #11162f;
-            --login-bg-2: #1b2242;
-            --login-card-bg: rgba(30, 38, 70, 0.85);
+            --login-bg-1: #0a0e27;
+            --login-bg-2: #151937;
+            --login-card-bg: rgba(21, 25, 55, 0.8);
             --login-border: rgba(45, 55, 72, 0.5);
             --login-text: #ffffff;
             --login-muted: #a0aec0;
             --login-accent-1: rgba(0, 255, 136, 0.1);
             --login-accent-2: rgba(59, 130, 246, 0.1);
-            --login-input-bg: rgba(20, 28, 52, 0.75);
-            --login-input-border: rgba(60, 74, 110, 0.7);
+            --login-input-bg: rgba(10, 14, 39, 0.6);
+            --login-input-border: rgba(45, 55, 72, 0.8);
             --login-focus: #00ff88;
             --login-tab: #a0aec0;
             --login-tab-active: #00ff88;
@@ -686,7 +672,6 @@ Bu metni onaylamadan kayıt olamazsınız.
     <script src="config.js"></script>
     <script>
         let supabaseClient;
-        let supabaseInitAttempts = 0;
 
         function isRecoveryFlow() {
             return window.location.hash.includes('type=recovery')
@@ -695,21 +680,6 @@ Bu metni onaylamadan kayıt olamazsınız.
 
         // Supabase'i başlat
         async function initSupabase() {
-            if (!window.supabase || typeof window.supabase.createClient !== 'function') {
-                if (supabaseInitAttempts < 3) {
-                    supabaseInitAttempts += 1;
-                    setTimeout(initSupabase, 600);
-                    return;
-                }
-                showError('login', 'Supabase SDK yuklenemedi. Adblock/VPN kontrol edin ve sayfayi yenileyin.');
-                return;
-            }
-
-            if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-                showError('login', 'Supabase ayarlari yuklenemedi. Sayfayi yenileyin veya destek alin.');
-                return;
-            }
-
             supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
             
             // Zaten login'se dashboard'a yönlendir

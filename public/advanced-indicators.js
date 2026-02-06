@@ -6,8 +6,6 @@
 
 // (no helper) price formatting uses toFixed(2) where appropriate
 
-const TELEGRAM_BOT_TOKEN_SAFE = typeof TELEGRAM_BOT_TOKEN !== 'undefined' ? TELEGRAM_BOT_TOKEN : null;
-
 // 1. MULTI-TIMEFRAME ANALİZ
 async function analyzeMultiTimeframe(symbol) {
     const timeframes = ['5m', '15m', '1h', '4h', '1d'];
@@ -820,20 +818,27 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             const indicators = calculateIndicators(windowCloses, windowHighs, windowLows, windowVolumes);
             const sr = findSupportResistance(windowHighs, windowLows, windowCloses);
             
-            const signalScore = generateSignalScoreAligned(
-                indicators,
-                windowCloses[windowCloses.length - 1],
-                sr,
-                windowCloses,
-                windowVolumes,
-                confidenceThreshold
-            );
+            // Kullanıcı TP/SL değerlerine göre backtestAverages oluştur
+            const userTPSL = {
+                LONG: {
+                    avgTPPercent: takeProfitPercent,
+                    avgSLPercent: -stopLossPercent
+                },
+                SHORT: {
+                    avgTPPercent: -takeProfitPercent,
+                    avgSLPercent: stopLossPercent
+                }
+            };
             
-            const shouldOpenTrade = signalScore && signalScore.triggered;
+            // ✅ FORMASYONLAR OLMASA BİLE İŞLEM AÇILSIN - patterns şartını kaldır
+            const signal = generateAdvancedSignal(indicators, windowCloses[windowCloses.length-1], sr, [], null, confidenceThreshold, userTPSL);
+            
+            // Seçilen güven eşiğine göre işlem aç
+            const shouldOpenTrade = signal && signal.isValidSignal;
             
             // DEBUG: Log ekle
             if (i < windowSize + 5 || i > closes.length - 10) {
-                console.log(`🔄 [${timeframe}] bar=${i} signal=${signalScore.direction} score=${signalScore.score} shouldOpen=${shouldOpenTrade}`);
+                console.log(`🔄 [${timeframe}] bar=${i} signal=${signal.direction} score=${signal.score} TP=${signal.tp?.toFixed(4)} SL=${signal.stop?.toFixed(4)} shouldOpen=${shouldOpenTrade}`);
             }
             
             if (!shouldOpenTrade) {
@@ -847,21 +852,9 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             // ADIM 3: YENİ İŞLEM AÇ
             // ============================================
             
-            const entryPrice = windowCloses[windowCloses.length - 1];
-            const direction = signalScore.direction;
-            const takeProfit = direction === 'SHORT'
-                ? entryPrice * (1 - takeProfitPercent / 100)
-                : entryPrice * (1 + takeProfitPercent / 100);
-            const stopLoss = direction === 'SHORT'
-                ? entryPrice * (1 + stopLossPercent / 100)
-                : entryPrice * (1 - stopLossPercent / 100);
-            const signal = {
-                direction,
-                score: signalScore.score,
-                tp: takeProfit,
-                stop: stopLoss,
-                isValidSignal: true
-            };
+            const entryPrice = windowCloses[windowCloses.length-1];
+            const takeProfit = signal.tp;
+            const stopLoss = signal.stop;
             
             // Tarih ve saat (Türkiye saati)
             const tradeDate = new Date(klines[i][0]);
@@ -1054,30 +1047,18 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             const lastIndicators = calculateIndicators(lastWindowCloses, lastWindowHighs, lastWindowLows, lastWindowVolumes);
             const lastSR = findSupportResistance(lastWindowHighs, lastWindowLows, lastWindowCloses);
             
-            const lastSignalScore = generateSignalScoreAligned(
-                lastIndicators,
-                closes[closedBarIndex],
-                lastSR,
-                lastWindowCloses,
-                lastWindowVolumes,
-                confidenceThreshold
-            );
-            const lastDirection = lastSignalScore.direction;
-            const lastEntry = closes[closedBarIndex];
-            const lastTp = lastDirection === 'SHORT'
-                ? lastEntry * (1 - takeProfitPercent / 100)
-                : lastEntry * (1 + takeProfitPercent / 100);
-            const lastSl = lastDirection === 'SHORT'
-                ? lastEntry * (1 + stopLossPercent / 100)
-                : lastEntry * (1 - stopLossPercent / 100);
-            const lastSignal = {
-                direction: lastDirection,
-                entry: lastEntry,
-                tp: lastTp,
-                stop: lastSl,
-                score: lastSignalScore.score,
-                isValidSignal: lastSignalScore.triggered
+            const lastUserTPSL = {
+                LONG: {
+                    avgTPPercent: takeProfitPercent,
+                    avgSLPercent: -stopLossPercent
+                },
+                SHORT: {
+                    avgTPPercent: -takeProfitPercent,
+                    avgSLPercent: stopLossPercent
+                }
             };
+            
+            const lastSignal = generateAdvancedSignal(lastIndicators, closes[closedBarIndex], lastSR, [], null, confidenceThreshold, lastUserTPSL);
             
             // SADECE isValidSignal true olan sinyalleri göster (confidence threshold geçenler)
             if (lastSignal && lastSignal.isValidSignal) {
@@ -1477,6 +1458,25 @@ class AlarmSystem {
                         .eq('alarm_id', numId);
                     console.log('🧹 Active signals temizlendi:', deleteSignalsResult);
                 }
+
+                if (alarm) {
+                    // Fallback: alarm_id eşleşmezse ilgili sembol/timeframe sinyallerini temizle
+                    let fallbackSignalDelete = this.supabase
+                        .from('active_signals')
+                        .delete()
+                        .eq('user_id', this.userId)
+                        .eq('symbol', alarm.symbol || 'BTCUSDT');
+
+                    if (alarm.timeframe) {
+                        fallbackSignalDelete = fallbackSignalDelete.eq('timeframe', alarm.timeframe);
+                    }
+                    if (alarm.marketType) {
+                        fallbackSignalDelete = fallbackSignalDelete.eq('market_type', alarm.marketType);
+                    }
+
+                    const fallbackSignalsResult = await fallbackSignalDelete;
+                    console.log('🧹 Active signals fallback temizlendi:', fallbackSignalsResult);
+                }
                 await this.loadAlarms();
             } catch (error) {
                 console.error('❌ Supabase silme hatası:', error);
@@ -1740,11 +1740,6 @@ ${profitEmoji} Kar/Zarar: *${profit}%*
 
             const chatId = userSettings.telegram_username;
 
-            if (!TELEGRAM_BOT_TOKEN_SAFE) {
-                console.warn('⚠️ [TELEGRAM] Bot token tanımlı değil, gönderim atlandı');
-                return;
-            }
-
             console.log('📤 [TELEGRAM] Mesaj hazırlanıyor:', { 
                 chatId,
                 type: alarm.type,
@@ -1761,7 +1756,7 @@ ${profitEmoji} Kar/Zarar: *${profit}%*
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         telegramUsername: chatId,
-                        botToken: TELEGRAM_BOT_TOKEN_SAFE,
+                        botToken: TELEGRAM_BOT_TOKEN,
                         message: messageText,
                         parse_mode: 'Markdown'
                     })
@@ -1848,13 +1843,8 @@ ${profitEmoji} Kar/Zarar: *${profit}%*
             console.log('📤 Telegram mesajı gönderiliyor:', {
                 chatId,
                 messageLength: messageText.length,
-                botTokenExists: !!TELEGRAM_BOT_TOKEN_SAFE
+                botTokenExists: !!TELEGRAM_BOT_TOKEN
             });
-
-            if (!TELEGRAM_BOT_TOKEN_SAFE) {
-                console.warn('⚠️ [TELEGRAM] Bot token tanımlı değil, gönderim atlandı');
-                return;
-            }
 
             const response = await fetch(
                 'https://jcrbhekrphxodxhkuzju.supabase.co/functions/v1/dynamic-responder',
@@ -1863,7 +1853,7 @@ ${profitEmoji} Kar/Zarar: *${profit}%*
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         telegramUsername: chatId,
-                        botToken: TELEGRAM_BOT_TOKEN_SAFE,
+                        botToken: TELEGRAM_BOT_TOKEN,
                         message: messageText,
                         parse_mode: 'Markdown'
                     })
@@ -1991,13 +1981,8 @@ ${pnlEmoji} Kar/Zarar: *${pnl}%*
             console.log('📤 [TELEGRAM PASIF] Telegram mesajı gönderiliyor...', {
                 chatId,
                 messageLength: messageText.length,
-                botTokenExists: !!TELEGRAM_BOT_TOKEN_SAFE
+                botTokenExists: !!TELEGRAM_BOT_TOKEN
             });
-
-            if (!TELEGRAM_BOT_TOKEN_SAFE) {
-                console.warn('⚠️ [TELEGRAM PASIF] Bot token tanımlı değil, gönderim atlandı');
-                return;
-            }
 
             const response = await fetch(
                 'https://jcrbhekrphxodxhkuzju.supabase.co/functions/v1/dynamic-responder',
@@ -2006,7 +1991,7 @@ ${pnlEmoji} Kar/Zarar: *${pnl}%*
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         telegramUsername: chatId,
-                        botToken: TELEGRAM_BOT_TOKEN_SAFE,
+                        botToken: TELEGRAM_BOT_TOKEN,
                         message: messageText,
                         parse_mode: 'Markdown'
                     })
@@ -2074,10 +2059,6 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
 
             const chatId = userSettings.telegram_username;
 
-            if (!TELEGRAM_BOT_TOKEN_SAFE) {
-                return;
-            }
-
             await fetch(
                 'https://jcrbhekrphxodxhkuzju.supabase.co/functions/v1/dynamic-responder',
                 {
@@ -2085,7 +2066,7 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         telegramUsername: chatId,
-                        botToken: TELEGRAM_BOT_TOKEN_SAFE,
+                        botToken: TELEGRAM_BOT_TOKEN,
                         message: message,
                         parse_mode: 'Markdown'
                     })
@@ -2119,13 +2100,11 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                 // Tüm alarmları bir kez map et ve insert et (loop değil!)
                 const alarmsData = this.alarms.map(alarm => {
                     const autoTradeEnabled = alarm.autoTradeEnabled || alarm.auto_trade_enabled || false;
-                    const rawBarCloseLimit = alarm.barCloseLimit ?? alarm.bar_close_limit;
-                    const normalizedBarCloseLimit = (rawBarCloseLimit === null || rawBarCloseLimit === undefined)
-                        ? 5
-                        : (Number.isFinite(Number(rawBarCloseLimit)) && Number(rawBarCloseLimit) > 0
-                            ? Number(rawBarCloseLimit)
-                            : 5);
-                    const resolvedBarCloseLimit = autoTradeEnabled ? null : normalizedBarCloseLimit;
+                    const resolvedBarCloseLimit = autoTradeEnabled
+                        ? null
+                        : ((alarm.barCloseLimit === null || alarm.bar_close_limit === null)
+                            ? null
+                            : (alarm.barCloseLimit ?? alarm.bar_close_limit ?? 5));
                     const baseData = {
                         user_id: this.userId,
                         symbol: alarm.symbol || 'BTCUSDT',
@@ -2204,14 +2183,10 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                     this.alarms = data.map(item => {
                         const autoTradeEnabled = item.auto_trade_enabled === true;
                         const rawBarCloseLimit = item.bar_close_limit;
-                        const barCloseLimitValue = (rawBarCloseLimit === null || rawBarCloseLimit === undefined)
-                            ? (autoTradeEnabled ? null : 5)
-                            : (Number.isFinite(Number(rawBarCloseLimit)) && Number(rawBarCloseLimit) > 0
-                                ? Number(rawBarCloseLimit)
-                                : (autoTradeEnabled ? null : 5));
+                        const barCloseLimitValue = Number.isFinite(Number(rawBarCloseLimit))
+                            ? Number(rawBarCloseLimit)
+                            : (autoTradeEnabled ? null : 5);
                         const barCloseLimitDisplay = barCloseLimitValue === null ? 99 : barCloseLimitValue;
-                        const tpValue = parseFloat(item.tp_percent);
-                        const slValue = parseFloat(item.sl_percent);
                         const baseAlarm = {
                             id: String(item.id),  // Convert BIGSERIAL number to string for consistent type handling
                             symbol: item.symbol,
@@ -2220,8 +2195,8 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                             active: item.is_active,
                             createdAt: item.created_at,
                             confidenceScore: parseInt(item.confidence_score) || 60,
-                            takeProfitPercent: Number.isFinite(tpValue) ? tpValue : 5,
-                            stopLossPercent: Number.isFinite(slValue) ? slValue : 3,
+                            takeProfitPercent: parseInt(item.tp_percent) || 5,
+                            stopLossPercent: parseInt(item.sl_percent) || 3,
                             barCloseLimit: barCloseLimitValue,
                             auto_trade_enabled: autoTradeEnabled,
                             autoTradeEnabled: autoTradeEnabled
@@ -2495,115 +2470,6 @@ async function fetchCryptoNews(coin = 'BTC', limit = 10) {
         console.warn('News fetch error:', error.message);
         return [];
     }
-}
-
-// 6.1 BACKEND-ALIGNED SİNYAL SKORU (Alarm ile aynı)
-function generateSignalScoreAligned(indicators, price, sr, closes, volumes, userConfidenceThreshold = 70) {
-    const macdValue = Number(indicators?.macd?.macd ?? indicators?.macd ?? 0);
-    const stochK = Number(indicators?.stoch?.k ?? indicators?.stoch?.K ?? 0);
-    const atrValue = Number(indicators?.atr ?? 0);
-    const atrPercent = price > 0 ? (atrValue / price) : 0;
-
-    const isTrending = Number(indicators?.adx ?? 0) >= 25;
-    const regime = isTrending ? 'trend' : 'range';
-
-    let trendWeight = 40;
-    let momentumWeight = 30;
-    let volumeWeight = 15;
-    let srWeight = 15;
-
-    if (regime === 'trend') {
-        trendWeight = 50;
-        momentumWeight = 20;
-        volumeWeight = 20;
-        srWeight = 10;
-    } else {
-        trendWeight = 25;
-        momentumWeight = 35;
-        volumeWeight = 15;
-        srWeight = 25;
-    }
-
-    // TREND (%40)
-    let trendScore = 0;
-    if (indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50) {
-        trendScore += 30;
-    } else if (indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50) {
-        trendScore -= 30;
-    }
-    if (indicators.adx > 25) {
-        trendScore += Math.min((indicators.adx - 25) * 0.8, 20);
-    }
-
-    // MOMENTUM (%30)
-    let momentumScore = 0;
-    if (indicators.rsi < 30) momentumScore += 25;
-    else if (indicators.rsi < 40) momentumScore += 15;
-    else if (indicators.rsi > 70) momentumScore -= 25;
-    else if (indicators.rsi > 60) momentumScore -= 15;
-
-    momentumScore += macdValue > 0 ? 10 : -10;
-    if (stochK < 20) momentumScore += 10;
-    else if (stochK > 80) momentumScore -= 10;
-
-    // VOLUME (%15)
-    let volumeScore = 0;
-    let obvTrend = 'flat';
-    if (Array.isArray(closes) && closes.length >= 2) {
-        if (closes[closes.length - 1] > closes[closes.length - 2]) obvTrend = 'rising';
-        else if (closes[closes.length - 1] < closes[closes.length - 2]) obvTrend = 'falling';
-    }
-    if (obvTrend === 'rising') volumeScore += 10;
-    else if (obvTrend === 'falling') volumeScore -= 10;
-
-    const volumeMA = Array.isArray(volumes) && volumes.length > 0
-        ? volumes.reduce((a, b) => a + b, 0) / volumes.length
-        : 0;
-    const lastVolume = Array.isArray(volumes) && volumes.length > 0
-        ? volumes[volumes.length - 1]
-        : 0;
-    if (lastVolume > volumeMA) volumeScore += 15;
-    else volumeScore -= 10;
-
-    // SUPPORT/RESISTANCE (%15)
-    let srScore = 0;
-    const nearestSupport = sr?.supports?.[0]?.price || (price * 0.95);
-    const nearestResistance = sr?.resistances?.[0]?.price || (price * 1.05);
-    if (nearestSupport > 0 && nearestResistance > 0 && price > 0) {
-        const distanceToSupport = (price - nearestSupport) / price;
-        const distanceToResistance = (nearestResistance - price) / price;
-        if (distanceToSupport < 0.02) srScore += 15;
-        if (distanceToResistance < 0.02) srScore -= 15;
-    }
-
-    const normalizedTrendScore = (trendScore / 50) * trendWeight;
-    const normalizedMomentumScore = (momentumScore / 50) * momentumWeight;
-    const normalizedVolumeScore = (volumeScore / 25) * volumeWeight;
-    const normalizedSRScore = (srScore / 30) * srWeight;
-    const totalScore = normalizedTrendScore + normalizedMomentumScore + normalizedVolumeScore + normalizedSRScore;
-
-    const direction = totalScore > 0 ? 'LONG' : 'SHORT';
-    const confidence = Math.min(Math.max(Math.abs(totalScore), 0), 100);
-    let adjustedThreshold = userConfidenceThreshold;
-    if (atrPercent > 0 && atrPercent < 0.001) adjustedThreshold += 20;
-    else if (atrPercent > 0 && atrPercent < 0.002) adjustedThreshold += 10;
-    adjustedThreshold = Math.min(95, adjustedThreshold);
-
-    let triggered = confidence >= adjustedThreshold;
-    const trendUp = indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50;
-    const trendDown = indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50;
-    if (trendDown && direction === 'LONG') triggered = false;
-    if (trendUp && direction === 'SHORT') triggered = false;
-
-    return {
-        direction,
-        score: Math.round(confidence),
-        triggered,
-        regime: {
-            type: regime,
-            atrPercent: atrPercent
-        }
-    };
 }
 
 // RSS başlık ve açıklamadan duygu analizi
