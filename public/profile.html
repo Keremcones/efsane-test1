@@ -2101,9 +2101,22 @@
 
             if (statusEl) statusEl.textContent = 'Test ediliyor...';
             try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (SUPABASE_ANON_KEY) {
+                    headers['apikey'] = SUPABASE_ANON_KEY;
+                }
+                if (supabaseClient?.auth) {
+                    const { data: { session } } = await supabaseClient.auth.getSession();
+                    if (session?.access_token) {
+                        headers['Authorization'] = 'Bearer ' + session.access_token;
+                    } else if (SUPABASE_ANON_KEY) {
+                        headers['Authorization'] = 'Bearer ' + SUPABASE_ANON_KEY;
+                    }
+                }
+
                 const response = await fetch(TELEGRAM_FUNCTION_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers,
                     body: JSON.stringify({
                         action: 'test_binance_connection',
                         api_key: apiKey,

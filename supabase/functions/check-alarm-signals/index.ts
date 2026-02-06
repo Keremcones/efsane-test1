@@ -351,27 +351,194 @@ async function getFuturesPositionMode(apiKey: string, apiSecret: string): Promis
   return data?.dualSidePosition ? "HEDGE" : "ONE_WAY";
 }
 
+type FuturesOrderType = "MARKET" | "LIMIT";
+type OpenTradeOptions = {
+  orderType?: FuturesOrderType;
+  limitPrice?: string;
+  limitTimeoutSeconds?: number;
+  quantityPrecision?: number;
+  minQty?: number;
+};
+
+const LIMIT_ORDER_POLL_INTERVAL_MS = 2000;
+
+function normalizeFuturesEntryType(value: any): FuturesOrderType {
+  return String(value || "MARKET").toUpperCase() === "LIMIT" ? "LIMIT" : "MARKET";
+}
+
+function normalizeLimitTimeoutSeconds(value: any): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 60;
+  return Math.max(5, Math.floor(parsed));
+}
+
+function roundQuantity(value: number, precision: number): number {
+  const factor = Math.pow(10, precision);
+  return Math.floor(value * factor) / factor;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function placeFuturesMarketOrder(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  side: "BUY" | "SELL",
+  quantity: number
+): Promise<{ success: boolean; orderId?: string; error?: string }> {
+  const timestamp = Date.now();
+  const queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v1/order?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    return { success: false, error: data?.msg || "Order failed" };
+  }
+
+  return { success: true, orderId: String(data.orderId) };
+}
+
+async function placeFuturesLimitOrder(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  side: "BUY" | "SELL",
+  quantity: number,
+  price: string
+): Promise<{ success: boolean; orderId?: string; error?: string }> {
+  const timestamp = Date.now();
+  const queryString = `symbol=${symbol}&side=${side}&type=LIMIT&timeInForce=GTC&quantity=${quantity}&price=${price}&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v1/order?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    return { success: false, error: data?.msg || "Limit order failed" };
+  }
+
+  return { success: true, orderId: String(data.orderId) };
+}
+
+async function getFuturesOrderDetails(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  orderId: string
+): Promise<{ status?: string; executedQty?: number; error?: string }> {
+  const timestamp = Date.now();
+  const queryString = `symbol=${symbol}&orderId=${orderId}&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v1/order?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    return { error: errorText || "Order status failed" };
+  }
+
+  const data = await response.json();
+  return {
+    status: data?.status,
+    executedQty: Number(data?.executedQty || 0)
+  };
+}
+
+async function cancelFuturesOrder(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  orderId: string
+): Promise<boolean> {
+  const timestamp = Date.now();
+  const queryString = `symbol=${symbol}&orderId=${orderId}&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v1/order?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  return response.ok;
+}
+
 async function openBinanceTrade(
   apiKey: string,
   apiSecret: string,
   symbol: string,
   direction: "LONG" | "SHORT",
   quantity: number,
-  marketType: "spot" | "futures"
+  marketType: "spot" | "futures",
+  options: OpenTradeOptions = {}
 ): Promise<{ success: boolean; orderId?: string; error?: string }> {
   const timestamp = Date.now();
   const side = direction === "LONG" ? "BUY" : "SELL";
 
-  let queryString: string;
-  let baseUrl: string;
-
   if (marketType === "futures") {
-    queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
-    baseUrl = "https://fapi.binance.com/fapi/v1/order";
-  } else {
-    queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
-    baseUrl = "https://api.binance.com/api/v3/order";
+    const orderType = normalizeFuturesEntryType(options.orderType);
+    if (orderType === "LIMIT" && options.limitPrice) {
+      const limitOrder = await placeFuturesLimitOrder(apiKey, apiSecret, symbol, side, quantity, options.limitPrice);
+      if (!limitOrder.success || !limitOrder.orderId) {
+        return { success: false, error: limitOrder.error || "Limit order failed" };
+      }
+
+      const timeoutSeconds = normalizeLimitTimeoutSeconds(options.limitTimeoutSeconds);
+      const deadline = Date.now() + timeoutSeconds * 1000;
+      let executedQty = 0;
+
+      while (Date.now() < deadline) {
+        const details = await getFuturesOrderDetails(apiKey, apiSecret, symbol, limitOrder.orderId);
+        if (details.executedQty) {
+          executedQty = details.executedQty;
+        }
+        if (details.status === "FILLED") {
+          return { success: true, orderId: limitOrder.orderId };
+        }
+        if (details.status === "CANCELED" || details.status === "REJECTED" || details.status === "EXPIRED") {
+          break;
+        }
+        await delay(LIMIT_ORDER_POLL_INTERVAL_MS);
+      }
+
+      await cancelFuturesOrder(apiKey, apiSecret, symbol, limitOrder.orderId);
+
+      const precision = Number.isFinite(options.quantityPrecision) ? Number(options.quantityPrecision) : 0;
+      const minQty = Number.isFinite(options.minQty) ? Number(options.minQty) : 0;
+      const remainingRaw = quantity - executedQty;
+      const remaining = precision > 0 ? roundQuantity(remainingRaw, precision) : remainingRaw;
+
+      if (remaining > minQty) {
+        const marketResult = await placeFuturesMarketOrder(apiKey, apiSecret, symbol, side, remaining);
+        if (!marketResult.success) {
+          return { success: false, error: marketResult.error || "Order failed" };
+        }
+        return { success: true, orderId: marketResult.orderId };
+      }
+
+      return { success: true, orderId: limitOrder.orderId };
+    }
+
+    return placeFuturesMarketOrder(apiKey, apiSecret, symbol, side, quantity);
   }
+
+  const queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
+  const baseUrl = "https://api.binance.com/api/v3/order";
 
   const signature = await createBinanceSignature(queryString, apiSecret);
   const url = `${baseUrl}?${queryString}&signature=${signature}`;
@@ -620,7 +787,17 @@ async function executeAutoTrade(
       return { success: false, message: "Spot auto-trade not enabled" };
     }
 
-    const { api_key, api_secret, futures_leverage, futures_position_size_percent, spot_position_size_percent, futures_margin_type } = userKeys;
+    const {
+      api_key,
+      api_secret,
+      futures_leverage,
+      futures_position_size_percent,
+      spot_position_size_percent,
+      futures_margin_type,
+      futures_entry_type,
+      futures_limit_deviation_percent,
+      futures_limit_timeout_seconds
+    } = userKeys;
 
     if (marketType === "spot" && direction === "SHORT") {
       return { success: false, message: "Spot SHORT not supported" };
@@ -667,6 +844,20 @@ async function executeAutoTrade(
       return { success: false, message: `Quantity too small: ${quantity} < ${symbolInfo.minQty}` };
     }
 
+    const futuresEntryType = normalizeFuturesEntryType(futures_entry_type);
+    const deviationRaw = Number(futures_limit_deviation_percent);
+    const deviationPercent = Number.isFinite(deviationRaw) ? Math.max(0, deviationRaw) : 0.3;
+    const limitTimeoutSeconds = normalizeLimitTimeoutSeconds(futures_limit_timeout_seconds);
+    let limitPrice: string | undefined;
+
+    if (marketType === "futures" && futuresEntryType === "LIMIT") {
+      const directionFactor = direction === "LONG" ? -1 : 1;
+      const limitPriceValue = entryPrice * (1 + directionFactor * deviationPercent / 100);
+      if (limitPriceValue > 0) {
+        limitPrice = limitPriceValue.toFixed(symbolInfo.pricePrecision);
+      }
+    }
+
     if (marketType === "futures") {
       const positionMode = await getFuturesPositionMode(api_key, api_secret);
       if (positionMode === "HEDGE") {
@@ -682,7 +873,16 @@ async function executeAutoTrade(
       await setLeverage(api_key, api_secret, symbol, leverage);
     }
 
-    const orderResult = await openBinanceTrade(api_key, api_secret, symbol, direction, quantity, marketType);
+    const orderOptions: OpenTradeOptions = marketType === "futures"
+      ? {
+          orderType: futuresEntryType,
+          limitPrice,
+          limitTimeoutSeconds,
+          quantityPrecision: symbolInfo.quantityPrecision,
+          minQty: symbolInfo.minQty
+        }
+      : {};
+    const orderResult = await openBinanceTrade(api_key, api_secret, symbol, direction, quantity, marketType, orderOptions);
     if (!orderResult.success) {
       return { success: false, message: orderResult.error || "Order failed" };
     }
@@ -1866,7 +2066,6 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
 
         if (!shouldClose || !closeReason) continue;
 
-        // Calculate profit/loss (for logging/notification, not stored in DB)
         const profitLoss = direction === "LONG"
           ? ((currentPrice - Number(signal.entry_price)) / Number(signal.entry_price)) * 100
           : ((Number(signal.entry_price) - currentPrice) / Number(signal.entry_price)) * 100;
@@ -1876,6 +2075,7 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           .update({
             status: "CLOSED",
             close_reason: closeReason,
+            profit_loss: profitLoss,
             closed_at: new Date().toISOString()
           })
           .eq("id", signal.id)

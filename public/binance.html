@@ -615,6 +615,21 @@
                             <option value="100">%100</option>
                         </select>
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">Emir Tipi</label>
+                        <select id="futuresOrderType" class="form-input">
+                            <option value="MARKET" selected>Market</option>
+                            <option value="LIMIT">Limit</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Limit Sapma (%)</label>
+                        <input type="number" id="futuresLimitDeviationPercent" class="form-input" min="0" step="0.1" value="0.3" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Limit Bekleme (sn)</label>
+                        <input type="number" id="futuresLimitTimeoutSeconds" class="form-input" min="5" step="1" value="60" />
+                    </div>
                 </div>
 
                 <div style="border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-top: 12px;">
@@ -831,12 +846,31 @@
                 'futuresLeverage',
                 'futuresMarginType',
                 'futuresPositionSize',
+                'futuresOrderType',
+                'futuresLimitDeviationPercent',
+                'futuresLimitTimeoutSeconds',
                 'spotPositionSize',
                 'testBinanceBtn'
             ];
             ids.forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.disabled = !enabled;
+            });
+            window.updateFuturesLimitUI();
+        };
+
+        window.updateFuturesLimitUI = function() {
+            const autoToggle = document.getElementById('autoTradeToggle');
+            const enabled = autoToggle ? autoToggle.checked : false;
+            const orderType = String(document.getElementById('futuresOrderType')?.value || 'MARKET').toUpperCase();
+            const limitEnabled = enabled && orderType === 'LIMIT';
+            const limitIds = [
+                'futuresLimitDeviationPercent',
+                'futuresLimitTimeoutSeconds'
+            ];
+            limitIds.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.disabled = !limitEnabled;
             });
         };
 
@@ -868,7 +902,11 @@
                 document.getElementById('futuresLeverage').value = String(data.futures_leverage || 10);
                 document.getElementById('futuresMarginType').value = String(data.futures_margin_type || 'CROSS');
                 document.getElementById('futuresPositionSize').value = String(data.futures_position_size_percent || 5);
+                document.getElementById('futuresOrderType').value = String(data.futures_entry_type || 'MARKET').toUpperCase() === 'LIMIT' ? 'LIMIT' : 'MARKET';
+                document.getElementById('futuresLimitDeviationPercent').value = String(Number.isFinite(Number(data.futures_limit_deviation_percent)) ? data.futures_limit_deviation_percent : 0.3);
+                document.getElementById('futuresLimitTimeoutSeconds').value = String(Number.isFinite(Number(data.futures_limit_timeout_seconds)) ? data.futures_limit_timeout_seconds : 60);
                 document.getElementById('spotPositionSize').value = String(data.spot_position_size_percent || 5);
+                window.updateFuturesLimitUI();
             } catch (e) {
                 console.error('Binance ayarları yükleme hatası:', e);
             } finally {
@@ -886,6 +924,9 @@
                 'futuresLeverage',
                 'futuresMarginType',
                 'futuresPositionSize',
+                'futuresOrderType',
+                'futuresLimitDeviationPercent',
+                'futuresLimitTimeoutSeconds',
                 'spotPositionSize'
             ];
 
@@ -895,6 +936,11 @@
                 el.addEventListener('input', queueAutoSave);
                 el.addEventListener('change', queueAutoSave);
             });
+
+            const futuresOrderType = document.getElementById('futuresOrderType');
+            if (futuresOrderType) {
+                futuresOrderType.addEventListener('change', window.updateFuturesLimitUI);
+            }
         }
 
         window.saveBinanceSettings = async function() {
@@ -911,6 +957,9 @@
             const futuresLeverage = Number(document.getElementById('futuresLeverage').value || 10);
             const futuresMarginType = String(document.getElementById('futuresMarginType').value || 'CROSS');
             const futuresPositionSize = Number(document.getElementById('futuresPositionSize').value || 5);
+            const futuresOrderType = String(document.getElementById('futuresOrderType').value || 'MARKET').toUpperCase();
+            const futuresLimitDeviationPercent = Number(document.getElementById('futuresLimitDeviationPercent').value || 0.3);
+            const futuresLimitTimeoutSeconds = Number(document.getElementById('futuresLimitTimeoutSeconds').value || 60);
             const spotPositionSize = Number(document.getElementById('spotPositionSize').value || 5);
 
             if (autoTradeEnabled) {
@@ -934,6 +983,9 @@
                     futures_leverage: futuresLeverage,
                     futures_margin_type: futuresMarginType,
                     futures_position_size_percent: futuresPositionSize,
+                    futures_entry_type: futuresOrderType === 'LIMIT' ? 'LIMIT' : 'MARKET',
+                    futures_limit_deviation_percent: Number.isFinite(futuresLimitDeviationPercent) ? futuresLimitDeviationPercent : 0.3,
+                    futures_limit_timeout_seconds: Number.isFinite(futuresLimitTimeoutSeconds) ? futuresLimitTimeoutSeconds : 60,
                     spot_enabled: !!spotEnabled,
                     spot_position_size_percent: spotPositionSize,
                     updated_at: new Date().toISOString()
@@ -969,7 +1021,14 @@
                 const headers = { 'Content-Type': 'application/json' };
                 if (SUPABASE_ANON_KEY) {
                     headers['apikey'] = SUPABASE_ANON_KEY;
-                    headers['Authorization'] = 'Bearer ' + SUPABASE_ANON_KEY;
+                }
+                if (supabaseClient?.auth) {
+                    const { data: { session } } = await supabaseClient.auth.getSession();
+                    if (session?.access_token) {
+                        headers['Authorization'] = 'Bearer ' + session.access_token;
+                    } else if (SUPABASE_ANON_KEY) {
+                        headers['Authorization'] = 'Bearer ' + SUPABASE_ANON_KEY;
+                    }
                 }
 
                 const response = await fetch(TELEGRAM_FUNCTION_URL, {
