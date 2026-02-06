@@ -4915,7 +4915,7 @@
                     const activeAlarmIds = new Set(activeAlarms.map(a => Number(a.id)));
                     const { data: activeSignals, error } = await supabaseClient
                         .from('active_signals')
-                        .select('id, alarm_id, symbol, market_type, direction, entry_price, take_profit, stop_loss, tp_percent, sl_percent, bar_close_limit, score, status, created_at, profit_loss')
+                        .select('id, alarm_id, symbol, market_type, direction, entry_price, take_profit, stop_loss, tp_percent, sl_percent, bar_close_limit, score, status, created_at, profit_loss, close_reason')
                         .eq('user_id', currentUser.id)
                         .order('created_at', { ascending: false });
 
@@ -4942,15 +4942,23 @@
                                     ensureAlarmSignalPrice(sig.symbol, sig.market_type || 'spot');
                                 }
                                 const signalCreatedAt = formatDateTime(sig.created_at);
-                                const rawPnl = Number.isFinite(livePrice)
+                                const rawPnl = !isClosed && Number.isFinite(livePrice)
                                     ? (sig.direction === 'SHORT'
                                         ? ((entryPrice - livePrice) / entryPrice) * 100
                                         : ((livePrice - entryPrice) / entryPrice) * 100)
                                     : NaN;
                                 const storedPnl = parseFloat(sig.profit_loss);
-                                const pnlPercent = isClosed && Number.isFinite(storedPnl)
-                                    ? parseFloat(storedPnl.toFixed(2))
-                                    : (Number.isFinite(rawPnl) ? parseFloat(rawPnl.toFixed(2)) : null);
+                                const closeReason = String(sig.close_reason || '').toUpperCase();
+                                let pnlPercent = null;
+                                if (isClosed && Number.isFinite(storedPnl)) {
+                                    pnlPercent = parseFloat(storedPnl.toFixed(2));
+                                } else if (isClosed && closeReason === 'TP_HIT' && Number.isFinite(Number(sig.tp_percent))) {
+                                    pnlPercent = Math.abs(Number(sig.tp_percent));
+                                } else if (isClosed && closeReason === 'SL_HIT' && Number.isFinite(Number(sig.sl_percent))) {
+                                    pnlPercent = -Math.abs(Number(sig.sl_percent));
+                                } else if (!isClosed && Number.isFinite(rawPnl)) {
+                                    pnlPercent = parseFloat(rawPnl.toFixed(2));
+                                }
                                 const pnlClass = pnlPercent !== null && pnlPercent >= 0 ? 'positive' : 'negative';
                                 const pnlSign = pnlPercent !== null && pnlPercent >= 0 ? '+' : '';
                                 const pnlText = pnlPercent === null ? '--' : `${pnlSign}${pnlPercent}%`;
