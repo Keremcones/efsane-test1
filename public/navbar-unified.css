@@ -275,7 +275,7 @@ body.home-only .navbar {
     height: 100vh !important;
     background: var(--menu-bg) !important;
     border-left: 1px solid var(--menu-border) !important;
-    z-index: 999 !important;
+    z-index: 1002 !important;
     transition: right 0.35s cubic-bezier(0.23, 1, 0.32, 1) !important;
     overflow-y: auto !important;
     box-shadow: -12px 0 40px rgba(0, 0, 0, 0.4) !important;
@@ -419,7 +419,7 @@ body.menu-open .menu-panel {
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0);
-    z-index: 998;
+    z-index: 1000;
     transition: background 0.35s ease;
     pointer-events: none;
 }

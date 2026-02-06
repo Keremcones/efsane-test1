@@ -251,7 +251,7 @@
             height: 100vh;
             background: #000;
             border-left: 1px solid rgba(255, 255, 255, 0.12);
-            z-index: 998;
+            z-index: 1002;
             transition: right 0.3s ease;
             overflow-y: auto;
             backdrop-filter: blur(8px);
@@ -1081,32 +1081,9 @@
             setupAutoSaveListeners();
         }
 
-        document.addEventListener('DOMContentLoaded', () => {
-            let attempts = 0;
-            const maxAttempts = 30;
-            const intervalMs = 100;
-
-            const timer = setInterval(async () => {
-                attempts += 1;
-                if (!window.supabase || !window.supabase.createClient) {
-                    if (attempts >= maxAttempts) {
-                        clearInterval(timer);
-                        window.location.replace('login.html');
-                    }
-                    return;
-                }
-                if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-                    if (attempts >= maxAttempts) {
-                        clearInterval(timer);
-                        window.location.replace('login.html');
-                    }
-                    return;
-                }
-
-                clearInterval(timer);
-                supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-                await loadAccess();
-            }, intervalMs);
+        document.addEventListener('DOMContentLoaded', async () => {
+            supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            await loadAccess();
         });
 
         function showPremiumLock() {

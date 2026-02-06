@@ -376,7 +376,7 @@
             height: 100vh;
             background: #000;
             border-left: 1px solid rgba(255, 255, 255, 0.12);
-            z-index: 998;
+            z-index: 1002;
                         transition: transform 0.3s ease;
             overflow-y: auto;
             backdrop-filter: blur(8px);
@@ -1341,42 +1341,43 @@
                 <span></span>
                 <span></span>
             </button>
-            <div class="menu-panel" id="menuPanel">
-                <button class="menu-close" onclick="closeHamburgerMenu()">×</button>
-                <div class="menu-content">
-                    <div class="menu-user-info">
-                        <div class="menu-user-email" id="menuUserEmail">Yükleniyor...</div>
-                    </div>
-                    <nav class="menu-nav">
-                        <a href="profile.html" class="menu-item" onclick="closeHamburgerMenu()">
-                            <i class="fa-solid fa-user"></i>
-                            Profil
-                        </a>
-                        <a href="index.html" class="menu-item" onclick="closeHamburgerMenu()">
-                            <i class="fa-solid fa-chart-line"></i>
-                            Dashboard
-                        </a>
-                        <a href="her-durumda.html" class="menu-item" onclick="closeHamburgerMenu()">
-                            <i class="fa-solid fa-layer-group"></i>
-                            Her Durumda
-                        </a>
-                        <a href="kazananlar.html" class="menu-item" onclick="closeHamburgerMenu()">
-                            <i class="fa-solid fa-trophy"></i>
-                            Kazananlar
-                        </a>
-                        <a href="binance.html" class="menu-item" onclick="closeHamburgerMenu()">
-                            <i class="fa-brands fa-bitcoin"></i>
-                            Binance Bağlantısı
-                        </a>
-                        <button class="menu-item logout-item" onclick="window.logout()">
-                            <i class="fa-solid fa-right-from-bracket"></i>
-                            Çıkış Yap
-                        </button>
-                    </nav>
-                </div>
-            </div>
         </div>
     </nav>
+
+    <div class="menu-panel" id="menuPanel">
+        <button class="menu-close" onclick="closeHamburgerMenu()">×</button>
+        <div class="menu-content">
+            <div class="menu-user-info">
+                <div class="menu-user-email" id="menuUserEmail">Yükleniyor...</div>
+            </div>
+            <nav class="menu-nav">
+                <a href="profile.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-user"></i>
+                    Profil
+                </a>
+                <a href="index.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-chart-line"></i>
+                    Dashboard
+                </a>
+                <a href="her-durumda.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-layer-group"></i>
+                    Her Durumda
+                </a>
+                <a href="kazananlar.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-trophy"></i>
+                    Kazananlar
+                </a>
+                <a href="binance.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-brands fa-bitcoin"></i>
+                    Binance Bağlantısı
+                </a>
+                <button class="menu-item logout-item" onclick="window.logout()">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                    Çıkış Yap
+                </button>
+            </nav>
+        </div>
+    </div>
 
     <div class="container">
         <div class="profile-hero">
@@ -2482,88 +2483,66 @@
         }
 
         // Sayfa yüklendiğinde
-        window.addEventListener('DOMContentLoaded', () => {
-            let attempts = 0;
-            const maxAttempts = 30;
-            const intervalMs = 100;
+        window.addEventListener('DOMContentLoaded', async () => {
+            const { createClient } = window.supabase;
+            supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-            const timer = setInterval(async () => {
-                attempts += 1;
-                if (!window.supabase || !window.supabase.createClient) {
-                    if (attempts >= maxAttempts) {
-                        clearInterval(timer);
-                        window.location.replace('login.html');
-                    }
+            // Kullanıcı oturumunu kontrol et
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            
+            if (!session) {
+                window.location.href = 'index.html';
+                return;
+            }
+
+            currentUser = session.user;
+            document.getElementById('userEmailHeader').textContent = currentUser.email;
+            const menuUserEmail = document.getElementById('menuUserEmail');
+            if (menuUserEmail) {
+                menuUserEmail.textContent = currentUser.email;
+            }
+
+            const themeSelect = document.getElementById('themeSelect');
+            if (themeSelect) {
+                themeSelect.value = localStorage.getItem('theme') || 'dark';
+            }
+            
+            // Profil ayarlarını yükle
+            await loadProfileSettings();
+
+            // Telegram input'a event listener ekle
+            const telegramInput = document.getElementById('telegramUsername');
+            if (telegramInput) {
+                telegramInput.addEventListener('blur', window.makeTelegramIdReadonly);
+            }
+
+            // DEBUG: Telegram ayarlarını kontrol et
+            window.debugTelegramSettings = async function() {
+                if (!currentUser) {
+                    console.log('❌ Kullanıcı giriş yapmamış');
                     return;
                 }
-                if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-                    if (attempts >= maxAttempts) {
-                        clearInterval(timer);
-                        window.location.replace('login.html');
-                    }
-                    return;
-                }
-
-                clearInterval(timer);
-                supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-                // Kullanıcı oturumunu kontrol et
-                const { data: { session } } = await supabaseClient.auth.getSession();
                 
-                if (!session) {
-                    window.location.href = 'index.html';
-                    return;
-                }
-
-                currentUser = session.user;
-                document.getElementById('userEmailHeader').textContent = currentUser.email;
-                const menuUserEmail = document.getElementById('menuUserEmail');
-                if (menuUserEmail) {
-                    menuUserEmail.textContent = currentUser.email;
-                }
-
-                const themeSelect = document.getElementById('themeSelect');
-                if (themeSelect) {
-                    themeSelect.value = localStorage.getItem('theme') || 'dark';
-                }
+                console.log('\n🔍 ===== PROFILE TELEGRAM DEBUG =====');
+                console.log('👤 User:', currentUser.email, 'ID:', currentUser.id);
+                console.log('📱 Form Chat ID:', document.getElementById('telegramUsername').value);
+                console.log('🔔 Notifications Enabled:', document.getElementById('notificationsToggle').checked);
                 
-                // Profil ayarlarını yükle
-                await loadProfileSettings();
-
-                // Telegram input'a event listener ekle
-                const telegramInput = document.getElementById('telegramUsername');
-                if (telegramInput) {
-                    telegramInput.addEventListener('blur', window.makeTelegramIdReadonly);
-                }
-
-                // DEBUG: Telegram ayarlarını kontrol et
-                window.debugTelegramSettings = async function() {
-                    if (!currentUser) {
-                        console.log('❌ Kullanıcı giriş yapmamış');
-                        return;
-                    }
-                    
-                    console.log('\n🔍 ===== PROFILE TELEGRAM DEBUG =====');
-                    console.log('👤 User:', currentUser.email, 'ID:', currentUser.id);
-                    console.log('📱 Form Chat ID:', document.getElementById('telegramUsername').value);
-                    console.log('🔔 Notifications Enabled:', document.getElementById('notificationsToggle').checked);
-                    
-                    const { data, error } = await supabaseClient
-                        .from('user_settings')
-                        .select('*')
-                        .eq('user_id', currentUser.id)
-                        .single();
-                    
-                    if (error) {
-                        console.error('❌ Supabase Hata:', error);
-                    } else {
-                        console.log('✅ Supabase Veri:', data);
-                    }
-                    console.log('===== DEBUG BİTTİ =====\n');
-                };
+                const { data, error } = await supabaseClient
+                    .from('user_settings')
+                    .select('*')
+                    .eq('user_id', currentUser.id)
+                    .single();
                 
-                console.log('💡 Test: debugTelegramSettings() yazıp Enter tuşuna bas');
-            }, intervalMs);
+                if (error) {
+                    console.error('❌ Supabase Hata:', error);
+                } else {
+                    console.log('✅ Supabase Veri:', data);
+                }
+                console.log('===== DEBUG BİTTİ =====\n');
+            };
+            
+            console.log('💡 Test: debugTelegramSettings() yazıp Enter tuşuna bas');
         });
 
         window.updateThemePreference = function(theme) {
@@ -2588,7 +2567,33 @@
             }
         };
 
-        // Hamburger Menü - menu-unified.js tarafından yönetilir
+        window.toggleHamburgerMenu = function() {
+            const panel = document.getElementById('menuPanel');
+            const btn = document.getElementById('hamburgerBtn');
+            if (panel) panel.classList.toggle('active');
+            if (btn) btn.classList.toggle('active');
+        };
+
+        window.closeHamburgerMenu = function() {
+            const panel = document.getElementById('menuPanel');
+            const btn = document.getElementById('hamburgerBtn');
+            if (panel) panel.classList.remove('active');
+            if (btn) btn.classList.remove('active');
+        };
+
+        // Çıkış Yap Fonksiyonu
+        async function logout() {
+            try {
+                const { error } = await supabaseClient.auth.signOut();
+                if (error) throw error;
+                window.location.replace('login.html');
+            } catch (error) {
+                console.error('Çıkış hatası:', error.message);
+                // Hata olsa bile localStorage'ı temizle ve login sayfasına yönlendir
+                localStorage.clear();
+                window.location.replace('login.html');
+            }
+        }
     </script>
 </body>
 </html>
