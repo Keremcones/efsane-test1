@@ -4,12 +4,34 @@
 
 // LOCAL DEVELOPMENT: Values from .env file or localStorage
 // For production: Use Vercel Environment Variables
+var DEFAULT_PUBLISHABLE_ANON_KEY = 'sb_publishable_TTHovjtf56Yy7LpXQUcMvg_vVihEu55';
+
+function normalizeAnonKey(candidate) {
+    if (!candidate) return DEFAULT_PUBLISHABLE_ANON_KEY;
+    if (candidate.startsWith('sb_publishable_')) return candidate;
+    return DEFAULT_PUBLISHABLE_ANON_KEY;
+}
+
+var storedAnonKey = '';
+try {
+    storedAnonKey = localStorage.getItem('SUPABASE_ANON_KEY') || sessionStorage.getItem('SUPABASE_ANON_KEY') || '';
+} catch (e) {
+    storedAnonKey = '';
+}
+
+var effectiveAnonKey = normalizeAnonKey(storedAnonKey);
+try {
+    if (storedAnonKey !== effectiveAnonKey) {
+        localStorage.setItem('SUPABASE_ANON_KEY', effectiveAnonKey);
+    }
+} catch (e) {
+    // Ignore storage errors (private mode, disabled storage, etc.)
+}
+
 var LOCAL_DEV = window.LOCAL_DEV || {
     SUPABASE_URL: 'https://jcrbhekrphxodxhkuzju.supabase.co',
     // Supabase ANON_KEY (public, safe to use in frontend)
-    SUPABASE_ANON_KEY: localStorage.getItem('SUPABASE_ANON_KEY') || 
-                       sessionStorage.getItem('SUPABASE_ANON_KEY') ||
-                       'sb_publishable_TTHovjtf56Yy7LpXQUcMvg_vVihEu55',
+    SUPABASE_ANON_KEY: effectiveAnonKey,
     TELEGRAM_BOT_USERNAME: 'HerSeyOkAlarmBot'
 };
 window.LOCAL_DEV = LOCAL_DEV;
