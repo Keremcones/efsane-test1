@@ -9,7 +9,7 @@ var LOCAL_DEV = window.LOCAL_DEV || {
     // Supabase ANON_KEY (public, safe to use in frontend)
     SUPABASE_ANON_KEY: localStorage.getItem('SUPABASE_ANON_KEY') || 
                        sessionStorage.getItem('SUPABASE_ANON_KEY') ||
-                       '',
+                       'sb_publishable_TTHovjtf56Yy7LpXQUcMvg_vVihEu55',
     TELEGRAM_BOT_USERNAME: 'HerSeyOkAlarmBot'
 };
 window.LOCAL_DEV = LOCAL_DEV;
