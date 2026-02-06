@@ -42,6 +42,57 @@ const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 const BINANCE_SPOT_API_BASE = "https://api.binance.com/api/v3";
 const BINANCE_FUTURES_API_BASE = "https://fapi.binance.com/fapi/v1";
 
+// Exchange info cache (tick size / price precision)
+const exchangeInfoCache: Record<string, { timestamp: number; symbols: Record<string, any> }> = {};
+const EXCHANGE_INFO_TTL = 10 * 60 * 1000; // 10 minutes
+
+function getTickSizeDecimals(tickSize: string): number {
+  if (!tickSize || !tickSize.includes(".")) return 0;
+  const fraction = tickSize.split(".")[1] || "";
+  const trimmed = fraction.replace(/0+$/, "");
+  return trimmed.length;
+}
+
+async function getSymbolPricePrecision(symbol: string, marketType: "spot" | "futures"): Promise<number | null> {
+  const cacheKey = marketType;
+  const now = Date.now();
+  const cached = exchangeInfoCache[cacheKey];
+  if (cached && (now - cached.timestamp) < EXCHANGE_INFO_TTL) {
+    const info = cached.symbols?.[symbol];
+    if (info) return info.pricePrecision ?? null;
+  }
+
+  const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
+  const url = `${base}/exchangeInfo`;
+  const res = await throttledFetch(url);
+  if (!res.ok) return null;
+  const data = await res.json();
+  const symbols = (data?.symbols || []).reduce((acc: Record<string, any>, item: any) => {
+    const priceFilter = (item.filters || []).find((f: any) => f.filterType === "PRICE_FILTER");
+    const tickSize = priceFilter?.tickSize;
+    const pricePrecision = typeof item.pricePrecision === "number"
+      ? item.pricePrecision
+      : (tickSize ? getTickSizeDecimals(String(tickSize)) : null);
+    acc[String(item.symbol)] = { pricePrecision };
+    return acc;
+  }, {});
+
+  exchangeInfoCache[cacheKey] = { timestamp: now, symbols };
+  const info = symbols?.[symbol];
+  return info ? info.pricePrecision ?? null : null;
+}
+
+function formatPriceWithPrecision(value: number, precision: number | null): string {
+  if (!Number.isFinite(value)) return "0";
+  if (precision === null || precision === undefined) {
+    return value.toFixed(8);
+  }
+  return value.toFixed(Math.max(0, precision));
+}
+
+// Global ban cooldown (Binance 418)
+let binanceBanUntil = 0;
+
 // Cache prices to avoid redundant API calls
 const priceCache: Record<string, { price: number; timestamp: number }> = {};
 const PRICE_CACHE_TTL = 5000; // 5 seconds - refresh every 5s max
@@ -50,7 +101,7 @@ const PRICE_CACHE_TTL = 5000; // 5 seconds - refresh every 5s max
 // Request throttling & queueing (prevent rate limiting)
 // =====================
 let lastRequestTime = 0;
-const MIN_REQUEST_INTERVAL = 1000; // 1000ms (1s) minimum between ALL requests - CRITICAL for Binance
+const MIN_REQUEST_INTERVAL = 2000; // 2000ms (2s) minimum between ALL requests - CRITICAL for Binance
 let requestQueue: Array<{ url: string; options?: any; resolve: Function; reject: Function }> = [];
 let isProcessingQueue = false;
 
@@ -98,14 +149,12 @@ async function throttledFetch(url: string, options?: any): Promise<Response> {
 }
 
 // =====================
-// Binance exchangeInfo cache & klines cache
+// Binance klines cache
 // =====================
-const exchangeInfoCache: Record<string, any> = {};
-const exchangeInfoCacheTime: Record<string, number> = {};
 
 // Cache klines to avoid redundant API calls
 const klinesCache: Record<string, { data: any[]; timestamp: number }> = {};
-const KLINES_CACHE_TTL = 10000; // 10 seconds - refresh every 10s max
+const KLINES_CACHE_TTL = 30000; // 30 seconds - reduce API pressure
 
 function normalizeMarketType(value: any): "spot" | "futures" {
   const v = String(value || "").toLowerCase();
@@ -133,60 +182,6 @@ function timeframeToMinutes(timeframe: string): number {
   }
 }
 
-async function getExchangeInfo(marketType: "spot" | "futures"): Promise<any | null> {
-  const now = Date.now();
-  const cacheKey = marketType;
-  if (exchangeInfoCache[cacheKey] && (now - (exchangeInfoCacheTime[cacheKey] || 0)) < 60 * 60 * 1000) {
-    return exchangeInfoCache[cacheKey];
-  }
-
-  const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
-  const url = marketType === "futures"
-    ? `${base}/exchangeInfo`
-    : `${base}/exchangeInfo?permissions=SPOT`;
-
-  try {
-    const res = await throttledFetch(url);
-    if (!res.ok) {
-      console.error("❌ exchangeInfo fetch failed:", res.status, await res.text());
-      return null;
-    }
-    exchangeInfoCache[cacheKey] = await res.json();
-    exchangeInfoCacheTime[cacheKey] = now;
-    return exchangeInfoCache[cacheKey];
-  } catch (e) {
-    console.error("❌ Exchange info fetch error:", e);
-    return null;
-  }
-}
-
-function getTickSize(exchangeInfo: any, symbol: string): number | null {
-  try {
-    const s = exchangeInfo?.symbols?.find((x: any) => x.symbol === symbol);
-    const filter = s?.filters?.find((f: any) => f.filterType === "PRICE_FILTER");
-    const tickSizeStr = filter?.tickSize;
-    const tick = tickSizeStr ? Number(tickSizeStr) : NaN;
-    if (!Number.isFinite(tick) || tick <= 0) return null;
-    return tick;
-  } catch {
-    return null;
-  }
-}
-
-// Round price to tick size (safe for comparisons/storage)
-function roundToTick(price: number, tick: number, mode: "DOWN" | "NEAREST" = "NEAREST") {
-  if (!Number.isFinite(price) || !Number.isFinite(tick) || tick <= 0) return price;
-
-  const factor = 1 / tick;
-  const v = price * factor;
-
-  const rounded = mode === "DOWN" ? Math.floor(v) : Math.round(v);
-  const result = rounded / factor;
-
-  // Fix floating point noise
-  const decimals = Math.max(0, Math.round(-Math.log10(tick)));
-  return Number(result.toFixed(decimals));
-}
 
 async function getCurrentPrice(symbol: string, marketType: "spot" | "futures"): Promise<number | null> {
   try {
@@ -198,28 +193,532 @@ async function getCurrentPrice(symbol: string, marketType: "spot" | "futures"): 
       return priceCache[cacheKey].price;
     }
 
-    const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
-    const res = await throttledFetch(`${base}/ticker/price?symbol=${symbol}`);
-    if (!res.ok) {
-      console.error(`❌ price fetch failed for ${symbol}:`, res.status, await res.text());
+    const klines = await getKlines(symbol, marketType, "1m", 2);
+    if (!klines || klines.length === 0) {
+      console.error(`❌ price fetch failed for ${symbol}: klines unavailable`);
       return null;
     }
-    const data = await res.json();
-    const p = Number(data?.price);
+    const lastKline = klines[klines.length - 1];
+    const p = Number(lastKline?.[4]);
     if (!Number.isFinite(p)) return null;
     
-    // Get tickSize for proper precision
-    const exchangeInfo = await getExchangeInfo(marketType);
-    const tick = exchangeInfo ? getTickSize(exchangeInfo, symbol) : null;
-    const roundedPrice = tick ? roundToTick(p, tick, "NEAREST") : p;
-    
     // Cache the price
-    priceCache[cacheKey] = { price: roundedPrice, timestamp: now };
+    priceCache[cacheKey] = { price: p, timestamp: now };
     
-    return roundedPrice;
+    return p;
   } catch (e) {
     console.error(`❌ price fetch error for ${symbol}:`, e);
     return null;
+  }
+}
+
+async function getFuturesMarkPrice(symbol: string): Promise<number | null> {
+  try {
+    const url = `https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`;
+    const res = await throttledFetch(url);
+    if (!res.ok) {
+      console.error("❌ mark price fetch failed:", await res.text());
+      return null;
+    }
+    const data = await res.json();
+    const p = Number(data?.markPrice);
+    return Number.isFinite(p) ? p : null;
+  } catch (e) {
+    console.error("❌ mark price fetch error:", e);
+    return null;
+  }
+}
+
+// =====================
+// BINANCE TRADE EXECUTION
+// =====================
+async function createBinanceSignature(queryString: string, apiSecret: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = encoder.encode(apiSecret);
+  const message = encoder.encode(queryString);
+
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    key,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  const signature = await crypto.subtle.sign("HMAC", cryptoKey, message);
+  return Array.from(new Uint8Array(signature))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function getBinanceBalance(apiKey: string, apiSecret: string, marketType: "spot" | "futures"): Promise<number> {
+  const timestamp = Date.now();
+  const queryString = `timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+
+  const baseUrl = marketType === "futures"
+    ? "https://fapi.binance.com/fapi/v2/balance"
+    : "https://api.binance.com/api/v3/account";
+
+  const url = `${baseUrl}?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    console.error("❌ Binance balance error:", await response.text());
+    return 0;
+  }
+
+  const data = await response.json();
+
+  if (marketType === "futures") {
+    const usdtBalance = data.find((b: any) => b.asset === "USDT");
+    return parseFloat(usdtBalance?.availableBalance || "0");
+  }
+
+  const usdtBalance = data.balances?.find((b: any) => b.asset === "USDT");
+  return parseFloat(usdtBalance?.free || "0");
+}
+
+async function getSymbolInfo(symbol: string, marketType: "spot" | "futures"): Promise<{ quantityPrecision: number; minQty: number; pricePrecision: number } | null> {
+  const baseUrl = marketType === "futures"
+    ? "https://fapi.binance.com/fapi/v1/exchangeInfo"
+    : "https://api.binance.com/api/v3/exchangeInfo";
+
+  const response = await fetch(baseUrl);
+  if (!response.ok) return null;
+
+  const data = await response.json();
+  const symbolInfo = data.symbols?.find((s: any) => s.symbol === symbol);
+  if (!symbolInfo) return null;
+
+  const lotSizeFilter = symbolInfo.filters?.find((f: any) => f.filterType === "LOT_SIZE");
+  const priceFilter = symbolInfo.filters?.find((f: any) => f.filterType === "PRICE_FILTER");
+
+  const minQty = parseFloat(lotSizeFilter?.minQty || "0.001");
+  const stepSize = lotSizeFilter?.stepSize || "0.001";
+  const tickSize = priceFilter?.tickSize || "0.01";
+
+  const quantityPrecision = stepSize.includes(".")
+    ? stepSize.split(".")[1].replace(/0+$/, "").length
+    : 0;
+
+  const pricePrecision = tickSize.includes(".")
+    ? tickSize.split(".")[1].replace(/0+$/, "").length
+    : 0;
+
+  return { quantityPrecision, minQty, pricePrecision };
+}
+
+async function setLeverage(apiKey: string, apiSecret: string, symbol: string, leverage: number): Promise<boolean> {
+  const timestamp = Date.now();
+  const queryString = `symbol=${symbol}&leverage=${leverage}&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+
+  const url = `https://fapi.binance.com/fapi/v1/leverage?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error(`❌ Set leverage error for ${symbol}:`, error);
+    return false;
+  }
+
+  return true;
+}
+
+async function getFuturesPositionMode(apiKey: string, apiSecret: string): Promise<"ONE_WAY" | "HEDGE" | "UNKNOWN"> {
+  const timestamp = Date.now();
+  const queryString = `timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v1/positionSide/dual?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    return "UNKNOWN";
+  }
+
+  const data = await response.json();
+  return data?.dualSidePosition ? "HEDGE" : "ONE_WAY";
+}
+
+async function openBinanceTrade(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  direction: "LONG" | "SHORT",
+  quantity: number,
+  marketType: "spot" | "futures"
+): Promise<{ success: boolean; orderId?: string; error?: string }> {
+  const timestamp = Date.now();
+  const side = direction === "LONG" ? "BUY" : "SELL";
+
+  let queryString: string;
+  let baseUrl: string;
+
+  if (marketType === "futures") {
+    queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
+    baseUrl = "https://fapi.binance.com/fapi/v1/order";
+  } else {
+    queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
+    baseUrl = "https://api.binance.com/api/v3/order";
+  }
+
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `${baseUrl}?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    return { success: false, error: data?.msg || "Order failed" };
+  }
+
+  return { success: true, orderId: String(data.orderId) };
+}
+
+async function placeTakeProfitStopLoss(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  direction: "LONG" | "SHORT",
+  takeProfit: number,
+  stopLoss: number,
+  pricePrecision: number
+): Promise<{ tpOrderId?: string; slOrderId?: string; tpError?: string; slError?: string }> {
+  const closeSide = direction === "LONG" ? "SELL" : "BUY";
+
+  const tpPrice = takeProfit.toFixed(pricePrecision);
+  const slPrice = stopLoss.toFixed(pricePrecision);
+
+  let tpOrderId: string | undefined;
+  let slOrderId: string | undefined;
+  let tpError: string | undefined;
+  let slError: string | undefined;
+
+  const tpTimestamp = Date.now();
+  const algoTp = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "TAKE_PROFIT_MARKET", tpPrice);
+  if (algoTp.ok) {
+    tpOrderId = algoTp.orderId;
+  } else {
+    const tpQuery = `symbol=${symbol}&side=${closeSide}&type=TAKE_PROFIT_MARKET&stopPrice=${tpPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true&timestamp=${tpTimestamp}`;
+    const tpSignature = await createBinanceSignature(tpQuery, apiSecret);
+    const tpResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${tpQuery}&signature=${tpSignature}`, {
+      method: "POST",
+      headers: { "X-MBX-APIKEY": apiKey }
+    });
+
+    if (tpResponse.ok) {
+      const tpData = await tpResponse.json();
+      tpOrderId = String(tpData.orderId);
+    } else {
+      const tpErr = await tpResponse.text();
+      console.error("❌ TP order failed:", tpErr);
+      tpError = algoTp.error || tpErr;
+    }
+  }
+
+  const slTimestamp = Date.now();
+  const algoSl = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "STOP_MARKET", slPrice);
+  if (algoSl.ok) {
+    slOrderId = algoSl.orderId;
+  } else {
+    const slQuery = `symbol=${symbol}&side=${closeSide}&type=STOP_MARKET&stopPrice=${slPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true&timestamp=${slTimestamp}`;
+    const slSignature = await createBinanceSignature(slQuery, apiSecret);
+    const slResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${slQuery}&signature=${slSignature}`, {
+      method: "POST",
+      headers: { "X-MBX-APIKEY": apiKey }
+    });
+
+    if (slResponse.ok) {
+      const slData = await slResponse.json();
+      slOrderId = String(slData.orderId);
+    } else {
+      const slErr = await slResponse.text();
+      console.error("❌ SL order failed:", slErr);
+      slError = algoSl.error || slErr;
+    }
+  }
+
+  return { tpOrderId, slOrderId, tpError, slError };
+}
+
+async function placeFuturesAlgoOrder(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  side: "BUY" | "SELL",
+  type: "TAKE_PROFIT_MARKET" | "STOP_MARKET",
+  stopPrice: string
+): Promise<{ ok: boolean; orderId?: string; error?: string }> {
+  const timestamp = Date.now();
+  const query = `algoType=CONDITIONAL&symbol=${symbol}&side=${side}&type=${type}&triggerPrice=${stopPrice}`
+    + `&closePosition=true&workingType=MARK_PRICE&priceProtect=TRUE&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(query, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v1/algoOrder?${query}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") || "";
+    const text = await response.text();
+    console.error("❌ Algo order failed:", text);
+    if (contentType.includes("text/html") || text.trim().startsWith("<!DOCTYPE")) {
+      return { ok: false, error: "Algo endpoint HTML yanıtı döndü (erişim/engel olabilir)." };
+    }
+    return { ok: false, error: text };
+  }
+
+  const data = await response.json();
+  return { ok: true, orderId: String(data?.orderId || data?.algoId || data?.clientAlgoId || "") };
+}
+
+function escapeTelegram(text: string): string {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+async function setFuturesMarginType(apiKey: string, apiSecret: string, symbol: string, marginType: "CROSS" | "ISOLATED"): Promise<void> {
+  const timestamp = Date.now();
+  const queryString = `symbol=${symbol}&marginType=${marginType}&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v1/marginType?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    if (text.includes("No need to change margin type")) {
+      return;
+    }
+    throw new Error(text || "Margin type update failed");
+  }
+}
+
+async function placeSpotOco(
+  apiKey: string,
+  apiSecret: string,
+  symbol: string,
+  quantity: number,
+  takeProfit: number,
+  stopLoss: number,
+  pricePrecision: number
+): Promise<{ success: boolean; error?: string }> {
+  const timestamp = Date.now();
+  const tpPrice = takeProfit.toFixed(pricePrecision);
+  const slPrice = stopLoss.toFixed(pricePrecision);
+  const slValue = Number(stopLoss);
+  const offset = Math.max(slValue * 0.001, 1 / Math.pow(10, pricePrecision));
+  const stopLimitValue = Math.max(0, slValue - offset);
+  const stopLimitPrice = stopLimitValue.toFixed(pricePrecision);
+
+  const queryString = `symbol=${symbol}&side=SELL&type=OCO&quantity=${quantity}`
+    + `&price=${tpPrice}&stopPrice=${slPrice}&stopLimitPrice=${stopLimitPrice}`
+    + `&stopLimitTimeInForce=GTC&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://api.binance.com/api/v3/order/oco?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    return { success: false, error: errorText };
+  }
+
+  return { success: true };
+}
+
+async function hasOpenFuturesPosition(apiKey: string, apiSecret: string, symbol: string): Promise<boolean> {
+  const timestamp = Date.now();
+  const queryString = `symbol=${symbol}&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v2/positionRisk?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    console.error("❌ Binance futures position check failed:", await response.text());
+    throw new Error("Futures position check failed");
+  }
+
+  const data = await response.json();
+  const position = Array.isArray(data) ? data[0] : data;
+  const positionAmt = Number(position?.positionAmt || 0);
+  return Math.abs(positionAmt) > 0;
+}
+
+async function hasOpenSpotOrders(apiKey: string, apiSecret: string, symbol: string): Promise<boolean> {
+  const timestamp = Date.now();
+  const queryString = `symbol=${symbol}&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://api.binance.com/api/v3/openOrders?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    console.error("❌ Binance spot open orders check failed:", await response.text());
+    throw new Error("Spot open orders check failed");
+  }
+
+  const data = await response.json();
+  return Array.isArray(data) && data.length > 0;
+}
+
+async function executeAutoTrade(
+  userId: string,
+  symbol: string,
+  direction: "LONG" | "SHORT",
+  entryPrice: number,
+  takeProfit: number,
+  stopLoss: number,
+  marketType: "spot" | "futures"
+): Promise<{ success: boolean; message: string; orderId?: string }> {
+  try {
+    const { data: userKeys, error: keysError } = await supabase
+      .from("user_binance_keys")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("auto_trade_enabled", true)
+      .maybeSingle();
+
+    if (keysError || !userKeys) {
+      return { success: false, message: "Auto-trade not enabled" };
+    }
+
+    if (marketType === "futures" && !userKeys.futures_enabled) {
+      return { success: false, message: "Futures auto-trade not enabled" };
+    }
+    if (marketType === "spot" && !userKeys.spot_enabled) {
+      return { success: false, message: "Spot auto-trade not enabled" };
+    }
+
+    const { api_key, api_secret, futures_leverage, futures_position_size_percent, spot_position_size_percent, futures_margin_type } = userKeys;
+
+    if (marketType === "spot" && direction === "SHORT") {
+      return { success: false, message: "Spot SHORT not supported" };
+    }
+
+    try {
+      if (marketType === "futures") {
+        const hasOpen = await hasOpenFuturesPosition(api_key, api_secret, symbol);
+        if (hasOpen) {
+          return { success: false, message: `Açık futures pozisyonu var (${symbol}). Yeni işlem açılmadı.` };
+        }
+      } else {
+        const hasOpen = await hasOpenSpotOrders(api_key, api_secret, symbol);
+        if (hasOpen) {
+          return { success: false, message: `Açık spot emri var (${symbol}). Yeni işlem açılmadı.` };
+        }
+      }
+    } catch (e) {
+      return { success: false, message: "Açık pozisyon kontrolü başarısız. İşlem açılmadı." };
+    }
+
+    const leverage = marketType === "futures" ? Number(futures_leverage || 10) : 1;
+    const positionSizePercent = marketType === "futures" ? Number(futures_position_size_percent || 5) : Number(spot_position_size_percent || 5);
+
+    const balance = await getBinanceBalance(api_key, api_secret, marketType);
+    if (balance <= 0) {
+      return { success: false, message: "Insufficient balance" };
+    }
+
+    const tradeAmount = balance * (positionSizePercent / 100);
+    const symbolInfo = await getSymbolInfo(symbol, marketType);
+    if (!symbolInfo) {
+      return { success: false, message: "Symbol info not found" };
+    }
+
+    let quantity = tradeAmount / entryPrice;
+    if (marketType === "futures") {
+      quantity = (tradeAmount * leverage) / entryPrice;
+    }
+
+    quantity = Math.floor(quantity * Math.pow(10, symbolInfo.quantityPrecision)) / Math.pow(10, symbolInfo.quantityPrecision);
+
+    if (quantity < symbolInfo.minQty) {
+      return { success: false, message: `Quantity too small: ${quantity} < ${symbolInfo.minQty}` };
+    }
+
+    if (marketType === "futures") {
+      const positionMode = await getFuturesPositionMode(api_key, api_secret);
+      if (positionMode === "HEDGE") {
+        return { success: false, message: "Futures Hedge mode is not supported. Use One-Way." };
+      }
+      const resolvedMarginType = String(futures_margin_type || "CROSS").toUpperCase() === "ISOLATED" ? "ISOLATED" : "CROSS";
+      try {
+        await setFuturesMarginType(api_key, api_secret, symbol, resolvedMarginType as "CROSS" | "ISOLATED");
+      } catch (e) {
+        console.error("❌ Margin type set failed:", e);
+        return { success: false, message: "Marjin türü ayarlanamadı. İşlem açılmadı." };
+      }
+      await setLeverage(api_key, api_secret, symbol, leverage);
+    }
+
+    const orderResult = await openBinanceTrade(api_key, api_secret, symbol, direction, quantity, marketType);
+    if (!orderResult.success) {
+      return { success: false, message: orderResult.error || "Order failed" };
+    }
+
+    if (marketType === "futures") {
+      const tpSlResult = await placeTakeProfitStopLoss(api_key, api_secret, symbol, direction, takeProfit, stopLoss, symbolInfo.pricePrecision);
+      let warningText = "";
+      if (!tpSlResult.tpOrderId && tpSlResult.tpError) {
+        warningText += ` TP oluşturulamadı: ${escapeTelegram(tpSlResult.tpError)}`;
+      }
+      if (!tpSlResult.slOrderId && tpSlResult.slError) {
+        warningText += ` SL oluşturulamadı: ${escapeTelegram(tpSlResult.slError)}`;
+      }
+      if (warningText) {
+        return {
+          success: true,
+          message: `✅ ${direction} ${quantity} ${symbol} (${leverage}x) @ $${entryPrice.toFixed(symbolInfo.pricePrecision)}\n⚠️ ${warningText.trim()}`,
+          orderId: orderResult.orderId
+        };
+      }
+    } else {
+      const ocoResult = await placeSpotOco(api_key, api_secret, symbol, quantity, takeProfit, stopLoss, symbolInfo.pricePrecision);
+      if (!ocoResult.success) {
+        return { success: false, message: `Spot TP/SL OCO failed: ${ocoResult.error || "unknown"}` };
+      }
+    }
+
+    const leverageText = marketType === "futures" ? ` (${leverage}x)` : "";
+    return {
+      success: true,
+      message: `✅ ${direction} ${quantity} ${symbol}${leverageText} @ $${entryPrice.toFixed(symbolInfo.pricePrecision)}`,
+      orderId: orderResult.orderId
+    };
+  } catch (e) {
+    console.error(`❌ Auto-trade error for ${userId}:`, e);
+    return { success: false, message: e instanceof Error ? e.message : "Unknown error" };
   }
 }
 
@@ -263,7 +762,7 @@ function calculateEMA(prices: number[], period: number): number {
   return ema;
 }
 
-function calculateStochastic(closes: number[], highs: number[], lows: number[], period: number = 14, smoothK: number = 3, smoothD: number = 3): { K: number; D: number } {
+function calculateStochastic(closes: number[], highs: number[], lows: number[], period: number = 14, smoothK: number = 3): { K: number; D: number } {
   if (closes.length < period) return { K: 50, D: 50 };
   
   let lowestLow = lows[lows.length - 1];
@@ -337,6 +836,12 @@ function calculateADX(highs: number[], lows: number[], closes: number[], period:
 async function getKlines(symbol: string, marketType: "spot" | "futures", timeframe: string = "1h", limit: number = 100, retries: number = 3): Promise<any[] | null> {
   const cacheKey = `${symbol}:${marketType}:${timeframe}`;
   const now = Date.now();
+
+  if (binanceBanUntil && now < binanceBanUntil) {
+    const waitMs = binanceBanUntil - now;
+    console.warn(`⛔ Binance ban active. Skipping klines for ${symbol} (wait ${(waitMs / 1000).toFixed(0)}s)`);
+    return null;
+  }
   
   // Check klines cache first
   if (klinesCache[cacheKey] && (now - klinesCache[cacheKey].timestamp) < KLINES_CACHE_TTL) {
@@ -353,6 +858,20 @@ async function getKlines(symbol: string, marketType: "spot" | "futures", timefra
       
       // 418 = Rate Limit, 429 = Too Many Requests
       if (res.status === 418 || res.status === 429) {
+        const errorText = await res.text();
+
+        // Parse ban-until timestamp if present
+        const banMatch = errorText.match(/banned until (\d+)/i);
+        if (banMatch && banMatch[1]) {
+          const until = Number(banMatch[1]);
+          if (Number.isFinite(until) && until > now) {
+            binanceBanUntil = until;
+          }
+        } else if (res.status === 418) {
+          // Fallback: short cooldown if no timestamp provided
+          binanceBanUntil = now + 5 * 60 * 1000;
+        }
+
         // ULTRA-AGGRESSIVE backoff: 4s, 16s, 64s with random jitter (±20%)
         const baseBackoff = Math.pow(4, attempt) * 1000; // 4s, 16s, 64s
         const jitter = baseBackoff * (0.8 + Math.random() * 0.4); // ±20% random
@@ -364,7 +883,6 @@ async function getKlines(symbol: string, marketType: "spot" | "futures", timefra
           continue;
         } else {
           // Last attempt failed - return null immediately
-          const errorText = await res.text();
           console.error(`❌ klines fetch failed for ${symbol} after ${retries} attempts:`, res.status, errorText);
           return null;
         }
@@ -417,12 +935,16 @@ interface TechnicalIndicators {
 
 async function calculateIndicators(symbol: string, marketType: "spot" | "futures", timeframe: string = "1h"): Promise<TechnicalIndicators | null> {
   const klines = await getKlines(symbol, marketType, timeframe, 100);
-  if (!klines || klines.length < 50) return null;
+  if (!klines || klines.length < 2) return null;
 
-  const closes = klines.map((k: any) => parseFloat(k[4]));
-  const volumes = klines.map((k: any) => parseFloat(k[5]));
-  const highs = klines.map((k: any) => parseFloat(k[2]));
-  const lows = klines.map((k: any) => parseFloat(k[3]));
+  // ✅ Backtest ile birebir uyum için açık (son) bar'ı dahil etme
+  const closedKlines = klines.slice(0, -1);
+  if (closedKlines.length < 50) return null;
+
+  const closes = closedKlines.map((k: any) => parseFloat(k[4]));
+  const volumes = closedKlines.map((k: any) => parseFloat(k[5]));
+  const highs = closedKlines.map((k: any) => parseFloat(k[2]));
+  const lows = closedKlines.map((k: any) => parseFloat(k[3]));
   const lastPrice = closes[closes.length - 1];
 
   // Calculate MACD
@@ -590,13 +1112,19 @@ function generateSignalScore(indicators: TechnicalIndicators, userConfidenceThre
     volumeDetails.obvScore = -10;
   }
 
-  // Volume MA check
-  if (indicators.volumeMA > 0) {
-    volumeScore += 15;
-    volumeDetails.volumeMAScore = 15;
-  } else {
-    volumeScore -= 10;
-    volumeDetails.volumeMAScore = -10;
+  // Volume spike check (last vs recent average)
+  const volumes = indicators.volumes || [];
+  if (volumes.length >= 2) {
+    const lastVolume = volumes[volumes.length - 1];
+    const recent = volumes.slice(-10);
+    const avgVolume = recent.reduce((a, b) => a + b, 0) / (recent.length || 1);
+    if (lastVolume > avgVolume) {
+      volumeScore += 15;
+      volumeDetails.volumeMAScore = 15;
+    } else {
+      volumeScore -= 10;
+      volumeDetails.volumeMAScore = -10;
+    }
   }
 
   breakdown.VOLUME_ANALIZI = {
@@ -604,7 +1132,7 @@ function generateSignalScore(indicators: TechnicalIndicators, userConfidenceThre
     weight: "15%",
     details: {
       "OBV Trend": `${indicators.obvTrend} → ${volumeDetails.obvScore > 0 ? "+" : ""}${volumeDetails.obvScore}`,
-      "Volume MA": `${indicators.volumeMA > 0 ? "Positive" : "Negative"} → ${volumeDetails.volumeMAScore > 0 ? "+" : ""}${volumeDetails.volumeMAScore}`,
+      "Volume vs Avg": `${volumeDetails.volumeMAScore > 0 ? "Above Avg" : "Below Avg"} → ${volumeDetails.volumeMAScore > 0 ? "+" : ""}${volumeDetails.volumeMAScore}`,
       "OBV Value": indicators.obv.toFixed(2)
     }
   };
@@ -656,7 +1184,12 @@ function generateSignalScore(indicators: TechnicalIndicators, userConfidenceThre
   // Clamp to 0-100
   const direction = score > 0 ? "LONG" : "SHORT";
   const confidence = Math.min(Math.max(Math.abs(score), 0), 100);
-  const triggered = confidence >= userConfidenceThreshold;
+
+  // Trend filtresi: downtrend LONG, uptrend SHORT engelle
+  const isDowntrend = indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50;
+  const isUptrend = indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50;
+  const trendBlocks = (direction === "LONG" && isDowntrend) || (direction === "SHORT" && isUptrend);
+  const triggered = confidence >= userConfidenceThreshold && !trendBlocks;
 
   breakdown.normalizedScore = {
     trend: normalizedTrendScore.toFixed(2),
@@ -723,6 +1256,25 @@ async function sendTelegramNotification(userId: string, message: string): Promis
   }
 }
 
+async function sendTelegramToChatId(chatId: string, message: string): Promise<{ ok: boolean; description?: string; error_code?: number }> {
+  try {
+    const botUrl = `https://api.telegram.org/bot${telegramBotToken}/sendMessage`;
+    const resp = await fetch(botUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: "HTML" })
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      console.error("❌ Telegram test send failed:", resp.status, data);
+    }
+    return data;
+  } catch (e) {
+    console.error("❌ Telegram test notification error:", e);
+    return { ok: false, description: e instanceof Error ? e.message : "Unknown error" };
+  }
+}
+
 // =====================
 // User alarm trigger logic (WITH SIGNAL GENERATION)
 // =====================
@@ -754,16 +1306,20 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
   console.log(`📌 Open ACTIVE_TRADE symbols: ${Array.from(openTradeSymbols).join(", ") || "None"}`);
 
   // 🔴 ÖNEMLI: Fetch all open auto_signal sinyalleri - spam'ı engelle
-  const { data: openAutoSignals, error: openAutoSignalsError } = await supabase
-                                                           .from("active_signals")
-    .select("user_id, symbol, status")
+    const { data: openAutoSignals, error: openAutoSignalsError } = await supabase
+      .from("active_signals")
+      .select("user_id, symbol, status, alarm_id")
+      .eq("status", "ACTIVE")
 
   const openSignalKeys = new Set();
+  const openSignalSymbols = new Set();
   if (openAutoSignals && !openAutoSignalsError) {
     openAutoSignals.forEach((sig: any) => {
       // user_id + symbol kombinasyonu key oluştur
-      const key = `${sig.user_id}:${String(sig.symbol || "").toUpperCase()}`;
+      const key = `${sig.user_id}:${String(sig.alarm_id || "")}`;
       openSignalKeys.add(key);
+      const symbolKey = `${sig.user_id}:${String(sig.symbol || "").toUpperCase()}`;
+      openSignalSymbols.add(symbolKey);
     });
   }
   console.log(`📌 Open auto_signal count: ${openSignalKeys.size}`);
@@ -780,6 +1336,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         normalizeMarketType(alarm.market_type || alarm.marketType || "spot"),
         String(alarm.timeframe || "1h")  // ✅ BACK TEST ALİNMENT: User'ın timeframe'ini kullan
       );
+      await new Promise(resolve => setTimeout(resolve, 250));
       if (indicators) {
         console.log(`  ✅ Indicators calculated for ${alarm.symbol}`);
       } else {
@@ -800,6 +1357,11 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
     try {
       const alarm = alarms[i];
       const indicators = indicatorsResults[i];
+      const alarmSymbol = String(alarm?.symbol || "").toUpperCase();
+      const alarmMarketType = normalizeMarketType(alarm.market_type || alarm.marketType || "spot");
+      const alarmPricePrecision = alarmSymbol
+        ? await getSymbolPricePrecision(alarmSymbol, alarmMarketType)
+        : null;
 
       if (!indicators) {
         console.log(`⚠️ No indicators calculated for ${alarm.symbol}`);
@@ -813,19 +1375,16 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       // STRATEGY 1: USER_ALARM (user-defined signals with TP/SL)
       if (alarm.type === "user_alarm") {
         const symbol = String(alarm.symbol || "").toUpperCase();
-        const signalKey = `${alarm.user_id}:${symbol}`;
+        const signalKey = `${alarm.user_id}:${String(alarm.id || "")}`;
+        const symbolKey = `${alarm.user_id}:${symbol}`;
         
         // 🔴 ÖNEMLİ: Aynı user'ın aynı symbol'ü için açık sinyal varsa SKIP!
-        if (openSignalKeys.has(signalKey)) {
-          console.log(`⏹️ Skipping user_alarm for ${symbol}: signal already active (user: ${alarm.user_id})`);
+        if (openSignalSymbols.has(symbolKey)) {
+          console.log(`⏹️ Skipping user_alarm for ${symbol}: signal already active for this symbol (user: ${alarm.user_id})`);
         } else {
           const tpPercent = Number(alarm.tp_percent || 5);
           const slPercent = Number(alarm.sl_percent || 3);
           const entryPrice = indicators.price;
-          const takeProfit = entryPrice * (1 + tpPercent / 100);
-          const stopLoss = entryPrice * (1 - slPercent / 100);
-          const tpGain = ((takeProfit - entryPrice) / entryPrice) * 100;
-          const slLoss = ((stopLoss - entryPrice) / entryPrice) * 100;
           
           console.log(`📊 User alarm check: ${symbol}, TP=${tpPercent}%, SL=${slPercent}%`);
           
@@ -833,6 +1392,15 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
           const signal = generateSignalScore(indicators, Number(alarm.confidence_score || 70));
           if (signal.triggered) {
             shouldTrigger = true;
+            const takeProfit = signal.direction === "SHORT"
+              ? entryPrice * (1 - tpPercent / 100)
+              : entryPrice * (1 + tpPercent / 100);
+            const stopLoss = signal.direction === "SHORT"
+              ? entryPrice * (1 + slPercent / 100)
+              : entryPrice * (1 - slPercent / 100);
+            const tpGain = tpPercent;
+            const slLoss = -slPercent;
+
             detectedSignal = {
               direction: signal.direction,
               score: signal.score,
@@ -850,12 +1418,12 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
               `💰 Çift: ${symbol}\n` +
               `🎯 ${directionEmoji} ${signal.direction} Sinyali Tespit Edildi!\n\n` +
               `📊 Piyasa: ${(alarm.market_type || "spot").toUpperCase()} | Zaman: ${alarm.timeframe || "1h"}\n` +
-              `💹 Fiyat: $${entryPrice.toFixed(8)}\n\n` +
+              `💹 Fiyat: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}\n\n` +
               `📈 Sinyal: Güven: ${Number(alarm.confidence_score || 70)}%\n` +
               `📊 Gelen Sinyalin Güveni: ${signal.score}%\n\n` +
               `🎯 Hedefler:\n` +
-              `   TP: $${takeProfit.toFixed(8)} (+${tpGain.toFixed(2)}%)\n` +
-              `   SL: $${stopLoss.toFixed(8)} (${slLoss.toFixed(2)}%)\n\n` +
+              `   TP: $${formatPriceWithPrecision(takeProfit, alarmPricePrecision)} (+${tpGain.toFixed(2)}%)\n` +
+              `   SL: $${formatPriceWithPrecision(stopLoss, alarmPricePrecision)} (${slLoss.toFixed(2)}%)\n\n` +
               `⏱️ Bar Sınırı: ${alarm.bar_close_limit || 5}\n\n` +
               `⏰ Zaman: ${now}`;
             
@@ -868,11 +1436,17 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       if (!shouldTrigger && (alarm.type === "PRICE_LEVEL" || alarm.condition)) {
         const targetPrice = Number(alarm.target_price || alarm.targetPrice);
         const condition = String(alarm.condition || "").toLowerCase();
+        const symbol = String(alarm.symbol || "").toUpperCase();
+        const symbolKey = `${alarm.user_id}:${symbol}`;
 
-        if (Number.isFinite(targetPrice)) {
+        if (openSignalSymbols.has(symbolKey)) {
+          console.log(`⏹️ Skipping PRICE_LEVEL alarm for ${symbol}: signal already active for this symbol (user: ${alarm.user_id})`);
+        }
+
+        if (Number.isFinite(targetPrice) && !openSignalSymbols.has(symbolKey)) {
           if (condition === "above" && indicators.price >= targetPrice) {
             shouldTrigger = true;
-            triggerMessage = `🚀 Price ${targetPrice}$ reached! (Current: $${indicators.price.toFixed(2)})`;
+            triggerMessage = `🚀 Price ${formatPriceWithPrecision(targetPrice, alarmPricePrecision)}$ reached! (Current: $${formatPriceWithPrecision(indicators.price, alarmPricePrecision)})`;
             // Use alarm's confidence score directly for PRICE_LEVEL
             const confidenceScore = Number(alarm.confidence_score || 50);
             detectedSignal = {
@@ -883,7 +1457,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             };
           } else if (condition === "below" && indicators.price <= targetPrice) {
             shouldTrigger = true;
-            triggerMessage = `📉 Price dropped below ${targetPrice}$! (Current: $${indicators.price.toFixed(2)})`;
+            triggerMessage = `📉 Price dropped below ${formatPriceWithPrecision(targetPrice, alarmPricePrecision)}$! (Current: $${formatPriceWithPrecision(indicators.price, alarmPricePrecision)})`;
             // Use alarm's confidence score directly for PRICE_LEVEL
             const confidenceScore = Number(alarm.confidence_score || 50);
             detectedSignal = {
@@ -900,13 +1474,14 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       // ⏹️ Skip SIGNAL alarms if there's an open ACTIVE_TRADE OR open auto_signal for this symbol
       if (!shouldTrigger && alarm.type === "SIGNAL") {
         const symbol = String(alarm.symbol || "").toUpperCase();
-        const signalKey = `${alarm.user_id}:${symbol}`;
+        const signalKey = `${alarm.user_id}:${String(alarm.id || "")}`;
+        const symbolKey = `${alarm.user_id}:${symbol}`;
 
         if (openTradeSymbols.has(symbol)) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: ACTIVE_TRADE in progress`);
-        } else if (openSignalKeys.has(signalKey)) {
-          // 🔴 ÖNEMLI: Aynı user'ın aynı symbol'ü için açık auto_signal varsa skip!
-          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: auto_signal in progress (user: ${alarm.user_id})`);
+        } else if (openSignalSymbols.has(symbolKey)) {
+          // 🔴 ÖNEMLI: Aynı symbol için açık auto_signal varsa skip!
+          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: auto_signal already active for this symbol (user: ${alarm.user_id})`);
         } else {
           const userConfidenceThreshold = Number(alarm.confidence_score || 70);
           const signal = generateSignalScore(indicators, userConfidenceThreshold);
@@ -915,7 +1490,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             `📊 ${alarm.symbol}: ` +
             `RSI=${indicators.rsi.toFixed(1)} | ` +
             `EMA12=${indicators.ema12.toFixed(2)} vs EMA26=${indicators.ema26.toFixed(2)} | ` +
-            `Price=$${indicators.price.toFixed(2)} | ` +
+            `Price=$${formatPriceWithPrecision(indicators.price, alarmPricePrecision)} | ` +
             `[Trend:${signal.breakdown.trend} Momentum:${signal.breakdown.momentum} Volume:${signal.breakdown.volume} SR:${signal.breakdown.sr}] ` +
             `→ ${signal.direction}(${signal.score}%)`
           );
@@ -931,7 +1506,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             };
             triggerMessage = `🎯 <b>${signal.direction}</b> Signal detected!\n` +
               `Confidence: <b>${signal.score}%</b>\n` +
-              `RSI: ${indicators.rsi.toFixed(1)} | Price: $${indicators.price.toFixed(2)}\n` +
+              `RSI: ${indicators.rsi.toFixed(1)} | Price: $${formatPriceWithPrecision(indicators.price, alarmPricePrecision)}\n` +
               `📈 Analysis: Trend=${signal.breakdown.trend} Momentum=${signal.breakdown.momentum} Volume=${signal.breakdown.volume} SR=${signal.breakdown.sr}`;
           }
         }
@@ -947,7 +1522,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         if (direction === "LONG" && Number.isFinite(entryPrice) && Number.isFinite(takeProfit) && Number.isFinite(stopLoss)) {
           if (indicators.price >= takeProfit) {
             shouldTrigger = true;
-            triggerMessage = `✅ LONG TP Hit! (Entry: $${entryPrice}, TP: $${takeProfit}, Current: $${indicators.price.toFixed(2)})`;
+            triggerMessage = `✅ LONG TP Hit! (Entry: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}, TP: $${formatPriceWithPrecision(takeProfit, alarmPricePrecision)}, Current: $${formatPriceWithPrecision(indicators.price, alarmPricePrecision)})`;
             // Use alarm's confidence score directly for ACTIVE_TRADE
             const confidenceScore = Number(alarm.confidence_score || 50);
             detectedSignal = {
@@ -958,7 +1533,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             };
           } else if (indicators.price <= stopLoss) {
             shouldTrigger = true;
-            triggerMessage = `⛔ LONG SL Hit! (Entry: $${entryPrice}, SL: $${stopLoss}, Current: $${indicators.price.toFixed(2)})`;
+            triggerMessage = `⛔ LONG SL Hit! (Entry: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}, SL: $${formatPriceWithPrecision(stopLoss, alarmPricePrecision)}, Current: $${formatPriceWithPrecision(indicators.price, alarmPricePrecision)})`;
             // Use alarm's confidence score directly for ACTIVE_TRADE
             const confidenceScore = Number(alarm.confidence_score || 50);
             detectedSignal = {
@@ -971,7 +1546,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         } else if (direction === "SHORT" && Number.isFinite(entryPrice) && Number.isFinite(takeProfit) && Number.isFinite(stopLoss)) {
           if (indicators.price <= takeProfit) {
             shouldTrigger = true;
-            triggerMessage = `✅ SHORT TP Hit! (Entry: $${entryPrice}, TP: $${takeProfit}, Current: $${indicators.price.toFixed(2)})`;
+            triggerMessage = `✅ SHORT TP Hit! (Entry: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}, TP: $${formatPriceWithPrecision(takeProfit, alarmPricePrecision)}, Current: $${formatPriceWithPrecision(indicators.price, alarmPricePrecision)})`;
             // Use alarm's confidence score directly for ACTIVE_TRADE
             const confidenceScore = Number(alarm.confidence_score || 50);
             detectedSignal = {
@@ -982,7 +1557,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             };
           } else if (indicators.price >= stopLoss) {
             shouldTrigger = true;
-            triggerMessage = `⛔ SHORT SL Hit! (Entry: $${entryPrice}, SL: $${stopLoss}, Current: $${indicators.price.toFixed(2)})`;
+            triggerMessage = `⛔ SHORT SL Hit! (Entry: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}, SL: $${formatPriceWithPrecision(stopLoss, alarmPricePrecision)}, Current: $${formatPriceWithPrecision(indicators.price, alarmPricePrecision)})`;
             // Use alarm's confidence score directly for ACTIVE_TRADE
             const confidenceScore = Number(alarm.confidence_score || 50);
             detectedSignal = {
@@ -1001,18 +1576,60 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         const timeframe = String(alarm.timeframe || "1h");
         const tpPercent = Number(alarm.tp_percent || 5);
         const slPercent = Number(alarm.sl_percent || 3);
-        const barClose = Number(alarm.bar_close_limit || 5);
-        const directionTR = detectedSignal?.direction === "LONG" ? "🟢 LONG" : "🔴 SHORT";
+        const barClose = alarm.bar_close_limit === null ? null : Number(alarm.bar_close_limit || 5);
+        const direction = detectedSignal?.direction || "LONG";
+        const directionTR = direction === "LONG" ? "🟢 LONG" : "🔴 SHORT";
         
-        // Get exchange info for proper decimal precision
-        const marketTypeNorm = normalizeMarketType(alarm.market_type || "spot");
-        const exchangeInfo = await getExchangeInfo(marketTypeNorm);
-        const tick = exchangeInfo ? getTickSize(exchangeInfo, symbol) : null;
-        const decimals = tick ? Math.max(0, Math.round(-Math.log10(tick))) : 2;
+        const decimals = alarmPricePrecision;
         
         // Calculate TP/SL prices based on current price and percentages
-        const tpPrice = tick ? roundToTick(indicators.price * (1 + tpPercent / 100), tick, "NEAREST") : indicators.price * (1 + tpPercent / 100);
-        const slPrice = tick ? roundToTick(indicators.price * (1 - slPercent / 100), tick, "NEAREST") : indicators.price * (1 - slPercent / 100);
+        const rawTpPrice = direction === "SHORT"
+          ? indicators.price * (1 - tpPercent / 100)
+          : indicators.price * (1 + tpPercent / 100);
+        const rawSlPrice = direction === "SHORT"
+          ? indicators.price * (1 + slPercent / 100)
+          : indicators.price * (1 - slPercent / 100);
+        const tpPrice = rawTpPrice;
+        const slPrice = rawSlPrice;
+
+        // 🚀 AUTO TRADE EXECUTION
+        let tradeResult = { success: false, message: "Auto-trade not triggered" } as { success: boolean; message: string; orderId?: string };
+        let tradeNotificationText = "";
+        const autoTradeEnabled = alarm.auto_trade_enabled === true;
+
+        if (autoTradeEnabled && !alarm.binance_order_id) {
+          tradeResult = await executeAutoTrade(
+            alarm.user_id,
+            symbol,
+            direction,
+            indicators.price,
+            tpPrice,
+            slPrice,
+            normalizeMarketType(alarm.market_type || "spot")
+          );
+
+          if (tradeResult.success) {
+            tradeNotificationText = `\n\n🤖 <b>OTOMATİK İŞLEM:</b>\n${tradeResult.message}`;
+            if (tradeResult.orderId) {
+              await supabase
+                .from("alarms")
+                .update({ binance_order_id: tradeResult.orderId })
+                .eq("id", alarm.id);
+            }
+          } else if (
+            tradeResult.message !== "Auto-trade not enabled" &&
+            tradeResult.message !== "Futures auto-trade not enabled" &&
+            tradeResult.message !== "Spot auto-trade not enabled"
+          ) {
+            tradeNotificationText = `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${tradeResult.message}`;
+          }
+        }
+
+        if (!tradeNotificationText) {
+          tradeNotificationText = autoTradeEnabled
+            ? `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${tradeResult.message}`
+            : `\n\nℹ️ <b>Otomatik işlem:</b> Kapalı`;
+        }
         
         // Format date as DD.MM.YYYY HH:MM:SS in GMT+3 (Turkey timezone)
         const now = new Date();
@@ -1029,28 +1646,32 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         const userConfidenceThreshold = Number(alarm.confidence_score || 70);
         const signalAnalysis = generateSignalScore(indicators, userConfidenceThreshold);
 
-        const telegramMessage = `
+        let telegramMessage = `
 🔔 <b>ALARM AKTİVE!</b> 🔔
 
 💰 Çift: <b>${symbol}</b>
 🎯 ${directionTR} Sinyali Tespit Edildi!
 
 📊 Piyasa: <b>${marketType}</b> | Zaman: <b>${timeframe}</b>
-💹 Fiyat: <b>$${indicators.price.toFixed(decimals)}</b>
+💹 Fiyat: <b>$${formatPriceWithPrecision(indicators.price, decimals)}</b>
 
 📈 Sinyal: Güven: <b>${userConfidenceThreshold}%</b>
 📊 Gelen Sinyalin Güveni: <b>${signalAnalysis.score}%</b>
 
 🎯 Hedefler:
-   TP: <b>$${tpPrice.toFixed(decimals)}</b> (<b>+${tpPercent}%</b>)
-   SL: <b>$${slPrice.toFixed(decimals)}</b> (<b>-${slPercent}%</b>)
+  TP: <b>$${formatPriceWithPrecision(tpPrice, decimals)}</b> (<b>+${tpPercent}%</b>)
+  SL: <b>$${formatPriceWithPrecision(slPrice, decimals)}</b> (<b>-${slPercent}%</b>)
 
-⏱️ Bar Sınırı: <b>${barClose}</b>
+${barClose === null ? "" : `⏱️ Bar Sınırı: <b>${barClose}</b>\n`}
 
 ⏰ Zaman: <b>${formattedDateTime}</b>
+${tradeNotificationText}
+
+<i>Not:</i> Otomatik al-sat işlemleri market fiyatından anlık alındığı için, sinyalin giriş fiyatına göre farklılık gösterebilir.
 `;
 
         // 🚀 INSERT active signal INTO DATABASE
+        let signalInserted = false;
         try {
           const marketTypeNorm = normalizeMarketType(alarm.market_type || "spot");
           const newActiveSignal = {
@@ -1059,7 +1680,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             symbol: symbol,
             market_type: marketTypeNorm,
             timeframe: String(alarm.timeframe || "1h"),
-            direction: detectedSignal?.direction || "LONG",
+            direction,
             entry_price: indicators.price,
             take_profit: tpPrice,
             stop_loss: slPrice,
@@ -1073,11 +1694,21 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
           const { error: insertError } = await supabase.from("active_signals").insert(newActiveSignal);
           if (insertError) {
             console.error(`❌ Failed to insert signal for ${symbol}:`, insertError);
+            signalInserted = false;
           } else {
             console.log(`✅ Signal created in active_signals for ${symbol}`);
+            signalInserted = true;
+            openSignalSymbols.add(`${alarm.user_id}:${symbol}`);
+            openSignalKeys.add(`${alarm.user_id}:${String(alarm.id || "")}`);
           }
         } catch (e) {
           console.error(`❌ Error creating signal for ${symbol}:`, e);
+          signalInserted = false;
+        }
+
+        if (!signalInserted) {
+          console.warn(`⚠️ active_signals insert failed for ${symbol} - telegram skipped`);
+          continue;
         }
 
         telegramPromises.push(sendTelegramNotification(alarm.user_id, telegramMessage));
@@ -1099,6 +1730,7 @@ type ClosedSignal = {
   price: number;
   user_id: string;
   profitLoss?: number;
+  market_type?: string;
 };
 
 async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
@@ -1117,22 +1749,17 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
     if (!signals || signals.length === 0) return [];
 
     // 🚀 PARALLELIZED: Fetch all prices in parallel
-    const pricePromises = signals.map(signal =>
-      getCurrentPrice(
-        String(signal.symbol || ""),
-        normalizeMarketType(signal.market_type || signal.marketType || signal.market)
-      )
-    );
+    const pricePromises = signals.map(signal => {
+      const marketType = normalizeMarketType(signal.market_type || signal.marketType || signal.market);
+      const symbol = String(signal.symbol || "");
+      if (marketType === "futures") {
+        return getFuturesMarkPrice(symbol).then(p => (p === null ? getCurrentPrice(symbol, marketType) : p));
+      }
+      return getCurrentPrice(symbol, marketType);
+    });
     const prices = await Promise.all(pricePromises);
 
-    // 🚀 PARALLELIZED: Get exchange info for all market types
-    const marketTypes = [...new Set(signals.map(s => normalizeMarketType(s.market_type || s.marketType || s.market)))];
-    const exchangeInfoPromises = marketTypes.map(mt => getExchangeInfo(mt));
-    const exchangeInfoResults = await Promise.all(exchangeInfoPromises);
-    const exchangeInfoMap = Object.fromEntries(marketTypes.map((mt, i) => [mt, exchangeInfoResults[i]]));
-
     const closedSignals: ClosedSignal[] = [];
-    const updatePromises: Promise<any>[] = [];
 
     for (let idx = 0; idx < signals.length; idx++) {
       try {
@@ -1141,8 +1768,6 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         
         if (rawPrice === null) continue;
 
-        const marketType = normalizeMarketType(signal.market_type || signal.marketType || signal.market);
-        const exchangeInfo = exchangeInfoMap[marketType];
         const symbol = String(signal.symbol || "");
         const direction = (signal.condition || signal.direction) as "LONG" | "SHORT";
         
@@ -1151,9 +1776,7 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           continue;
         }
 
-        // tickSize rounding
-        const tick = exchangeInfo ? getTickSize(exchangeInfo, symbol) : null;
-        const currentPrice = tick ? roundToTick(rawPrice, tick, "NEAREST") : rawPrice;
+        const currentPrice = rawPrice;
 
         const tp = Number(signal.take_profit);
         const sl = Number(signal.stop_loss);
@@ -1163,8 +1786,8 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           continue;
         }
 
-        const takeProfit = tick ? roundToTick(tp, tick, "NEAREST") : tp;
-        const stopLoss = tick ? roundToTick(sl, tick, "NEAREST") : sl;
+        const takeProfit = tp;
+        const stopLoss = sl;
 
         let shouldClose = false;
         let closeReason: "TP_HIT" | "SL_HIT" | "BAR_CLOSE" | "" = "";
@@ -1214,26 +1837,22 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           ? ((currentPrice - Number(signal.entry_price)) / Number(signal.entry_price)) * 100
           : ((Number(signal.entry_price) - currentPrice) / Number(signal.entry_price)) * 100;
 
-        // Update signal status to CLOSED (instead of deleting)
-        updatePromises.push(
-          supabase
-            .from("active_signals")
-            .update({
-              status: "CLOSED",
-              close_reason: closeReason,
-              closed_at: new Date().toISOString()
-            })
-            .eq("id", signal.id)
-            .eq("status", "ACTIVE") // avoid race condition
-            .then(result => {
-              if (result.error) {
-                console.error(`❌ updateError for signal ${signal.id}:`, result.error);
-                return null;
-              }
-              console.log(`✅ Signal ${signal.id} (${signal.symbol}) CLOSED: ${closeReason} | P&L: ${profitLoss.toFixed(2)}%`);
-              return { signal, direction, closeReason, currentPrice, profitLoss };
-            })
-        );
+        const updateResult = await supabase
+          .from("active_signals")
+          .update({
+            status: "CLOSED",
+            close_reason: closeReason,
+            closed_at: new Date().toISOString()
+          })
+          .eq("id", signal.id)
+          .eq("status", "ACTIVE");
+
+        if (updateResult.error) {
+          console.error(`❌ updateError for signal ${signal.id}:`, updateResult.error);
+          continue;
+        }
+
+        console.log(`✅ Signal ${signal.id} (${signal.symbol}) CLOSED: ${closeReason} | P&L: ${profitLoss.toFixed(2)}%`);
 
         closedSignals.push({
           id: signal.id,
@@ -1242,6 +1861,7 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           close_reason: closeReason,
           price: currentPrice,
           user_id: signal.user_id,
+          market_type: signal.market_type || signal.marketType || signal.market,
           profitLoss: direction === "LONG"
             ? ((currentPrice - Number(signal.entry_price)) / Number(signal.entry_price)) * 100
             : ((Number(signal.entry_price) - currentPrice) / Number(signal.entry_price)) * 100,
@@ -1250,9 +1870,6 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         console.error(`❌ Error checking signal ${signals[idx]?.id}:`, e);
       }
     }
-
-    // 🚀 PARALLELIZED: Execute all database updates in parallel
-    await Promise.all(updatePromises);
 
     return closedSignals;
   } catch (e) {
@@ -1355,6 +1972,55 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
     closed_price: null,
     type: "auto_signal",
   };
+
+  // ✅ Alarm exists check: skip orphan signals
+  try {
+    if (newSignal.alarm_id) {
+      const alarmIdNum = Number(newSignal.alarm_id);
+      if (!Number.isFinite(alarmIdNum)) {
+        console.warn("⚠️ Invalid alarm_id for signal insert, skipping:", newSignal.alarm_id);
+        return { inserted: false, duplicate: false };
+      }
+      const { data: alarmRow, error: alarmError } = await supabase
+        .from("alarms")
+        .select("id, is_active, status")
+        .eq("id", alarmIdNum)
+        .eq("user_id", newSignal.user_id)
+        .eq("type", "user_alarm")
+        .maybeSingle();
+
+      if (alarmError) {
+        console.error("❌ Alarm lookup failed:", alarmError);
+        return { inserted: false, duplicate: false };
+      }
+      const status = String(alarmRow?.status || "").toUpperCase();
+      if (!alarmRow || alarmRow.is_active === false || (status && status !== "ACTIVE")) {
+        console.warn("⚠️ Alarm not active/exists, skipping signal insert:", newSignal.alarm_id);
+        return { inserted: false, duplicate: false };
+      }
+    } else {
+      const { data: activeAlarm, error: activeAlarmError } = await supabase
+        .from("alarms")
+        .select("id")
+        .eq("user_id", newSignal.user_id)
+        .eq("type", "user_alarm")
+        .eq("is_active", true)
+        .eq("symbol", newSignal.symbol)
+        .maybeSingle();
+
+      if (activeAlarmError) {
+        console.error("❌ Active alarm lookup failed:", activeAlarmError);
+        return { inserted: false, duplicate: false };
+      }
+      if (!activeAlarm?.id) {
+        console.warn("⚠️ No active alarm for user/symbol, skipping signal insert:", newSignal.symbol);
+        return { inserted: false, duplicate: false };
+      }
+    }
+  } catch (e) {
+    console.error("❌ Alarm validation error:", e);
+    return { inserted: false, duplicate: false };
+  }
 
   // Duplicate check - prevent same signal from being inserted twice
   const { data: existing, error } = await supabase
@@ -1470,6 +2136,64 @@ serve(async (req: any) => {
       }
     }
 
+    // ✅ Test notification request
+    if (body?.action === "test_notification") {
+      const chatId = String(body?.telegramUsername || body?.telegram_chat_id || body?.chatId || "").trim();
+      if (!chatId) {
+        return new Response(JSON.stringify({ ok: false, error: "Missing telegram chat id" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      const now = new Date().toLocaleString("tr-TR");
+      const message = `✅ Test bildirimi başarılı!\n\n⏰ Zaman: ${now}`;
+      const result = await sendTelegramToChatId(chatId, message);
+
+      return new Response(JSON.stringify(result), {
+        status: result.ok ? 200 : 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    // ✅ Test Binance connection request
+    if (body?.action === "test_binance_connection") {
+      const apiKey = String(body?.api_key || "").trim();
+      const apiSecret = String(body?.api_secret || "").trim();
+
+      if (!apiKey || !apiSecret) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: "Missing API key or secret"
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      try {
+        const futuresBalance = await getBinanceBalance(apiKey, apiSecret, "futures");
+        const spotBalance = await getBinanceBalance(apiKey, apiSecret, "spot");
+
+        return new Response(JSON.stringify({
+          success: true,
+          futures_balance: futuresBalance,
+          spot_balance: spotBalance
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: e instanceof Error ? e.message : "Connection failed"
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+    }
+
     // ✅ If request includes a new signal, insert it (with duplicate prevention)
     let insertResult = { inserted: false, duplicate: false };
     try {
@@ -1546,7 +2270,7 @@ serve(async (req: any) => {
     const closedSignals = await checkAndCloseSignals();
 
     // ✅ Notify - 🚀 PARALLELIZED
-    const notificationPromises = closedSignals.map(signal => {
+    const notificationPromises = closedSignals.map(async signal => {
       let statusMessage = "⛔ KAPANDI - STOP LOSS HIT!";
       let emoji = "⚠️";
       if (signal.close_reason === "TP_HIT") {
@@ -1557,15 +2281,19 @@ serve(async (req: any) => {
         emoji = "⏱️";
       }
 
+      const precision = await getSymbolPricePrecision(
+        String(signal.symbol || "").toUpperCase(),
+        normalizeMarketType(signal.market_type || "spot")
+      );
+
       const telegramMessage = `
 🔔 <b>İŞLEM KAPANDI</b> 🔔
 
 📊 Coin: <b>${signal.symbol}</b>
 📈 İşlem Yönü: <b>${signal.direction}</b>
 ${emoji} ${statusMessage}
-💰 Kapanış Fiyatı: <b>$${signal.price.toFixed(8)}</b>
-
-Detaylı rapor için dashboard'u kontrol edin.
+💰 Kapanış Fiyatı: <b>$${formatPriceWithPrecision(signal.price, precision)}</b>
+    📈 Kar/Zarar: <b>${signal.profitLoss !== undefined ? (signal.profitLoss >= 0 ? '+' : '') + signal.profitLoss.toFixed(2) + '%' : 'N/A'}</b>
 `;
 
       return sendTelegramNotification(signal.user_id, telegramMessage);
