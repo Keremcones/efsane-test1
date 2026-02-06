@@ -1051,6 +1051,10 @@
                     <i class="fa-solid fa-trophy"></i>
                     Kazananlar
                 </a>
+                <a href="premium.html" class="menu-item" id="premiumMenuItem" onclick="closeHamburgerMenu()" style="display: none;">
+                    <i class="fa-solid fa-star"></i>
+                    Premium Ol
+                </a>
                 <a href="login.html" class="menu-item login-item" id="loginMenu" onclick="closeHamburgerMenu()">
                     <i class="fa-solid fa-right-to-bracket"></i>
                     Giriş Yap
@@ -1289,6 +1293,14 @@
             badgeEl.style.display = 'inline-flex';
         }
 
+        function updatePremiumMenuVisibility(membershipType, isAdmin) {
+            const premiumItem = document.getElementById('premiumMenuItem');
+            if (!premiumItem) return;
+            const isFree = !isAdmin && membershipType !== 'premium';
+            const displayValue = isFree ? 'flex' : 'none';
+            premiumItem.style.setProperty('display', displayValue, 'important');
+        }
+
         async function checkAuth() {
             const { data: { session } } = await supabaseClient.auth.getSession();
             const loginMenu = document.getElementById('loginMenu');
@@ -1299,6 +1311,7 @@
                 document.getElementById('menuUserEmail').textContent = 'Misafir';
                 if (loginMenu) loginMenu.style.display = 'flex';
                 if (logoutMenu) logoutMenu.style.display = 'none';
+                updatePremiumMenuVisibility('standard', false);
                 return;
             }
 
@@ -1318,14 +1331,16 @@
 
                 if (!userProfile) {
                     updateUserRoleBadge('standard', isAdminByEmail);
+                    updatePremiumMenuVisibility('standard', isAdminByEmail);
                 } else {
-                    updateUserRoleBadge(
-                        userProfile.membership_type || 'standard',
-                        !!userProfile.is_admin || isAdminByEmail
-                    );
+                    const membershipType = userProfile.membership_type || 'standard';
+                    const isAdmin = !!userProfile.is_admin || isAdminByEmail;
+                    updateUserRoleBadge(membershipType, isAdmin);
+                    updatePremiumMenuVisibility(membershipType, isAdmin);
                 }
             } catch {
                 updateUserRoleBadge('standard', isAdminByEmail);
+                updatePremiumMenuVisibility('standard', isAdminByEmail);
             }
         }
 

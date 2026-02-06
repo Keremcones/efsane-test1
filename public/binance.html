@@ -529,6 +529,10 @@
                     <i class="fa-brands fa-bitcoin"></i>
                     Binance Bağlantısı
                 </a>
+                <a href="premium.html" class="menu-item" id="premiumMenuItem" onclick="closeHamburgerMenu()" style="display: none;">
+                    <i class="fa-solid fa-star"></i>
+                    Premium Ol
+                </a>
                 <button class="menu-item logout-item" onclick="window.logout()">
                     <i class="fa-solid fa-right-from-bracket"></i>
                     Çıkış Yap
@@ -852,6 +856,14 @@
             badgeEl.style.display = 'inline-flex';
         }
 
+        function updatePremiumMenuVisibility(membershipType, isAdmin) {
+            const premiumItem = document.getElementById('premiumMenuItem');
+            if (!premiumItem) return;
+            const isFree = !isAdmin && membershipType !== 'premium';
+            const displayValue = isFree ? 'flex' : 'none';
+            premiumItem.style.setProperty('display', displayValue, 'important');
+        }
+
         window.updateAutoTradeUI = function() {
             const autoToggle = document.getElementById('autoTradeToggle');
             const enabled = autoToggle ? autoToggle.checked : false;
@@ -1066,10 +1078,12 @@
                 .eq('id', currentUser.id)
                 .maybeSingle();
 
+            const membershipType = userProfile?.membership_type || 'standard';
             const isAdmin = isAdminByEmail || !!userProfile?.is_admin;
-            const isPremium = (userProfile?.membership_type || 'standard') === 'premium' || isAdmin;
+            const isPremium = membershipType === 'premium' || isAdmin;
 
-            updateUserRoleBadge(userProfile?.membership_type || 'standard', isAdmin);
+            updateUserRoleBadge(membershipType, isAdmin);
+            updatePremiumMenuVisibility(membershipType, isAdmin);
 
             if (!isPremium) {
                 showPremiumLock();

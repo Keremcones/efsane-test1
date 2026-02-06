@@ -747,6 +747,10 @@
                     <i class="fa-brands fa-bitcoin"></i>
                     Binance Bağlantısı
                 </a>
+                <a href="premium.html" class="menu-item" id="premiumMenuItem" onclick="closeHamburgerMenu()" style="display: none;">
+                    <i class="fa-solid fa-star"></i>
+                    Premium Ol
+                </a>
                 <button class="menu-item logout-item" onclick="window.logout()">
                     <i class="fa-solid fa-right-from-bracket"></i>
                     Çıkış Yap
@@ -889,6 +893,7 @@
 
         let supabaseClient = null;
         let currentUser = null;
+        const ADMIN_EMAIL = 'asd@asd.com';
         let strategyCoins = [];
         let filteredStrategyCoins = [];
         let selectedStrategySymbol = 'BTCUSDT';
@@ -1188,6 +1193,14 @@
             badgeEl.style.display = 'inline-flex';
         }
 
+        function updatePremiumMenuVisibility(membershipType, isAdmin) {
+            const premiumItem = document.getElementById('premiumMenuItem');
+            if (!premiumItem) return;
+            const isFree = !isAdmin && membershipType !== 'premium';
+            const displayValue = isFree ? 'flex' : 'none';
+            premiumItem.style.setProperty('display', displayValue, 'important');
+        }
+
         function showPremiumLock() {
             const lockEl = document.getElementById('premiumLock');
             if (lockEl) {
@@ -1226,15 +1239,19 @@
 
                 if (!userProfile) {
                     updateUserRoleBadge('standard', isAdminByEmail);
+                    updatePremiumMenuVisibility('standard', isAdminByEmail);
                     return { isPremium: isAdminByEmail };
                 } else {
+                    const membershipType = userProfile.membership_type || 'standard';
                     const isAdmin = isAdminByEmail || !!userProfile.is_admin;
-                    updateUserRoleBadge(userProfile.membership_type || 'standard', isAdmin);
-                    const isPremium = userProfile.membership_type === 'premium' || isAdmin;
+                    updateUserRoleBadge(membershipType, isAdmin);
+                    updatePremiumMenuVisibility(membershipType, isAdmin);
+                    const isPremium = membershipType === 'premium' || isAdmin;
                     return { isPremium };
                 }
             } catch {
                 updateUserRoleBadge('standard', isAdminByEmail);
+                updatePremiumMenuVisibility('standard', isAdminByEmail);
                 return { isPremium: isAdminByEmail };
             }
         }

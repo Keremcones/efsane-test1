@@ -1371,6 +1371,10 @@
                     <i class="fa-brands fa-bitcoin"></i>
                     Binance Bağlantısı
                 </a>
+                <a href="premium.html" class="menu-item" id="premiumMenuItem" onclick="closeHamburgerMenu()" style="display: none;">
+                    <i class="fa-solid fa-star"></i>
+                    Premium Ol
+                </a>
                 <button class="menu-item logout-item" onclick="window.logout()">
                     <i class="fa-solid fa-right-from-bracket"></i>
                     Çıkış Yap
@@ -1727,17 +1731,20 @@
                     .eq('id', currentUser.id)
                     .single();
 
+                const membershipType = userProfile?.membership_type || 'standard';
+
                 // Membership badge'ini güncelle
                 if (userProfile) {
-                    updateMembershipBadge(userProfile.membership_type || 'standard', userProfile.membership_expires_at, !!userProfile.is_admin);
-                    updateUserRoleBadge(userProfile.membership_type || 'standard', !!userProfile.is_admin);
+                    updateMembershipBadge(membershipType, userProfile.membership_expires_at, !!userProfile.is_admin);
+                    updateUserRoleBadge(membershipType, !!userProfile.is_admin);
                 } else {
                     updateMembershipBadge('standard', null, isAdminByEmail);
                     updateUserRoleBadge('standard', isAdminByEmail);
                 }
 
                 const isAdmin = isAdminByEmail || !!userProfile?.is_admin;
-                const isPremium = (userProfile?.membership_type || 'standard') === 'premium';
+                const isPremium = membershipType === 'premium';
+                updatePremiumMenuVisibility(membershipType, isAdmin);
                 canUseTelegramChatId = isAdmin || isPremium;
                 const upgradeBtn = document.getElementById('upgradePremiumBtn');
                 if (upgradeBtn) {
@@ -1882,6 +1889,14 @@
             badgeEl.innerHTML = '<i class="fa-solid fa-leaf"></i> Free';
             badgeEl.className = 'user-role-badge standard';
             badgeEl.style.display = 'inline-flex';
+        }
+
+        function updatePremiumMenuVisibility(membershipType, isAdmin) {
+            const premiumItem = document.getElementById('premiumMenuItem');
+            if (!premiumItem) return;
+            const isFree = !isAdmin && membershipType !== 'premium';
+            const displayValue = isFree ? 'flex' : 'none';
+            premiumItem.style.setProperty('display', displayValue, 'important');
         }
 
         async function loadAdminUserList() {
