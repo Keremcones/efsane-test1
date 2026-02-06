@@ -5776,6 +5776,43 @@ Detaylar:
             }, 2000);
         }
 
+        const alarmSignalPriceCache = {};
+        const ALARM_SIGNAL_PRICE_TTL_MS = 5000;
+
+        async function ensureAlarmSignalPrice(symbol, marketType) {
+            if (!symbol) return;
+            const cacheKey = `${symbol}:${marketType}`;
+            const cached = alarmSignalPriceCache[cacheKey];
+            const now = Date.now();
+            if (cached?.inflight) return;
+            if (cached?.timestamp && (now - cached.timestamp) < ALARM_SIGNAL_PRICE_TTL_MS) return;
+
+            alarmSignalPriceCache[cacheKey] = { inflight: true, timestamp: now };
+
+            try {
+                const base = String(marketType).toLowerCase() === 'futures'
+                    ? BINANCE_FUTURES_API_BASE
+                    : BINANCE_SPOT_API_BASE;
+                const url = `${base}/ticker/price?symbol=${symbol}`;
+                const response = (typeof fetchWithRetry === 'function')
+                    ? await fetchWithRetry(url, {}, 2, 500, 8000)
+                    : await fetch(url);
+                if (!response.ok) return;
+                const data = await response.json();
+                const price = parseFloat(data?.price);
+                if (Number.isFinite(price)) {
+                    localStorage.setItem(`price_${symbol}`, String(price));
+                    alarmSignalPriceCache[cacheKey] = { inflight: false, timestamp: now, price };
+                }
+            } catch (e) {
+                console.warn('Alarm signal price fetch failed:', e);
+            } finally {
+                if (alarmSignalPriceCache[cacheKey]) {
+                    alarmSignalPriceCache[cacheKey].inflight = false;
+                }
+            }
+        }
+
         function updateAlarmSignalsPnL() {
             const pnlEls = document.querySelectorAll('[data-alarm-signal-pnl="1"][data-live="1"]');
             const totalEl = document.getElementById('alarmSignalsTotalPnl');
@@ -5792,13 +5829,19 @@ Detaylar:
 
             pnlEls.forEach(el => {
                 const symbol = el.getAttribute('data-symbol');
+                const marketType = el.getAttribute('data-market') || 'spot';
                 const direction = String(el.getAttribute('data-direction') || '').toUpperCase();
                 const entry = parseFloat(el.getAttribute('data-entry') || '0');
                 if (!symbol || !entry) return;
 
                 const storedLivePrice = localStorage.getItem(`price_${symbol}`);
                 const livePrice = storedLivePrice ? parseFloat(storedLivePrice) : NaN;
-                if (!Number.isFinite(livePrice) || !Number.isFinite(entry)) return;
+                if (!Number.isFinite(livePrice) || !Number.isFinite(entry)) {
+                    ensureAlarmSignalPrice(symbol, marketType);
+                    el.textContent = '--';
+                    el.className = 'price-change';
+                    return;
+                }
 
                 const rawPnl = direction === 'SHORT'
                     ? ((entry - livePrice) / entry) * 100
