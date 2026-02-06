@@ -1693,7 +1693,11 @@ ${tradeNotificationText}
 
           const { error: insertError } = await supabase.from("active_signals").insert(newActiveSignal);
           if (insertError) {
-            console.error(`❌ Failed to insert signal for ${symbol}:`, insertError);
+            if (insertError.code === "23505") {
+              console.warn(`⚠️ Duplicate active signal for ${symbol} (alarm ${alarm.id}) - skipping telegram`);
+            } else {
+              console.error(`❌ Failed to insert signal for ${symbol}:`, insertError);
+            }
             signalInserted = false;
           } else {
             console.log(`✅ Signal created in active_signals for ${symbol}`);
