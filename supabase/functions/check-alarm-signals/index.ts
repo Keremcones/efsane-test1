@@ -1815,6 +1815,36 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         }
 
         if (!shouldClose) {
+          const marketType = normalizeMarketType(signal.market_type || signal.marketType || signal.market);
+          const timeframe = String(signal.timeframe || "1h");
+          const klines = await getKlines(symbol, marketType, timeframe, 2);
+          if (klines && klines.length >= 2) {
+            const lastClosed = klines[klines.length - 2];
+            const barHigh = Number(lastClosed?.[2]);
+            const barLow = Number(lastClosed?.[3]);
+            if (Number.isFinite(barHigh) && Number.isFinite(barLow)) {
+              if (direction === "LONG") {
+                if (barHigh >= takeProfit) {
+                  shouldClose = true;
+                  closeReason = "TP_HIT";
+                } else if (barLow <= stopLoss) {
+                  shouldClose = true;
+                  closeReason = "SL_HIT";
+                }
+              } else if (direction === "SHORT") {
+                if (barLow <= takeProfit) {
+                  shouldClose = true;
+                  closeReason = "TP_HIT";
+                } else if (barHigh >= stopLoss) {
+                  shouldClose = true;
+                  closeReason = "SL_HIT";
+                }
+              }
+            }
+          }
+        }
+
+        if (!shouldClose) {
           const barCloseLimit = Number(signal.bar_close_limit);
           const createdAt = signal.created_at ? new Date(signal.created_at) : null;
           const timeframeMinutes = timeframeToMinutes(String(signal.timeframe || "1h"));
