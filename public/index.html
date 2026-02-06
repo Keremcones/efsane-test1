@@ -4934,19 +4934,23 @@
                                 const logoHtml = createCoinLogoElement(coinSymbol, 20);
                                 const score = Number(sig.score || 0);
                                 const entryPrice = parseFloat(sig.entry_price);
-                                const livePrice = parseFloat(localStorage.getItem(`price_${sig.symbol}`) || String(entryPrice));
+                                const storedLivePrice = localStorage.getItem(`price_${sig.symbol}`);
+                                const livePrice = storedLivePrice ? parseFloat(storedLivePrice) : NaN;
                                 const signalCreatedAt = formatDateTime(sig.created_at);
-                                const rawPnl = sig.direction === 'SHORT'
-                                    ? ((entryPrice - livePrice) / entryPrice) * 100
-                                    : ((livePrice - entryPrice) / entryPrice) * 100;
+                                const rawPnl = Number.isFinite(livePrice)
+                                    ? (sig.direction === 'SHORT'
+                                        ? ((entryPrice - livePrice) / entryPrice) * 100
+                                        : ((livePrice - entryPrice) / entryPrice) * 100)
+                                    : NaN;
                                 const statusRaw = String(sig.status || '').toUpperCase();
                                 const isClosed = statusRaw === 'CLOSED';
                                 const storedPnl = parseFloat(sig.profit_loss);
                                 const pnlPercent = isClosed && Number.isFinite(storedPnl)
                                     ? parseFloat(storedPnl.toFixed(2))
-                                    : (Number.isFinite(rawPnl) ? parseFloat(rawPnl.toFixed(2)) : 0);
-                                const pnlClass = pnlPercent >= 0 ? 'positive' : 'negative';
-                                const pnlSign = pnlPercent >= 0 ? '+' : '';
+                                    : (Number.isFinite(rawPnl) ? parseFloat(rawPnl.toFixed(2)) : null);
+                                const pnlClass = pnlPercent !== null && pnlPercent >= 0 ? 'positive' : 'negative';
+                                const pnlSign = pnlPercent !== null && pnlPercent >= 0 ? '+' : '';
+                                const pnlText = pnlPercent === null ? '--' : `${pnlSign}${pnlPercent}%`;
                                 const tpPercent = Number(sig.tp_percent);
                                 const slPercent = Number(sig.sl_percent);
                                 const barLimit = Number(sig.bar_close_limit);
@@ -4967,7 +4971,7 @@
                                             </div>
                                             <div style="display:flex;align-items:center;gap:8px;">
                                                 <span class="price-change ${statusClass}" style="font-size:0.75rem;padding:3px 8px;">${statusText}</span>
-                                                <span class="price-change ${pnlClass}" data-alarm-signal-pnl="1" data-live="${isClosed ? '0' : '1'}" data-symbol="${sig.symbol}" data-direction="${sig.direction}" data-entry="${sig.entry_price}">${pnlSign}${pnlPercent}%</span>
+                                                <span class="price-change ${pnlClass}" data-alarm-signal-pnl="1" data-live="${isClosed ? '0' : '1'}" data-symbol="${sig.symbol}" data-direction="${sig.direction}" data-entry="${sig.entry_price}">${pnlText}</span>
                                             </div>
                                         </div>
                                         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
@@ -5789,7 +5793,8 @@ Detaylar:
                 const entry = parseFloat(el.getAttribute('data-entry') || '0');
                 if (!symbol || !entry) return;
 
-                const livePrice = parseFloat(localStorage.getItem(`price_${symbol}`) || String(entry));
+                const storedLivePrice = localStorage.getItem(`price_${symbol}`);
+                const livePrice = storedLivePrice ? parseFloat(storedLivePrice) : NaN;
                 if (!Number.isFinite(livePrice) || !Number.isFinite(entry)) return;
 
                 const rawPnl = direction === 'SHORT'
