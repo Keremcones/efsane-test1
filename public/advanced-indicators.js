@@ -1334,7 +1334,9 @@ class AlarmSystem {
         // Supabase'den alarmları yeniden yükle
         this.loadAlarms();
         // Real-time subscription başlat
-        this.startRealtimeSubscription();
+        if (window.REALTIME_ENABLED) {
+            this.startRealtimeSubscription();
+        }
     }
     
     async addAlarm(symbolOrAlarm, targetPrice, condition, type = 'price') {
@@ -2276,7 +2278,7 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
     }
 
     startRealtimeSubscription() {
-        if (!this.supabase || !this.userId) return;
+        if (!this.supabase || !this.userId || !window.REALTIME_ENABLED) return;
 
         // Eski subscription'ı durdur
         this.stopRealtimeSubscription();

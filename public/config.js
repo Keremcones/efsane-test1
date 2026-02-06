@@ -110,6 +110,25 @@ window.CORS_PROXY = CORS_PROXY;
 var USE_CORS_PROXY = window.USE_CORS_PROXY ?? false; // Proxy devre dışı - doğrudan API çağır
 window.USE_CORS_PROXY = USE_CORS_PROXY;
 
+// Realtime toggle (disable by default to avoid websocket failures)
+var REALTIME_ENABLED = window.REALTIME_ENABLED;
+if (REALTIME_ENABLED === undefined || REALTIME_ENABLED === null || REALTIME_ENABLED === '') {
+    try {
+        REALTIME_ENABLED = localStorage.getItem('REALTIME_ENABLED');
+    } catch (e) {
+        REALTIME_ENABLED = '';
+    }
+}
+if (REALTIME_ENABLED === 'true') {
+    REALTIME_ENABLED = true;
+} else if (REALTIME_ENABLED === 'false') {
+    REALTIME_ENABLED = false;
+}
+if (REALTIME_ENABLED !== true && REALTIME_ENABLED !== false) {
+    REALTIME_ENABLED = false;
+}
+window.REALTIME_ENABLED = REALTIME_ENABLED;
+
 // App Configuration
 var APP_CONFIG = window.APP_CONFIG || {
     defaultRiskPerTrade: 2, // %2
