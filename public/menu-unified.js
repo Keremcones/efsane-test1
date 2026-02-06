@@ -182,24 +182,48 @@
     }
 
     // ==================== UPDATE USER EMAIL ==================== 
-    function updateUserEmail() {
-        try {
-            const menuUserEmail = document.getElementById('menuUserEmail');
-            const userEmail = document.getElementById('userEmail');
-
-            if (window.supabase && menuUserEmail) {
-                (async () => {
-                    const { data: { session } } = await window.supabase.auth.getSession();
-                    if (session?.user?.email) {
-                        const email = session.user.email;
-                        if (menuUserEmail) menuUserEmail.textContent = email;
-                        if (userEmail) userEmail.textContent = email;
-                    }
-                })();
-            }
-        } catch (err) {
-            console.error('Error updating user email:', err);
+    function getSupabaseClient() {
+        if (window.__menuSupabaseClient) {
+            return window.__menuSupabaseClient;
         }
+
+        if (!window.supabase || !window.supabase.createClient) {
+            return null;
+        }
+
+        if (!window.SUPABASE_URL || !window.SUPABASE_ANON_KEY) {
+            return null;
+        }
+
+        window.__menuSupabaseClient = window.supabase.createClient(
+            window.SUPABASE_URL,
+            window.SUPABASE_ANON_KEY
+        );
+
+        return window.__menuSupabaseClient;
+    }
+
+    function updateUserEmail() {
+        const menuUserEmail = document.getElementById('menuUserEmail');
+        const userEmail = document.getElementById('userEmail');
+
+        if (!menuUserEmail && !userEmail) return;
+
+        const client = getSupabaseClient();
+        if (!client || !client.auth || !client.auth.getSession) return;
+
+        (async () => {
+            try {
+                const { data: { session } } = await client.auth.getSession();
+                if (session?.user?.email) {
+                    const email = session.user.email;
+                    if (menuUserEmail) menuUserEmail.textContent = email;
+                    if (userEmail) userEmail.textContent = email;
+                }
+            } catch (err) {
+                console.error('Error updating user email:', err);
+            }
+        })();
     }
 
     // ==================== NAVBAR SCROLL EFFECT ==================== 
