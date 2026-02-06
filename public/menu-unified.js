@@ -166,10 +166,12 @@
 
         if (focusableElements.length === 0) return;
 
+        if (element.__menuTrapHandler) return;
+
         const firstElement = focusableElements[0];
         const lastElement = focusableElements[focusableElements.length - 1];
 
-        element.addEventListener('keydown', function(e) {
+        const handler = function(e) {
             if (e.key !== 'Tab') return;
 
             if (e.shiftKey) {
@@ -183,7 +185,10 @@
                     e.preventDefault();
                 }
             }
-        });
+        };
+
+        element.__menuTrapHandler = handler;
+        element.addEventListener('keydown', handler);
     }
 
     // ==================== UPDATE USER EMAIL ==================== 

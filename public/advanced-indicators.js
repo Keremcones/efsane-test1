@@ -2559,7 +2559,10 @@ function generateSignalScoreAligned(indicators, price, sr, closes, volumes, user
     const volumeMA = Array.isArray(volumes) && volumes.length > 0
         ? volumes.reduce((a, b) => a + b, 0) / volumes.length
         : 0;
-    if (volumeMA > 0) volumeScore += 15;
+    const lastVolume = Array.isArray(volumes) && volumes.length > 0
+        ? volumes[volumes.length - 1]
+        : 0;
+    if (lastVolume > volumeMA) volumeScore += 15;
     else volumeScore -= 10;
 
     // SUPPORT/RESISTANCE (%15)
@@ -2586,7 +2589,11 @@ function generateSignalScoreAligned(indicators, price, sr, closes, volumes, user
     else if (atrPercent > 0 && atrPercent < 0.002) adjustedThreshold += 10;
     adjustedThreshold = Math.min(95, adjustedThreshold);
 
-    const triggered = confidence >= adjustedThreshold;
+    let triggered = confidence >= adjustedThreshold;
+    const trendUp = indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50;
+    const trendDown = indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50;
+    if (trendDown && direction === 'LONG') triggered = false;
+    if (trendUp && direction === 'SHORT') triggered = false;
 
     return {
         direction,

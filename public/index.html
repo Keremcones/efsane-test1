@@ -55,20 +55,41 @@
     </script>
     <script>
         // Hemen kontrol et - sayfa yüklemeden önce
-        (async () => {
-            // Supabase credentials var mı kontrol et
-            if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-                console.error('Supabase credentials missing! Set in Vercel Environment Variables or LOCAL_DEV in config.js');
-                return;
+        (function() {
+            let attempts = 0;
+            const maxAttempts = 30;
+            const intervalMs = 100;
+
+            async function tryAuthGuard() {
+                if (!window.supabase || !window.supabase.createClient) return false;
+                if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+                    console.error('Supabase credentials missing! Set in Vercel Environment Variables or LOCAL_DEV in config.js');
+                    return true;
+                }
+
+                const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                try {
+                    const { data: { session } } = await supabaseClient.auth.getSession();
+                    if (!session) {
+                        window.location.replace('login.html');
+                    }
+                } catch (e) {
+                    window.location.replace('login.html');
+                }
+                return true;
             }
-            
-            const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-            const { data: { session } } = await supabaseClient.auth.getSession();
-            
-            if (!session) {
-                // Login olmamışsa login sayfasına yönlendir
-                window.location.replace('login.html');
-            }
+
+            const timer = setInterval(() => {
+                attempts += 1;
+                tryAuthGuard().then((done) => {
+                    if (done) {
+                        clearInterval(timer);
+                    } else if (attempts >= maxAttempts) {
+                        clearInterval(timer);
+                        window.location.replace('login.html');
+                    }
+                });
+            }, intervalMs);
         })();
     </script>
     <style>
@@ -1841,6 +1862,7 @@
         let miniChart = null;
         let candleSeries = null;
         let wsConnection = null;
+        const ADMIN_EMAIL = 'asd@asd.com';
         let currentMembershipType = 'standard';
         let currentIsAdmin = false;
         let isApplyingDashboardFilters = false;
@@ -2718,6 +2740,7 @@
             document.getElementById('menuUserEmail').textContent = currentUser.email;
 
             try {
+                const isAdminByEmail = String(currentUser.email || '').toLowerCase() === ADMIN_EMAIL;
                 await supabaseClient
                     .from('user_profiles')
                     .upsert({
@@ -2733,9 +2756,9 @@
                     .maybeSingle();
 
                 if (userProfileError) {
-                    updateUserRoleBadge('standard', false);
+                    updateUserRoleBadge('standard', isAdminByEmail);
                     currentMembershipType = 'standard';
-                    currentIsAdmin = false;
+                    currentIsAdmin = isAdminByEmail;
                 } else if (!userProfile) {
                     await supabaseClient
                         .from('user_profiles')
@@ -2744,19 +2767,21 @@
                             email: currentUser.email,
                             membership_type: 'standard'
                         });
-                    updateUserRoleBadge('standard', false);
+                    updateUserRoleBadge('standard', isAdminByEmail);
                     currentMembershipType = 'standard';
-                    currentIsAdmin = false;
+                    currentIsAdmin = isAdminByEmail;
                 } else {
-                    updateUserRoleBadge(userProfile.membership_type || 'standard', !!userProfile.is_admin);
+                    const isAdmin = isAdminByEmail || !!userProfile.is_admin;
+                    updateUserRoleBadge(userProfile.membership_type || 'standard', isAdmin);
                     currentMembershipType = userProfile.membership_type || 'standard';
-                    currentIsAdmin = !!userProfile.is_admin;
+                    currentIsAdmin = isAdmin;
                 }
                 updatePremiumMenuVisibility(currentMembershipType, currentIsAdmin);
             } catch {
-                updateUserRoleBadge('standard', false);
+                const isAdminByEmail = String(currentUser.email || '').toLowerCase() === ADMIN_EMAIL;
+                updateUserRoleBadge('standard', isAdminByEmail);
                 currentMembershipType = 'standard';
-                currentIsAdmin = false;
+                currentIsAdmin = isAdminByEmail;
                 updatePremiumMenuVisibility(currentMembershipType, currentIsAdmin);
             }
 
@@ -2819,6 +2844,7 @@
         // Çıkış Yap
         async function logout() {
             try {
+                stopLiveUpdates();
                 const { error } = await supabaseClient.auth.signOut();
                 if (error) throw error;
                 window.location.replace('login.html');
@@ -2829,15 +2855,8 @@
                 window.location.replace('login.html');
             }
         }
-        
+
         // Hamburger Menü - menu-unified.js tarafından yönetilir
-        
-        // Çıkış
-        async function logout() {
-            stopLiveUpdates();
-            await supabaseClient.auth.signOut();
-            window.location.href = 'index.html';
-        }
         
         // Canlı güncellemeyi durdur
         function stopLiveUpdates() {
@@ -4834,7 +4853,7 @@
                     const activeAlarmIds = new Set(activeAlarms.map(a => Number(a.id)));
                     const { data: activeSignals, error } = await supabaseClient
                         .from('active_signals')
-                        .select('id, alarm_id, symbol, direction, entry_price, take_profit, stop_loss, tp_percent, sl_percent, bar_close_limit, score, status, created_at, profit_loss, close_reason, closed_at')
+                        .select('id, alarm_id, symbol, direction, entry_price, take_profit, stop_loss, tp_percent, sl_percent, bar_close_limit, score, status, created_at, signal_timestamp, profit_loss, close_reason, closed_at')
                         .eq('user_id', currentUser.id)
                         .order('created_at', { ascending: false });
 
@@ -4857,7 +4876,14 @@
                             const rawPnl = sig.direction === 'SHORT'
                                 ? ((entryPrice - livePrice) / entryPrice) * 100
                                 : ((livePrice - entryPrice) / entryPrice) * 100;
-                            return sum + (Number.isFinite(rawPnl) ? rawPnl : 0);
+                            const tpPercent = Number(sig.tp_percent);
+                            const slPercent = Number(sig.sl_percent);
+                            const tpLimit = Number.isFinite(tpPercent) ? Math.abs(tpPercent) : null;
+                            const slLimit = Number.isFinite(slPercent) ? Math.abs(slPercent) : null;
+                            let openPnl = Number.isFinite(rawPnl) ? rawPnl : 0;
+                            if (tpLimit !== null && openPnl > tpLimit) openPnl = tpLimit;
+                            if (slLimit !== null && openPnl < -slLimit) openPnl = -slLimit;
+                            return sum + openPnl;
                         }, 0);
                         if (totalPnlEl) {
                             const pnlRounded = Number.isFinite(totalPnlValue) ? totalPnlValue.toFixed(2) : '0.00';
@@ -4883,13 +4909,19 @@
                                 const rawPnl = sig.direction === 'SHORT'
                                     ? ((entryPrice - livePrice) / entryPrice) * 100
                                     : ((livePrice - entryPrice) / entryPrice) * 100;
-                                const pnlPercent = isClosed && Number.isFinite(storedPnl)
+                                let pnlPercent = isClosed && Number.isFinite(storedPnl)
                                     ? parseFloat(storedPnl.toFixed(2))
                                     : (Number.isFinite(rawPnl) ? parseFloat(rawPnl.toFixed(2)) : 0);
                                 const pnlClass = pnlPercent >= 0 ? 'positive' : 'negative';
                                 const pnlSign = pnlPercent >= 0 ? '+' : '';
                                 const tpPercent = Number(sig.tp_percent);
                                 const slPercent = Number(sig.sl_percent);
+                                if (!isClosed) {
+                                    const tpLimit = Number.isFinite(tpPercent) ? Math.abs(tpPercent) : null;
+                                    const slLimit = Number.isFinite(slPercent) ? Math.abs(slPercent) : null;
+                                    if (tpLimit !== null && pnlPercent > tpLimit) pnlPercent = tpLimit;
+                                    if (slLimit !== null && pnlPercent < -slLimit) pnlPercent = -slLimit;
+                                }
                                 const barLimitRaw = sig.bar_close_limit;
                                 let barLimitValue = (barLimitRaw === null || barLimitRaw === undefined) ? null : Number(barLimitRaw);
                                 if (!Number.isFinite(barLimitValue) || barLimitValue <= 0) {
@@ -4912,9 +4944,11 @@
                                                 : '';
                                 const statusText = isClosed ? `KAPALI${closeReasonText ? ` (${closeReasonText})` : ''}` : 'AKTİF';
                                 const statusClass = isClosed ? 'negative' : 'positive';
+                                const tpAttr = Number.isFinite(tpPercent) ? tpPercent : '';
+                                const slAttr = Number.isFinite(slPercent) ? slPercent : '';
                                 const pnlAttrs = isClosed && Number.isFinite(storedPnl)
                                     ? ''
-                                    : ` data-alarm-signal-pnl="1" data-symbol="${sig.symbol}" data-direction="${sig.direction}" data-entry="${sig.entry_price}"`;
+                                    : ` data-alarm-signal-pnl="1" data-symbol="${sig.symbol}" data-direction="${sig.direction}" data-entry="${sig.entry_price}" data-tp-percent="${tpAttr}" data-sl-percent="${slAttr}"`;
                                 const signalTime = formatTurkeyDate(isClosed ? sig.closed_at : (sig.signal_timestamp || sig.created_at));
                                 const signalTimeLabel = isClosed ? 'Kapanış' : 'Oluşum';
                                 return `
@@ -5735,6 +5769,10 @@ Detaylar:
                 const symbol = el.getAttribute('data-symbol');
                 const direction = String(el.getAttribute('data-direction') || '').toUpperCase();
                 const entry = parseFloat(el.getAttribute('data-entry') || '0');
+                const tpRaw = parseFloat(el.getAttribute('data-tp-percent') || '');
+                const slRaw = parseFloat(el.getAttribute('data-sl-percent') || '');
+                const tpLimit = Number.isFinite(tpRaw) ? Math.abs(tpRaw) : null;
+                const slLimit = Number.isFinite(slRaw) ? Math.abs(slRaw) : null;
                 if (!symbol || !entry) return;
 
                 const livePrice = parseFloat(localStorage.getItem(`price_${symbol}`) || String(entry));
@@ -5744,7 +5782,9 @@ Detaylar:
                     ? ((entry - livePrice) / entry) * 100
                     : ((livePrice - entry) / entry) * 100;
 
-                const pnlPercent = Number.isFinite(rawPnl) ? parseFloat(rawPnl.toFixed(2)) : 0;
+                let pnlPercent = Number.isFinite(rawPnl) ? parseFloat(rawPnl.toFixed(2)) : 0;
+                if (tpLimit !== null && pnlPercent > tpLimit) pnlPercent = tpLimit;
+                if (slLimit !== null && pnlPercent < -slLimit) pnlPercent = -slLimit;
                 const pnlSign = pnlPercent >= 0 ? '+' : '';
                 el.textContent = `${pnlSign}${pnlPercent}%`;
                 el.className = `price-change ${pnlPercent >= 0 ? 'positive' : 'negative'}`;

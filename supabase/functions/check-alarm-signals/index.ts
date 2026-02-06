@@ -63,14 +63,14 @@ async function acquireCronLock(lockName: string, ttlSeconds: number = 55): Promi
 
     if (error) {
       console.error("❌ Cron lock update error:", error);
-      return { acquired: true, requestId };
+      return { acquired: false, requestId };
     }
 
     const acquired = Array.isArray(data) && data.length > 0;
     return { acquired, requestId };
   } catch (e) {
     console.error("❌ Cron lock exception:", e);
-    return { acquired: true, requestId };
+    return { acquired: false, requestId };
   }
 }
 
@@ -347,7 +347,7 @@ async function getBinanceBalance(apiKey: string, apiSecret: string, marketType: 
 
   const url = `${baseUrl}?${queryString}&signature=${signature}`;
 
-  const response = await fetch(url, {
+  const response = await throttledFetch(url, {
     headers: { "X-MBX-APIKEY": apiKey }
   });
 
@@ -372,7 +372,7 @@ async function getSymbolInfo(symbol: string, marketType: "spot" | "futures"): Pr
     ? "https://fapi.binance.com/fapi/v1/exchangeInfo"
     : "https://api.binance.com/api/v3/exchangeInfo";
 
-  const response = await fetch(baseUrl);
+  const response = await throttledFetch(baseUrl);
   if (!response.ok) return null;
 
   const data = await response.json();
@@ -404,7 +404,7 @@ async function setLeverage(apiKey: string, apiSecret: string, symbol: string, le
 
   const url = `https://fapi.binance.com/fapi/v1/leverage?${queryString}&signature=${signature}`;
 
-  const response = await fetch(url, {
+  const response = await throttledFetch(url, {
     method: "POST",
     headers: { "X-MBX-APIKEY": apiKey }
   });
@@ -472,7 +472,7 @@ async function openBinanceTrade(
   const signature = await createBinanceSignature(queryString, apiSecret);
   const url = `${baseUrl}?${queryString}&signature=${signature}`;
 
-  const response = await fetch(url, {
+  const response = await throttledFetch(url, {
     method: "POST",
     headers: { "X-MBX-APIKEY": apiKey }
   });
@@ -537,7 +537,7 @@ async function placeTakeProfitStopLoss(
       const tpQueryBase = `symbol=${symbol}&side=${closeSide}&type=TAKE_PROFIT_MARKET&stopPrice=${tpPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true`;
       const tpQuery = `${tpQueryBase}${positionSideParam}&timestamp=${tpTimestamp}`;
       const tpSignature = await createBinanceSignature(tpQuery, apiSecret);
-      const tpResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${tpQuery}&signature=${tpSignature}`, {
+      const tpResponse = await throttledFetch(`https://fapi.binance.com/fapi/v1/order?${tpQuery}&signature=${tpSignature}`, {
         method: "POST",
         headers: { "X-MBX-APIKEY": apiKey }
       });
@@ -564,7 +564,7 @@ async function placeTakeProfitStopLoss(
       const slQueryBase = `symbol=${symbol}&side=${closeSide}&type=STOP_MARKET&stopPrice=${slPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true`;
       const slQuery = `${slQueryBase}${positionSideParam}&timestamp=${slTimestamp}`;
       const slSignature = await createBinanceSignature(slQuery, apiSecret);
-      const slResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${slQuery}&signature=${slSignature}`, {
+      const slResponse = await throttledFetch(`https://fapi.binance.com/fapi/v1/order?${slQuery}&signature=${slSignature}`, {
         method: "POST",
         headers: { "X-MBX-APIKEY": apiKey }
       });
@@ -599,7 +599,7 @@ async function placeFuturesAlgoOrder(
   const signature = await createBinanceSignature(query, apiSecret);
   const url = `https://fapi.binance.com/fapi/v1/algoOrder?${query}&signature=${signature}`;
 
-  const response = await fetch(url, {
+  const response = await throttledFetch(url, {
     method: "POST",
     headers: { "X-MBX-APIKEY": apiKey }
   });
@@ -691,7 +691,7 @@ async function hasOpenFuturesPosition(apiKey: string, apiSecret: string, symbol:
   const signature = await createBinanceSignature(queryString, apiSecret);
   const url = `https://fapi.binance.com/fapi/v2/positionRisk?${queryString}&signature=${signature}`;
 
-  const response = await fetch(url, {
+  const response = await throttledFetch(url, {
     headers: { "X-MBX-APIKEY": apiKey }
   });
 
@@ -712,7 +712,7 @@ async function hasOpenSpotOrders(apiKey: string, apiSecret: string, symbol: stri
   const signature = await createBinanceSignature(queryString, apiSecret);
   const url = `https://api.binance.com/api/v3/openOrders?${queryString}&signature=${signature}`;
 
-  const response = await fetch(url, {
+  const response = await throttledFetch(url, {
     headers: { "X-MBX-APIKEY": apiKey }
   });
 
@@ -731,7 +731,7 @@ async function hasOpenFuturesOrders(apiKey: string, apiSecret: string, symbol: s
   const signature = await createBinanceSignature(queryString, apiSecret);
   const url = `https://fapi.binance.com/fapi/v1/openOrders?${queryString}&signature=${signature}`;
 
-  const response = await fetch(url, {
+  const response = await throttledFetch(url, {
     headers: { "X-MBX-APIKEY": apiKey }
   });
 
@@ -750,7 +750,7 @@ async function getFuturesOrderStatus(apiKey: string, apiSecret: string, symbol: 
   const signature = await createBinanceSignature(queryString, apiSecret);
   const url = `https://fapi.binance.com/fapi/v1/order?${queryString}&signature=${signature}`;
 
-  const response = await fetch(url, {
+  const response = await throttledFetch(url, {
     headers: { "X-MBX-APIKEY": apiKey }
   });
 
@@ -769,7 +769,7 @@ async function cancelFuturesOrder(apiKey: string, apiSecret: string, symbol: str
   const signature = await createBinanceSignature(queryString, apiSecret);
   const url = `https://fapi.binance.com/fapi/v1/order?${queryString}&signature=${signature}`;
 
-  const response = await fetch(url, {
+  const response = await throttledFetch(url, {
     method: "DELETE",
     headers: { "X-MBX-APIKEY": apiKey }
   });
@@ -1024,12 +1024,12 @@ async function executeAutoTrade(
 // Technical Indicators (Simple)
 // =====================
 function calculateRSI(prices: number[], period: number = 14): number {
-  if (prices.length < period) return 50; // Default middle value
+  if (prices.length < period + 1) return 50; // Default middle value
 
   let gains = 0;
   let losses = 0;
 
-  for (let i = 1; i < prices.length; i++) {
+  for (let i = prices.length - period; i < prices.length; i++) {
     const change = prices[i] - prices[i - 1];
     if (change > 0) gains += change;
     else losses += Math.abs(change);
@@ -1044,49 +1044,39 @@ function calculateRSI(prices: number[], period: number = 14): number {
   return rsi;
 }
 
-function calculateSMA(prices: number[], period: number): number {
-  if (prices.length < period) return prices[prices.length - 1];
+function calculateSMA(prices: number[], period: number): number | null {
+  if (prices.length < period) return null;
   const sum = prices.slice(-period).reduce((a, b) => a + b, 0);
   return sum / period;
 }
 
-function calculateEMA(prices: number[], period: number): number {
-  if (prices.length < period) return prices[prices.length - 1];
-  const k = 2 / (period + 1);
-  let ema = prices[0];
-  for (let i = 1; i < prices.length; i++) {
-    ema = prices[i] * k + ema * (1 - k);
+function calculateEMA(prices: number[], period: number): number | null {
+  if (prices.length < period) return null;
+  const multiplier = 2 / (period + 1);
+  let ema = calculateSMA(prices.slice(0, period), period);
+  if (ema === null) return null;
+  for (let i = period; i < prices.length; i++) {
+    ema = (prices[i] - ema) * multiplier + ema;
   }
   return ema;
 }
 
-function calculateStochastic(closes: number[], highs: number[], lows: number[], period: number = 14, smoothK: number = 3): { K: number; D: number } {
-  if (closes.length < period) return { K: 50, D: 50 };
-  
-  let lowestLow = lows[lows.length - 1];
-  let highestHigh = highs[highs.length - 1];
-  
-  for (let i = Math.max(0, closes.length - period); i < closes.length; i++) {
-    if (lows[i] < lowestLow) lowestLow = lows[i];
-    if (highs[i] > highestHigh) highestHigh = highs[i];
-  }
-  const range = highestHigh - lowestLow;
-  const rawK = range === 0 ? 50 : ((closes[closes.length - 1] - lowestLow) / range) * 100;
-  
-  const kValues: number[] = [rawK];
-  for (let i = 1; i < smoothK; i++) {
-    kValues.push(rawK);
-  }
-  const K = kValues.reduce((a, b) => a + b) / smoothK;
-  const D = K;
-  
-  return { K: Math.max(0, Math.min(100, K)), D: Math.max(0, Math.min(100, D)) };
+function calculateStochastic(closes: number[], highs: number[], lows: number[], period: number = 14): { k: number; d: number } | null {
+  if (closes.length < period) return null;
+
+  const recentHighs = highs.slice(-period);
+  const recentLows = lows.slice(-period);
+  const currentClose = closes[closes.length - 1];
+  const highestHigh = Math.max(...recentHighs);
+  const lowestLow = Math.min(...recentLows);
+  const k = ((currentClose - lowestLow) / (highestHigh - lowestLow)) * 100;
+  return { k, d: k };
 }
 
-function calculateATR(highs: number[], lows: number[], closes: number[], period: number = 14): number {
-  if (closes.length < period + 1) return 0;
+function calculateATR(highs: number[], lows: number[], closes: number[], period: number = 14): number | null {
+  if (closes.length < period + 1) return null;
 
-  const trueRanges: number[] = [];
+  const tr: number[] = [];
   for (let i = 1; i < closes.length; i++) {
     const high = highs[i];
     const low = lows[i];
@@ -1094,59 +1084,86 @@ function calculateATR(highs: number[], lows: number[], closes: number[], period:
     const tr1 = high - low;
     const tr2 = Math.abs(high - prevClose);
     const tr3 = Math.abs(low - prevClose);
-    trueRanges.push(Math.max(tr1, tr2, tr3));
+    tr.push(Math.max(tr1, tr2, tr3));
   }
 
-  const recent = trueRanges.slice(-period);
-  if (recent.length === 0) return 0;
-  return recent.reduce((a, b) => a + b, 0) / recent.length;
+  return tr.slice(-period).reduce((a, b) => a + b, 0) / period;
 }
 
-function calculateADX(highs: number[], lows: number[], closes: number[], period: number = 14): number {
-  if (closes.length < period + 1) return 25;
-  
-  const trueRanges: number[] = [];
-  const plusDMs: number[] = [];
-  const minusDMs: number[] = [];
-  
-  for (let i = 1; i < closes.length; i++) {
-    const tr = Math.max(
-      highs[i] - lows[i],
-      Math.abs(highs[i] - closes[i - 1]),
-      Math.abs(lows[i] - closes[i - 1])
-    );
-    trueRanges.push(tr);
-    
+function calculateADX(highs: number[], lows: number[], closes: number[], period: number = 14): number | null {
+  const atr = calculateATR(highs, lows, closes, period);
+  if (atr === null) return null;
+
+  let dmPlus = 0;
+  let dmMinus = 0;
+  for (let i = 1; i < highs.length; i++) {
     const upMove = highs[i] - highs[i - 1];
     const downMove = lows[i - 1] - lows[i];
-    
-    let plusDM = 0;
-    let minusDM = 0;
-    
-    if (upMove > downMove && upMove > 0) {
-      plusDM = upMove;
-    }
-    if (downMove > upMove && downMove > 0) {
-      minusDM = downMove;
-    }
-    
-    plusDMs.push(plusDM);
-    minusDMs.push(minusDM);
+    if (upMove > downMove && upMove > 0) dmPlus += upMove;
+    if (downMove > upMove && downMove > 0) dmMinus += downMove;
   }
-  
-  const atrSum = trueRanges.slice(-period).reduce((a, b) => a + b, 0) / period;
-  const plusDISum = plusDMs.slice(-period).reduce((a, b) => a + b, 0) / period;
-  const minusDISum = minusDMs.slice(-period).reduce((a, b) => a + b, 0) / period;
-  
-  if (atrSum === 0) return 25;
-  
-  const plusDI = (plusDISum / atrSum) * 100;
-  const minusDI = (minusDISum / atrSum) * 100;
-  
-  const diSum = plusDI + minusDI;
-  const adx = diSum === 0 ? 25 : Math.abs(plusDI - minusDI) / diSum * 100;
-  
-  return Math.min(100, adx);
+
+  const diPlus = (dmPlus / period / atr) * 100;
+  const diMinus = (dmMinus / period / atr) * 100;
+  const dx = Math.abs(diPlus - diMinus) / (diPlus + diMinus) * 100;
+  return dx;
+}
+
+function calculateMACD(prices: number[]): { macd: number; signal: number; histogram: number } | null {
+  const ema12 = calculateEMA(prices, 12);
+  const ema26 = calculateEMA(prices, 26);
+  if (ema12 === null || ema26 === null) return null;
+  const macdLine = ema12 - ema26;
+  return { macd: macdLine, signal: 0, histogram: 0 };
+}
+
+function findSupportResistance(highs: number[], lows: number[], closes: number[]): { supports: { price: number; type: string }[]; resistances: { price: number; type: string }[] } {
+  const period = Math.min(50, closes.length);
+  const recentHighs = highs.slice(-period);
+  const recentLows = lows.slice(-period);
+
+  const pivots: { price: number; type: string }[] = [];
+  for (let i = 2; i < period - 2; i++) {
+    if (
+      recentHighs[i] > recentHighs[i - 1] &&
+      recentHighs[i] > recentHighs[i - 2] &&
+      recentHighs[i] > recentHighs[i + 1] &&
+      recentHighs[i] > recentHighs[i + 2]
+    ) {
+      pivots.push({ price: recentHighs[i], type: "resistance" });
+    }
+    if (
+      recentLows[i] < recentLows[i - 1] &&
+      recentLows[i] < recentLows[i - 2] &&
+      recentLows[i] < recentLows[i + 1] &&
+      recentLows[i] < recentLows[i + 2]
+    ) {
+      pivots.push({ price: recentLows[i], type: "support" });
+    }
+  }
+
+  const currentPrice = closes[closes.length - 1];
+  const supports = pivots
+    .filter(p => p.type === "support" && p.price < currentPrice)
+    .sort((a, b) => b.price - a.price)
+    .slice(0, 3);
+  const resistances = pivots
+    .filter(p => p.type === "resistance" && p.price > currentPrice)
+    .sort((a, b) => a.price - b.price)
+    .slice(0, 3);
+
+  while (supports.length < 3) {
+    const minPrice = Math.min(...recentLows);
+    const level = currentPrice - (currentPrice - minPrice) * (0.3 * (supports.length + 1));
+    supports.push({ price: level, type: "support" });
+  }
+  while (resistances.length < 3) {
+    const maxPrice = Math.max(...recentHighs);
+    const level = currentPrice + (maxPrice - currentPrice) * (0.3 * (resistances.length + 1));
+    resistances.push({ price: level, type: "resistance" });
+  }
+
+  return { supports, resistances };
 }
 
 async function getKlines(symbol: string, marketType: "spot" | "futures", timeframe: string = "1h", limit: number = 100, retries: number = 3): Promise<any[] | null> {
@@ -1239,16 +1256,17 @@ interface TechnicalIndicators {
   volumes: number[];
   highs: number[];
   lows: number[];
-  macd: number;
+  macd: { macd: number; signal: number; histogram: number };
   histogram: number;
   obv: number;
   obvTrend: "rising" | "falling" | "neutral";
   resistance: number;
   support: number;
-  stoch: { K: number; D: number };
+  stoch: { k: number; d: number };
   adx: number;
   volumeMA: number;
   atr: number;
+  sr: { supports: { price: number; type: string }[]; resistances: { price: number; type: string }[] };
 }
 
 function formatTurkeyTimeFromMs(timestampMs: number): string {
@@ -1282,12 +1300,7 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
   // Calculate MACD
   const ema12 = calculateEMA(closes, 12);
   const ema26 = calculateEMA(closes, 26);
-  const macdLine = ema12 - ema26;
-  const signalLine = calculateEMA(closes.map((_, i) => {
-    const c = closes.slice(0, i + 1);
-    return c.length >= 26 ? calculateEMA(c, 12) - calculateEMA(c, 26) : 0;
-  }), 9);
-  const histogram = macdLine - signalLine;
+  const macdObj = calculateMACD(closes);
 
   // Calculate OBV
   let obv = 0;
@@ -1300,53 +1313,59 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
   if (closes[closes.length - 1] > closes[closes.length - 2]) obvTrend = "rising";
   else if (closes[closes.length - 1] < closes[closes.length - 2]) obvTrend = "falling";
 
-  // Support/Resistance
-  const highs20 = highs.slice(-20);
-  const lows20 = lows.slice(-20);
-  const resistance = Math.max(...highs20);
-  const support = Math.min(...lows20);
+  const sr = findSupportResistance(highs, lows, closes);
+  const support = sr.supports[0]?.price ?? 0;
+  const resistance = sr.resistances[0]?.price ?? 0;
 
   // Calculate Stochastic and ADX
   const stoch = calculateStochastic(closes, highs, lows);
-  const adx = calculateADX(highs, lows, closes);
+  const adx = calculateADX(highs, lows, closes, 14);
   const atr = calculateATR(highs, lows, closes, 14);
-  
-  // Calculate Volume Moving Average
-  const volumeMA = volumes.length > 0 ? volumes.reduce((a, b) => a + b, 0) / volumes.length : 0;
+
+  const volumeMA = volumes.length > 0
+    ? volumes.reduce((a, b) => a + b, 0) / volumes.length
+    : 0;
 
   return {
     rsi: calculateRSI(closes, 14),
-    sma20: calculateSMA(closes, 20),
-    sma50: calculateSMA(closes, 50),
-    ema12: ema12,
-    ema26: ema26,
+    sma20: calculateSMA(closes, 20) ?? 0,
+    sma50: calculateSMA(closes, 50) ?? 0,
+    ema12: ema12 ?? 0,
+    ema26: ema26 ?? 0,
     price: lastPrice,
     lastClosedCandleCloseTime: Number.isFinite(lastClosedCandleCloseTime) ? lastClosedCandleCloseTime : Date.now(),
     closes: closes,
     volumes: volumes,
     highs: highs,
     lows: lows,
-    macd: macdLine,
-    histogram: histogram,
+    macd: macdObj ?? { macd: 0, signal: 0, histogram: 0 },
+    histogram: macdObj?.histogram ?? 0,
     obv: obv,
     obvTrend: obvTrend,
     resistance: resistance,
     support: support,
-    stoch: stoch,
-    adx: adx,
+    stoch: stoch ?? { k: 0, d: 0 },
+    adx: adx ?? 0,
     volumeMA: volumeMA,
-    atr: atr,
+    atr: atr ?? 0,
+    sr: sr,
   };
 }
 
 // =====================
 // Full Signal Generation (Back Test Aligned - 40-30-15-15 weights)
 // =====================
-function generateSignalScore(indicators: TechnicalIndicators, userConfidenceThreshold: number = 70): { direction: "LONG" | "SHORT"; score: number; triggered: boolean; breakdown: any } {
-  const breakdown: any = {};
+function generateSignalScore(
+  indicators: TechnicalIndicators,
+  userConfidenceThreshold: number = 70
+): { direction: "LONG" | "SHORT"; score: number; triggered: boolean; breakdown: { trend: number; momentum: number; volume: number; sr: number } } {
+  const price = Number(indicators.price || 0);
+  const macdValue = Number(indicators.macd?.macd ?? 0);
+  const stochK = Number(indicators.stoch?.k ?? 0);
+  const atrValue = Number(indicators.atr ?? 0);
+  const atrPercent = price > 0 ? (atrValue / price) : 0;
 
-  const atrPercent = indicators.price > 0 ? (indicators.atr / indicators.price) : 0;
-  const isTrending = indicators.adx >= 25;
+  const isTrending = Number(indicators.adx ?? 0) >= 25;
   const regime = isTrending ? "trend" : "range";
 
   let trendWeight = 40;
@@ -1366,201 +1385,85 @@ function generateSignalScore(indicators: TechnicalIndicators, userConfidenceThre
     srWeight = 25;
   }
 
-  // ===== TREND ANALİZİ (%40) =====
   let trendScore = 0;
-  let trendDetails = {
-    emaAlignment: 0,
-    adxBonus: 0
-  };
-
-  // Multi Timeframe trend alignment (EMA12/EMA26 + SMA20/SMA50)
   if (indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50) {
-    trendScore += 30; // LONG alignment
-    trendDetails.emaAlignment = 30;
+    trendScore += 30;
   } else if (indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50) {
-    trendScore -= 30; // SHORT alignment
-    trendDetails.emaAlignment = -30;
+    trendScore -= 30;
   }
-
-  // ADX trend gücü
   if (indicators.adx > 25) {
-    const adxBonus = Math.min((indicators.adx - 25) * 0.8, 20);
-    trendScore += adxBonus;
-    trendDetails.adxBonus = adxBonus;
+    trendScore += Math.min((indicators.adx - 25) * 0.8, 20);
   }
 
-  breakdown.TREND_ANALIZI = {
-    score: trendScore,
-    weight: `${trendWeight}%`,
-    details: {
-      "EMA12/EMA26 & SMA20/SMA50": `${trendDetails.emaAlignment > 0 ? "✅ LONG" : trendDetails.emaAlignment < 0 ? "⚠️ SHORT" : "-"} (${trendDetails.emaAlignment})`,
-      "ADX > 25 Bonus": `${trendDetails.adxBonus > 0 ? "+" : ""}${trendDetails.adxBonus.toFixed(2)}`,
-      "ADX Value": indicators.adx.toFixed(2),
-      "EMA12": indicators.ema12.toFixed(8),
-      "EMA26": indicators.ema26.toFixed(8),
-      "SMA20": indicators.sma20.toFixed(8),
-      "SMA50": indicators.sma50.toFixed(8)
-    }
-  };
-
-  // ===== MOMENTUM ANALİZİ (%30) =====
   let momentumScore = 0;
-  let momentumDetails = {
-    rsiScore: 0,
-    macdScore: 0,
-    stochScore: 0
-  };
+  if (indicators.rsi < 30) momentumScore += 25;
+  else if (indicators.rsi < 40) momentumScore += 15;
+  else if (indicators.rsi > 70) momentumScore -= 25;
+  else if (indicators.rsi > 60) momentumScore -= 15;
 
-  // RSI
-  if (indicators.rsi < 30) {
-    momentumScore += 25;
-    momentumDetails.rsiScore = 25;
-  } else if (indicators.rsi < 40) {
-    momentumScore += 15;
-    momentumDetails.rsiScore = 15;
-  } else if (indicators.rsi > 70) {
-    momentumScore -= 25;
-    momentumDetails.rsiScore = -25;
-  } else if (indicators.rsi > 60) {
-    momentumScore -= 15;
-    momentumDetails.rsiScore = -15;
-  }
+  momentumScore += macdValue > 0 ? 10 : -10;
+  if (stochK < 20) momentumScore += 10;
+  else if (stochK > 80) momentumScore -= 10;
 
-  // MACD
-  const macdScore = indicators.macd > 0 ? 10 : -10;
-  momentumScore += macdScore;
-  momentumDetails.macdScore = macdScore;
-
-  // Stochastic
-  if (indicators.stoch.K < 20) {
-    momentumScore += 10; // Oversold
-    momentumDetails.stochScore = 10;
-  } else if (indicators.stoch.K > 80) {
-    momentumScore -= 10; // Overbought
-    momentumDetails.stochScore = -10;
-  }
-
-  breakdown.MOMENTUM_ANALIZI = {
-    score: momentumScore,
-    weight: `${momentumWeight}%`,
-    details: {
-      "RSI": `${indicators.rsi.toFixed(2)} → ${momentumDetails.rsiScore > 0 ? "+" : ""}${momentumDetails.rsiScore}`,
-      "MACD": `${indicators.macd > 0 ? "Positive" : "Negative"} → ${momentumDetails.macdScore > 0 ? "+" : ""}${momentumDetails.macdScore}`,
-      "Stochastic K": `${indicators.stoch.K.toFixed(2)} → ${momentumDetails.stochScore > 0 ? "+" : ""}${momentumDetails.stochScore}`,
-      "MACD Value": indicators.macd.toFixed(8),
-      "Stochastic D": indicators.stoch.D.toFixed(2)
-    }
-  };
-
-  // ===== VOLUME ANALİZİ (%15) =====
   let volumeScore = 0;
-  let volumeDetails = {
-    obvScore: 0,
-    volumeMAScore: 0
-  };
-
-  // OBV trend
-  if (indicators.obvTrend === "rising") {
-    volumeScore += 10;
-    volumeDetails.obvScore = 10;
-  } else if (indicators.obvTrend === "falling") {
-    volumeScore -= 10;
-    volumeDetails.obvScore = -10;
+  let obvTrend = "flat";
+  if (Array.isArray(indicators.closes) && indicators.closes.length >= 2) {
+    const last = indicators.closes[indicators.closes.length - 1];
+    const prev = indicators.closes[indicators.closes.length - 2];
+    if (last > prev) obvTrend = "rising";
+    else if (last < prev) obvTrend = "falling";
   }
+  if (obvTrend === "rising") volumeScore += 10;
+  else if (obvTrend === "falling") volumeScore -= 10;
 
-  // Volume MA check
-  if (indicators.volumeMA > 0) {
-    volumeScore += 15;
-    volumeDetails.volumeMAScore = 15;
-  } else {
-    volumeScore -= 10;
-    volumeDetails.volumeMAScore = -10;
-  }
+  const volumeMA = Array.isArray(indicators.volumes) && indicators.volumes.length > 0
+    ? indicators.volumes.reduce((a, b) => a + b, 0) / indicators.volumes.length
+    : 0;
+  const lastVolume = Array.isArray(indicators.volumes) && indicators.volumes.length > 0
+    ? indicators.volumes[indicators.volumes.length - 1]
+    : 0;
+  if (lastVolume > volumeMA) volumeScore += 15;
+  else volumeScore -= 10;
 
-  breakdown.VOLUME_ANALIZI = {
-    score: volumeScore,
-    weight: `${volumeWeight}%`,
-    details: {
-      "OBV Trend": `${indicators.obvTrend} → ${volumeDetails.obvScore > 0 ? "+" : ""}${volumeDetails.obvScore}`,
-      "Volume MA": `${indicators.volumeMA > 0 ? "Positive" : "Negative"} → ${volumeDetails.volumeMAScore > 0 ? "+" : ""}${volumeDetails.volumeMAScore}`,
-      "OBV Value": indicators.obv.toFixed(2)
-    }
-  };
-
-  // ===== SUPPORT/RESISTANCE ANALİZİ (%15) =====
   let srScore = 0;
-  let srDetails = {
-    supportProximity: 0,
-    resistanceProximity: 0,
-    fibonacciBonus: 0
-  };
-
-  if (indicators.resistance > 0 && indicators.support > 0 && indicators.price > 0) {
-    const distanceToSupport = (indicators.price - indicators.support) / indicators.price;
-    const distanceToResistance = (indicators.resistance - indicators.price) / indicators.price;
-
-    // Support'a yakınlık < 2%
-    if (distanceToSupport < 0.02) {
-      srScore += 15;
-      srDetails.supportProximity = 15;
-    }
-    // Direnç'e yakınlık < 2%
-    if (distanceToResistance < 0.02) {
-      srScore -= 15;
-      srDetails.resistanceProximity = -15;
-    }
-
-    breakdown.SUPPORT_RESISTANCE_ANALIZI = {
-      score: srScore,
-      weight: `${srWeight}%`,
-      details: {
-        "Support Proximity": `${(distanceToSupport * 100).toFixed(2)}% → ${srDetails.supportProximity > 0 ? "+" : ""}${srDetails.supportProximity}`,
-        "Resistance Proximity": `${(distanceToResistance * 100).toFixed(2)}% → ${srDetails.resistanceProximity}`,
-        "Support Level": indicators.support.toFixed(8),
-        "Resistance Level": indicators.resistance.toFixed(8),
-        "Current Price": indicators.price.toFixed(8)
-      }
-    };
+  const nearestSupport = indicators.sr?.supports?.[0]?.price || (price * 0.95);
+  const nearestResistance = indicators.sr?.resistances?.[0]?.price || (price * 1.05);
+  if (nearestSupport > 0 && nearestResistance > 0 && price > 0) {
+    const distanceToSupport = (price - nearestSupport) / price;
+    const distanceToResistance = (nearestResistance - price) / price;
+    if (distanceToSupport < 0.02) srScore += 15;
+    if (distanceToResistance < 0.02) srScore -= 15;
   }
 
-  // ===== NORMALIZE VE AĞIRLIKLA =====
-  const normalizedTrendScore = (trendScore / 50) * trendWeight; // -50 to +50 → ±weight
-  const normalizedMomentumScore = (momentumScore / 50) * momentumWeight; // -50 to +50 → ±weight
-  const normalizedVolumeScore = (volumeScore / 25) * volumeWeight; // -25 to +25 → ±weight
-  const normalizedSRScore = (srScore / 30) * srWeight; // -30 to +30 → ±weight
+  const normalizedTrendScore = (trendScore / 50) * trendWeight;
+  const normalizedMomentumScore = (momentumScore / 50) * momentumWeight;
+  const normalizedVolumeScore = (volumeScore / 25) * volumeWeight;
+  const normalizedSRScore = (srScore / 30) * srWeight;
+  const totalScore = normalizedTrendScore + normalizedMomentumScore + normalizedVolumeScore + normalizedSRScore;
 
-  let score = normalizedTrendScore + normalizedMomentumScore + normalizedVolumeScore + normalizedSRScore;
-
-  // Clamp to 0-100
-  const direction = score > 0 ? "LONG" : "SHORT";
-  const confidence = Math.min(Math.max(Math.abs(score), 0), 100);
-
+  const direction = totalScore > 0 ? "LONG" : "SHORT";
+  const confidence = Math.min(Math.max(Math.abs(totalScore), 0), 100);
   let adjustedThreshold = userConfidenceThreshold;
   if (atrPercent > 0 && atrPercent < 0.001) adjustedThreshold += 20;
   else if (atrPercent > 0 && atrPercent < 0.002) adjustedThreshold += 10;
   adjustedThreshold = Math.min(95, adjustedThreshold);
 
-  const triggered = confidence >= adjustedThreshold;
-
-  breakdown.normalizedScore = {
-    trend: normalizedTrendScore.toFixed(2),
-    momentum: normalizedMomentumScore.toFixed(2),
-    volume: normalizedVolumeScore.toFixed(2),
-    sr: normalizedSRScore.toFixed(2),
-    total: score.toFixed(2),
-  };
-
-  breakdown.regime = {
-    type: regime,
-    atrPercent: (atrPercent * 100).toFixed(3) + "%",
-    adjustedThreshold: adjustedThreshold,
-  };
+  let triggered = confidence >= adjustedThreshold;
+  const trendUp = indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50;
+  const trendDown = indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50;
+  if (trendDown && direction === "LONG") triggered = false;
+  if (trendUp && direction === "SHORT") triggered = false;
 
   return {
     direction,
     score: Math.round(confidence),
     triggered,
-    breakdown,
+    breakdown: {
+      trend: Number(normalizedTrendScore.toFixed(2)),
+      momentum: Number(normalizedMomentumScore.toFixed(2)),
+      volume: Number(normalizedVolumeScore.toFixed(2)),
+      sr: Number(normalizedSRScore.toFixed(2)),
+    }
   };
 }
 
@@ -2181,6 +2084,9 @@ ${tradeNotificationText}
           } else {
             console.log(`✅ Signal created in active_signals for ${symbol}`);
             signalInserted = true;
+            const symbolKey = `${alarm.user_id}:${symbol}`;
+            openSignalSymbols.add(symbolKey);
+            openSignalKeys.add(`${alarm.user_id}:${String(alarm.id || "")}`);
           }
         } catch (e) {
           console.error(`❌ Error creating signal for ${symbol}:`, e);
@@ -2376,7 +2282,8 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
             const fallbackBar = alarmBarMap.get(String(signal.alarm_id));
             barCloseLimit = (fallbackBar === null || fallbackBar === undefined) ? NaN : Number(fallbackBar);
           }
-          const createdAt = signal.created_at ? new Date(signal.created_at) : null;
+          const createdAtSource = signal.signal_timestamp || signal.created_at;
+          const createdAt = createdAtSource ? new Date(createdAtSource) : null;
           const timeframeMinutes = timeframeToMinutes(String(signal.timeframe || "1h"));
           if (
             Number.isFinite(barCloseLimit) &&
@@ -2473,13 +2380,14 @@ type NewSignal = {
 };
 
 async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; duplicate: boolean }> {
-  if (!body || !body.symbol || !body.direction || !body.user_id) {
+  const directionCandidate = body?.direction ?? body?.signal_direction ?? body?.signalDirection;
+  if (!body || !body.symbol || !directionCandidate || !body.user_id) {
     return { inserted: false, duplicate: false };
   }
 
   const userId = String(body.user_id);
   const symbol = String(body.symbol).toUpperCase();
-  const rawDirection = String(body.direction ?? body.signal_direction ?? body.signalDirection ?? "").toUpperCase();
+  const rawDirection = String(directionCandidate ?? "").toUpperCase();
   const direction = rawDirection === "SHORT" ? "SHORT" : "LONG";
   const marketType = normalizeMarketType(body.market_type ?? body.marketType ?? body.market);
 
@@ -2622,7 +2530,8 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
     sl_percent: newSignal.sl_percent,
     bar_close_limit: newSignal.bar_close_limit,
     status: "ACTIVE",
-    created_at: newSignal.created_at
+    created_at: newSignal.created_at,
+    signal_timestamp: newSignal.signal_timestamp || newSignal.created_at || new Date().toISOString()
   };
 
   const { error: insertError } = await supabase.from("active_signals").insert(activeSignalData);
@@ -2658,17 +2567,17 @@ serve(async (req: any) => {
     });
   }
 
-  // ✅ Auth guard (optional - currently disabled for cron compatibility)
-  // if (cronSecret) {
-  //   const auth = req.headers.get("authorization") || "";
-  //   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  //   if (token !== cronSecret) {
-  //     return new Response(JSON.stringify({ error: "Unauthorized" }), {
-  //       status: 401,
-  //       headers: { ...corsHeaders, "Content-Type": "application/json" },
-  //     });
-  //   }
-  // }
+  // ✅ Auth guard (optional - enabled when CRON_SECRET is set)
+  if (cronSecret) {
+    const auth = req.headers.get("authorization") || "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+    if (token !== cronSecret) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  }
 
   const lockName = "check-alarm-signals";
   const lock = await acquireCronLock(lockName, 55);

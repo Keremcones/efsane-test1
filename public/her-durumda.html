@@ -889,6 +889,7 @@
 
         let supabaseClient = null;
         let currentUser = null;
+        const ADMIN_EMAIL = 'asd@asd.com';
         let strategyCoins = [];
         let filteredStrategyCoins = [];
         let selectedStrategySymbol = 'BTCUSDT';
@@ -1207,6 +1208,7 @@
             currentUser = session.user;
             document.getElementById('userEmail').textContent = currentUser.email;
             document.getElementById('menuUserEmail').textContent = currentUser.email;
+            const isAdminByEmail = String(currentUser.email || '').toLowerCase() === ADMIN_EMAIL;
 
             try {
                 await supabaseClient
@@ -1224,16 +1226,17 @@
                     .maybeSingle();
 
                 if (!userProfile) {
-                    updateUserRoleBadge('standard', false);
-                    return { isPremium: false };
+                    updateUserRoleBadge('standard', isAdminByEmail);
+                    return { isPremium: isAdminByEmail };
                 } else {
-                    updateUserRoleBadge(userProfile.membership_type || 'standard', !!userProfile.is_admin);
-                    const isPremium = userProfile.membership_type === 'premium' || !!userProfile.is_admin;
+                    const isAdmin = isAdminByEmail || !!userProfile.is_admin;
+                    updateUserRoleBadge(userProfile.membership_type || 'standard', isAdmin);
+                    const isPremium = userProfile.membership_type === 'premium' || isAdmin;
                     return { isPremium };
                 }
             } catch {
-                updateUserRoleBadge('standard', false);
-                return { isPremium: false };
+                updateUserRoleBadge('standard', isAdminByEmail);
+                return { isPremium: isAdminByEmail };
             }
         }
 
@@ -1251,62 +1254,84 @@
             }
         };
 
-        window.addEventListener('DOMContentLoaded', async () => {
-            const { createClient } = window.supabase;
-            supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-            const access = await checkAuth();
-            if (!access?.isPremium) {
-                showPremiumLock();
-                return;
-            }
-            const confidenceInput = document.getElementById('strategyConfidence');
-            const confidenceValue = document.getElementById('strategyConfidenceValue');
-            if (confidenceInput) {
-                if (!Number.isFinite(confidenceThreshold)) confidenceThreshold = 40;
-                confidenceInput.value = String(confidenceThreshold);
-                if (confidenceValue) confidenceValue.textContent = `${confidenceThreshold}%`;
-                confidenceInput.addEventListener('input', () => {
-                    const nextValue = parseInt(confidenceInput.value, 10);
-                    confidenceThreshold = Number.isFinite(nextValue) ? nextValue : 40;
-                    if (confidenceValue) confidenceValue.textContent = `${confidenceThreshold}%`;
-                    localStorage.setItem('strategyConfidence', String(confidenceThreshold));
-                    if (lastStrategyResults.length) {
-                        runStrategyComparison();
+        window.addEventListener('DOMContentLoaded', () => {
+            let attempts = 0;
+            const maxAttempts = 30;
+            const intervalMs = 100;
+
+            const timer = setInterval(async () => {
+                attempts += 1;
+                if (!window.supabase || !window.supabase.createClient) {
+                    if (attempts >= maxAttempts) {
+                        clearInterval(timer);
+                        window.location.replace('login.html');
                     }
-                });
-            }
-            await loadStrategyCoins();
-            const marketSelect = document.getElementById('strategyMarket');
-            if (marketSelect) {
-                marketSelect.addEventListener('change', async () => {
-                    setStrategyStatus('Coinler güncelleniyor...', true);
-                    await loadStrategyCoins();
-                    setStrategyStatus('Hazır');
-                });
-            }
-            const runBtn = document.getElementById('strategyRun');
-            if (runBtn) {
-                runBtn.addEventListener('click', runStrategyComparison);
-            }
+                    return;
+                }
+                if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+                    if (attempts >= maxAttempts) {
+                        clearInterval(timer);
+                        window.location.replace('login.html');
+                    }
+                    return;
+                }
 
-            document.querySelectorAll('input[name="strategySort"]').forEach(radio => {
-                radio.addEventListener('change', () => {
-                    if (!lastStrategyResults.length) return;
-                    renderStrategyTable(lastStrategyResults);
-                });
-            });
+                clearInterval(timer);
+                supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                const access = await checkAuth();
+                if (!access?.isPremium) {
+                    showPremiumLock();
+                    return;
+                }
+                const confidenceInput = document.getElementById('strategyConfidence');
+                const confidenceValue = document.getElementById('strategyConfidenceValue');
+                if (confidenceInput) {
+                    if (!Number.isFinite(confidenceThreshold)) confidenceThreshold = 40;
+                    confidenceInput.value = String(confidenceThreshold);
+                    if (confidenceValue) confidenceValue.textContent = `${confidenceThreshold}%`;
+                    confidenceInput.addEventListener('input', () => {
+                        const nextValue = parseInt(confidenceInput.value, 10);
+                        confidenceThreshold = Number.isFinite(nextValue) ? nextValue : 40;
+                        if (confidenceValue) confidenceValue.textContent = `${confidenceThreshold}%`;
+                        localStorage.setItem('strategyConfidence', String(confidenceThreshold));
+                        if (lastStrategyResults.length) {
+                            runStrategyComparison();
+                        }
+                    });
+                }
+                await loadStrategyCoins();
+                const marketSelect = document.getElementById('strategyMarket');
+                if (marketSelect) {
+                    marketSelect.addEventListener('change', async () => {
+                        setStrategyStatus('Coinler güncelleniyor...', true);
+                        await loadStrategyCoins();
+                        setStrategyStatus('Hazır');
+                    });
+                }
+                const runBtn = document.getElementById('strategyRun');
+                if (runBtn) {
+                    runBtn.addEventListener('click', runStrategyComparison);
+                }
 
-            const addBtn = document.getElementById('strategyAdd');
-            if (addBtn) {
-                addBtn.addEventListener('click', () => {
-                    const tp = parseFloat(document.getElementById('customTp')?.value) || 5;
-                    const sl = parseFloat(document.getElementById('customSl')?.value) || 3;
-                    const bar = parseInt(document.getElementById('customBar')?.value, 10) || 5;
-                    const label = `Özel ${extraStrategies.length + 2}`;
-                    extraStrategies.push({ label, tp, sl, bar });
-                    runStrategyComparison();
+                document.querySelectorAll('input[name="strategySort"]').forEach(radio => {
+                    radio.addEventListener('change', () => {
+                        if (!lastStrategyResults.length) return;
+                        renderStrategyTable(lastStrategyResults);
+                    });
                 });
-            }
+
+                const addBtn = document.getElementById('strategyAdd');
+                if (addBtn) {
+                    addBtn.addEventListener('click', () => {
+                        const tp = parseFloat(document.getElementById('customTp')?.value) || 5;
+                        const sl = parseFloat(document.getElementById('customSl')?.value) || 3;
+                        const bar = parseInt(document.getElementById('customBar')?.value, 10) || 5;
+                        const label = `Özel ${extraStrategies.length + 2}`;
+                        extraStrategies.push({ label, tp, sl, bar });
+                        runStrategyComparison();
+                    });
+                }
+            }, intervalMs);
         });
     </script>
 </body>

@@ -1338,37 +1338,59 @@
             }
         };
 
-        window.addEventListener('DOMContentLoaded', async () => {
-            const { createClient } = window.supabase;
-            supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-            await checkAuth();
+        window.addEventListener('DOMContentLoaded', () => {
+            let attempts = 0;
+            const maxAttempts = 30;
+            const intervalMs = 100;
 
-            const navbar = document.querySelector('.navbar');
-            if (navbar) {
-                const handleScroll = () => {
-                    if (window.scrollY > 20) {
-                        navbar.classList.add('scrolled');
-                    } else {
-                        navbar.classList.remove('scrolled');
+            const timer = setInterval(async () => {
+                attempts += 1;
+                if (!window.supabase || !window.supabase.createClient) {
+                    if (attempts >= maxAttempts) {
+                        clearInterval(timer);
+                        window.location.replace('login.html');
                     }
-                };
-                handleScroll();
-                window.addEventListener('scroll', handleScroll, { passive: true });
-            }
-
-            const revealTargets = document.querySelectorAll('.section, .card, .step, .testimonial, .compare .card, .cta-duo .btn, .hero-metrics .metric');
-            revealTargets.forEach((el) => el.classList.add('reveal'));
-
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach((entry) => {
-                    if (entry.isIntersecting) {
-                        entry.target.classList.add('visible');
-                        observer.unobserve(entry.target);
+                    return;
+                }
+                if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+                    if (attempts >= maxAttempts) {
+                        clearInterval(timer);
+                        window.location.replace('login.html');
                     }
-                });
-            }, { threshold: 0.15 });
+                    return;
+                }
 
-            revealTargets.forEach((el) => observer.observe(el));
+                clearInterval(timer);
+                supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                await checkAuth();
+
+                const navbar = document.querySelector('.navbar');
+                if (navbar) {
+                    const handleScroll = () => {
+                        if (window.scrollY > 20) {
+                            navbar.classList.add('scrolled');
+                        } else {
+                            navbar.classList.remove('scrolled');
+                        }
+                    };
+                    handleScroll();
+                    window.addEventListener('scroll', handleScroll, { passive: true });
+                }
+
+                const revealTargets = document.querySelectorAll('.section, .card, .step, .testimonial, .compare .card, .cta-duo .btn, .hero-metrics .metric');
+                revealTargets.forEach((el) => el.classList.add('reveal'));
+
+                const observer = new IntersectionObserver((entries) => {
+                    entries.forEach((entry) => {
+                        if (entry.isIntersecting) {
+                            entry.target.classList.add('visible');
+                            observer.unobserve(entry.target);
+                        }
+                    });
+                }, { threshold: 0.15 });
+
+                revealTargets.forEach((el) => observer.observe(el));
+            }, intervalMs);
         });
     </script>
 </body>
