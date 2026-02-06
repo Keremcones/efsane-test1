@@ -2122,18 +2122,37 @@
                     }
                 }
 
-                const response = await fetch(TELEGRAM_FUNCTION_URL, {
-                    method: 'POST',
-                    headers,
-                    body: JSON.stringify({
-                        action: 'test_binance_connection',
-                        api_key: apiKey,
-                        api_secret: apiSecret
-                    })
-                });
+                let result = null;
+                if (supabaseClient?.functions?.invoke) {
+                    const invokeResult = await supabaseClient.functions.invoke('check-alarm-signals', {
+                        body: {
+                            action: 'test_binance_connection',
+                            api_key: apiKey,
+                            api_secret: apiSecret
+                        }
+                    });
+                    if (invokeResult.error) {
+                        throw invokeResult.error;
+                    }
+                    result = invokeResult.data;
+                } else {
+                    const response = await fetch(TELEGRAM_FUNCTION_URL, {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify({
+                            action: 'test_binance_connection',
+                            api_key: apiKey,
+                            api_secret: apiSecret
+                        })
+                    });
 
-                const result = await response.json();
-                if (response.ok && result.success) {
+                    result = await response.json();
+                    if (!response.ok) {
+                        throw new Error(result?.error || 'Connection failed');
+                    }
+                }
+
+                if (result?.success) {
                     if (statusEl) statusEl.textContent = 'Bağlı';
                     if (futuresEl) futuresEl.textContent = `$${Number(result.futures_balance || 0).toFixed(2)}`;
                     if (spotEl) spotEl.textContent = `$${Number(result.spot_balance || 0).toFixed(2)}`;

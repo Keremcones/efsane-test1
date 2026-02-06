@@ -4971,7 +4971,7 @@
                                             </div>
                                             <div style="display:flex;align-items:center;gap:8px;">
                                                 <span class="price-change ${statusClass}" style="font-size:0.75rem;padding:3px 8px;">${statusText}</span>
-                                                <span class="price-change ${pnlClass}" data-alarm-signal-pnl="1" data-live="${isClosed ? '0' : '1'}" data-symbol="${sig.symbol}" data-direction="${sig.direction}" data-entry="${sig.entry_price}">${pnlText}</span>
+                                                <span class="price-change ${pnlClass}" data-alarm-signal-pnl="1" data-live="${isClosed ? '0' : '1'}" data-symbol="${sig.symbol}" data-direction="${sig.direction}" data-entry="${sig.entry_price}" data-market="${sig.market_type || 'spot'}">${pnlText}</span>
                                             </div>
                                         </div>
                                         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
