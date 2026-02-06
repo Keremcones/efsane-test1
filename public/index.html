@@ -4934,6 +4934,8 @@
                                 const logoHtml = createCoinLogoElement(coinSymbol, 20);
                                 const score = Number(sig.score || 0);
                                 const entryPrice = parseFloat(sig.entry_price);
+                                const statusRaw = String(sig.status || '').toUpperCase();
+                                const isClosed = statusRaw === 'CLOSED';
                                 const storedLivePrice = localStorage.getItem(`price_${sig.symbol}`);
                                 const livePrice = storedLivePrice ? parseFloat(storedLivePrice) : NaN;
                                 if (!isClosed && !Number.isFinite(livePrice)) {
@@ -4945,8 +4947,6 @@
                                         ? ((entryPrice - livePrice) / entryPrice) * 100
                                         : ((livePrice - entryPrice) / entryPrice) * 100)
                                     : NaN;
-                                const statusRaw = String(sig.status || '').toUpperCase();
-                                const isClosed = statusRaw === 'CLOSED';
                                 const storedPnl = parseFloat(sig.profit_loss);
                                 const pnlPercent = isClosed && Number.isFinite(storedPnl)
                                     ? parseFloat(storedPnl.toFixed(2))
