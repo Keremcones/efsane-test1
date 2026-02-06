@@ -121,6 +121,10 @@ html[data-theme="gold"] {
     transition: all 0.3s ease !important;
 }
 
+body.home-only .navbar {
+    display: none !important;
+}
+
 .navbar.scrolled {
     background: var(--navbar-bg-scrolled) !important;
     border-bottom-color: var(--navbar-border-scrolled) !important;

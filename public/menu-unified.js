@@ -11,12 +11,15 @@
 
     // ==================== DOM ELEMENTS ==================== 
     function getMenuElements() {
+        const menuPanel = document.getElementById('menuPanel') || document.querySelector('.menu-panel');
         return {
-            hamburgerBtn: document.getElementById('hamburgerBtn'),
-            menuPanel: document.getElementById('menuPanel'),
+            hamburgerBtn: document.getElementById('hamburgerBtn') || document.querySelector('.hamburger-menu'),
+            hamburgerButtons: document.querySelectorAll('.hamburger-menu'),
+            menuPanel,
             menuOverlay: document.querySelector('.menu-overlay'),
             menuItems: document.querySelectorAll('.menu-item'),
-            menuClose: document.querySelector('.menu-close')
+            menuClose: document.querySelector('.menu-close'),
+            menuCloseButtons: document.querySelectorAll('.menu-close')
         };
     }
 
@@ -54,7 +57,7 @@
         document.body.style.overflow = 'hidden';
 
         // Lock focus to menu (accessibility)
-        trappFocus(elements.menuPanel);
+        trapFocus(elements.menuPanel);
     }
 
     // ==================== CLOSE MENU ==================== 
@@ -100,13 +103,21 @@
             document.body.appendChild(overlay);
         }
 
-        // Hamburger button click
-        if (elements.hamburgerBtn) {
+        // Hamburger button clicks
+        if (elements.hamburgerButtons.length > 0) {
+            elements.hamburgerButtons.forEach(button => {
+                button.addEventListener('click', window.toggleHamburgerMenu);
+            });
+        } else if (elements.hamburgerBtn) {
             elements.hamburgerBtn.addEventListener('click', window.toggleHamburgerMenu);
         }
 
-        // Close button click
-        if (elements.menuClose) {
+        // Close button clicks
+        if (elements.menuCloseButtons.length > 0) {
+            elements.menuCloseButtons.forEach(button => {
+                button.addEventListener('click', window.closeHamburgerMenu);
+            });
+        } else if (elements.menuClose) {
             elements.menuClose.addEventListener('click', window.closeHamburgerMenu);
         }
 
@@ -143,7 +154,7 @@
     }
 
     // ==================== FOCUS TRAP ==================== 
-    function trappFocus(element) {
+    function trapFocus(element) {
         const focusableElements = element.querySelectorAll(
             'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
         );
