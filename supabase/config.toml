@@ -1,0 +1,2 @@
+[functions.check-alarm-signals]
+verify_jwt = false
