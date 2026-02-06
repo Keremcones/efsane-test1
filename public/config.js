@@ -19,7 +19,8 @@ try {
     storedAnonKey = '';
 }
 
-var effectiveAnonKey = normalizeAnonKey(storedAnonKey);
+var rawEnvAnonKey = window.SUPABASE_ANON_KEY || window.__ENV_SUPABASE_ANON_KEY || '';
+var effectiveAnonKey = normalizeAnonKey(rawEnvAnonKey || storedAnonKey);
 try {
     if (storedAnonKey !== effectiveAnonKey) {
         localStorage.setItem('SUPABASE_ANON_KEY', effectiveAnonKey);
@@ -27,6 +28,10 @@ try {
 } catch (e) {
     // Ignore storage errors (private mode, disabled storage, etc.)
 }
+
+// Force any injected env key to use the publishable format.
+window.__ENV_SUPABASE_ANON_KEY = effectiveAnonKey;
+window.SUPABASE_ANON_KEY = effectiveAnonKey;
 
 var LOCAL_DEV = window.LOCAL_DEV || {
     SUPABASE_URL: 'https://jcrbhekrphxodxhkuzju.supabase.co',
@@ -42,7 +47,9 @@ window.TELEGRAM_BOT_USERNAME = TELEGRAM_BOT_USERNAME;
 
 // Supabase Configuration (Anon key only - service role is backend)
 var SUPABASE_URL = window.SUPABASE_URL || window.__ENV_SUPABASE_URL || LOCAL_DEV.SUPABASE_URL || '';
-var SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || window.__ENV_SUPABASE_ANON_KEY || LOCAL_DEV.SUPABASE_ANON_KEY || '';
+var SUPABASE_ANON_KEY = normalizeAnonKey(
+    window.SUPABASE_ANON_KEY || window.__ENV_SUPABASE_ANON_KEY || LOCAL_DEV.SUPABASE_ANON_KEY || ''
+);
 var TELEGRAM_FUNCTION_URL = window.TELEGRAM_FUNCTION_URL || window.__ENV_TELEGRAM_FUNCTION_URL || '';
 if (!TELEGRAM_FUNCTION_URL && SUPABASE_URL) {
     TELEGRAM_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/check-alarm-signals`;
