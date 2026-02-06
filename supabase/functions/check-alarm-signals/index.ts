@@ -2066,9 +2066,18 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
 
         if (!shouldClose || !closeReason) continue;
 
-        const profitLoss = direction === "LONG"
+        const rawProfitLoss = direction === "LONG"
           ? ((currentPrice - Number(signal.entry_price)) / Number(signal.entry_price)) * 100
           : ((Number(signal.entry_price) - currentPrice) / Number(signal.entry_price)) * 100;
+
+        const tpPercent = Number(signal.tp_percent);
+        const slPercent = Number(signal.sl_percent);
+        let profitLoss = rawProfitLoss;
+        if (closeReason === "TP_HIT" && Number.isFinite(tpPercent)) {
+          profitLoss = Math.abs(tpPercent);
+        } else if (closeReason === "SL_HIT" && Number.isFinite(slPercent)) {
+          profitLoss = -Math.abs(slPercent);
+        }
 
         const updateResult = await supabase
           .from("active_signals")
@@ -2096,9 +2105,7 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           price: currentPrice,
           user_id: signal.user_id,
           market_type: signal.market_type || signal.marketType || signal.market,
-          profitLoss: direction === "LONG"
-            ? ((currentPrice - Number(signal.entry_price)) / Number(signal.entry_price)) * 100
-            : ((Number(signal.entry_price) - currentPrice) / Number(signal.entry_price)) * 100,
+          profitLoss,
         });
       } catch (e) {
         console.error(`❌ Error checking signal ${signals[idx]?.id}:`, e);

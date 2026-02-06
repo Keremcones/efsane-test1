@@ -5834,10 +5834,10 @@ Detaylar:
                 const entry = parseFloat(el.getAttribute('data-entry') || '0');
                 if (!symbol || !entry) return;
 
+                ensureAlarmSignalPrice(symbol, marketType);
                 const storedLivePrice = localStorage.getItem(`price_${symbol}`);
                 const livePrice = storedLivePrice ? parseFloat(storedLivePrice) : NaN;
                 if (!Number.isFinite(livePrice) || !Number.isFinite(entry)) {
-                    ensureAlarmSignalPrice(symbol, marketType);
                     el.textContent = '--';
                     el.className = 'price-change';
                     return;
