@@ -1,1333 +1,2056 @@
 <!DOCTYPE html>
 <html lang="tr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rolin Signal • Ana Sayfa</title>
-    <meta name="description" content="Rolin Signal ile kripto piyasalarında sinyal, alarm ve backtest sonuçlarını tek ekranda takip edin. Gerçek zamanlı analiz, TP/SL ve güven skoru yönetimi." />
-    <link rel="canonical" href="https://www.rolinsignal.com/" />
-    <script>
-        if (localStorage.getItem('DEBUG_CONSOLE') !== 'true') {
-            console.log = () => {};
-            console.info = () => {};
-            console.warn = () => {};
-            console.debug = () => {};
-        }
-    </script>
-    <meta name="apple-mobile-web-app-title" content="Rolin Signal">
-    <meta name="application-name" content="Rolin Signal">
-    <link rel="icon" type="image/svg+xml" href="/logo.svg">
-    <link rel="icon" href="/favicon.ico" sizes="any">
-    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png">
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-    <link rel="apple-touch-icon" sizes="167x167" href="/apple-touch-icon-167.png">
-    <link rel="apple-touch-icon" sizes="152x152" href="/apple-touch-icon-152.png">
-    <link rel="apple-touch-icon" sizes="120x120" href="/apple-touch-icon-120.png">
-    <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon.png">
-    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
-    <link rel="manifest" href="/site.webmanifest">
-    <meta name="theme-color" content="#0b0f14">
-    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="/api/env.js"></script>
-    <script src="config.js"></script>
-    <script>
-        const savedTheme = localStorage.getItem('theme') || 'dark';
-        document.documentElement.dataset.theme = savedTheme;
-    </script>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        :root {
-            --bg-primary: #eef2f6;
-            --bg-secondary: #e4eaf2;
-            --bg-card: #f8fafc;
-            --accent: #3a7bd5;
-            --accent-red: #e15b64;
-            --accent-blue: #4f46e5;
-            --accent-yellow: #c9a227;
-            --primary: var(--accent);
-            --secondary: var(--accent-blue);
-            --text-primary: #1f2a44;
-            --text-secondary: #5c6b87;
-            --border: #d4dde8;
-            --border-color: rgba(79, 70, 229, 0.22);
-        }
-
-        html[data-theme="dark"] {
-            --bg-primary: #0b0f14;
-            --bg-secondary: #0f1621;
-            --bg-card: #141c2a;
-            --accent: #38e8ff;
-            --accent-red: #ff4d6d;
-            --accent-blue: #8b5cf6;
-            --accent-yellow: #f5b75b;
-            --text-primary: #ffffff;
-            --text-secondary: #9aa4b2;
-            --border: #263044;
-            --border-color: rgba(56, 232, 255, 0.28);
-        }
-
-        h1,
-        .section-title {
-            letter-spacing: 0.4px;
-        }
-
-        html[data-theme="purple"] {
-            --bg-primary: #0b0714;
-            --bg-secondary: #120a1f;
-            --bg-card: #191026;
-            --accent: #c07bff;
-            --accent-red: #ff5c7a;
-            --accent-blue: #7c5cff;
-            --accent-yellow: #f2b15b;
-            --text-primary: #f6efff;
-            --text-secondary: #c2b4d6;
-            --border: #2a193a;
-            --border-color: rgba(184, 108, 255, 0.32);
-        }
-
-        html[data-theme="gold"] {
-            --bg-primary: #0b0b0b;
-            --bg-secondary: #141214;
-            --bg-card: #1b181a;
-            --accent: #f5d06f;
-            --accent-red: #ff6b7a;
-            --accent-blue: #f5d06f;
-            --accent-yellow: #ffd86b;
-            --text-primary: #f6f1e7;
-            --text-secondary: #c9bba0;
-            --border: #2a2420;
-            --border-color: rgba(245, 208, 111, 0.3);
-        }
-
-        body {
-            font-family: 'Sora', sans-serif;
-            background: radial-gradient(circle at 12% 18%, rgba(58, 123, 213, 0.16), transparent 46%),
-                        radial-gradient(circle at 88% 12%, rgba(79, 70, 229, 0.14), transparent 42%),
-                        linear-gradient(155deg, var(--bg-primary), var(--bg-secondary));
-            color: var(--text-primary);
-            min-height: 100vh;
-            position: relative;
-            overflow-x: hidden;
-        }
-
-        .background-effects {
-            position: fixed;
-            inset: 0;
-            z-index: 0;
-            pointer-events: none;
-        }
-
-        .grid-pattern {
-            position: absolute;
-            inset: -20%;
-            background-image:
-                linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
-            background-size: 60px 60px;
-            opacity: 0.18;
-            transform: translate3d(0, 0, 0);
-            animation: gridDrift 20s linear infinite;
-        }
-
-        html[data-theme="light"] .grid-pattern {
-            background-image:
-                linear-gradient(rgba(31, 42, 68, 0.08) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(31, 42, 68, 0.08) 1px, transparent 1px);
-            opacity: 0.22;
-        }
-
-        .orb {
-            position: absolute;
-            width: 420px;
-            height: 420px;
-            border-radius: 50%;
-            filter: blur(80px);
-            opacity: 0.45;
-            transform: translate3d(0, 0, 0);
-            animation: orbFloat 18s ease-in-out infinite;
-        }
-
-        .orb-1 {
-            top: -120px;
-            left: -80px;
-            background: rgba(56, 232, 255, 0.5);
-        }
-
-        .orb-2 {
-            bottom: -160px;
-            right: -40px;
-            background: rgba(192, 123, 255, 0.45);
-            animation-delay: -6s;
-        }
-
-        .orb-3 {
-            top: 35%;
-            right: 20%;
-            background: rgba(255, 92, 122, 0.4);
-            animation-delay: -12s;
-        }
-
-        @keyframes gridDrift {
-            0% { transform: translate3d(0, 0, 0) rotate(0deg); }
-            100% { transform: translate3d(120px, -120px, 0) rotate(0deg); }
-        }
-
-        @keyframes orbFloat {
-            0%, 100% { transform: translate3d(0, 0, 0); }
-            50% { transform: translate3d(30px, -40px, 0); }
-        }
-
-        .navbar {
-            background: rgba(240, 246, 255, 0.62);
-            border-bottom: 1px solid rgba(124, 92, 255, 0.22);
-            padding: 16px 24px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            backdrop-filter: blur(14px);
-            box-shadow: 0 10px 28px rgba(86, 110, 170, 0.2);
-            min-height: 72px;
-            transition: all 0.3s ease;
-        }
-
-        .navbar.scrolled {
-            background: rgba(15, 18, 28, 0.92);
-            border-bottom-color: rgba(56, 232, 255, 0.28);
-            padding: 10px 24px;
-            min-height: 60px;
-            box-shadow: 0 12px 30px rgba(5, 12, 24, 0.6);
-        }
-
-        html[data-theme="light"] .navbar.scrolled {
-            background: rgba(231, 238, 248, 0.94);
-            border-bottom-color: rgba(79, 70, 229, 0.28);
-            box-shadow: 0 12px 26px rgba(70, 90, 140, 0.24);
-        }
-
-        html[data-theme="purple"] .navbar.scrolled {
-            background: rgba(12, 8, 22, 0.94);
-            border-bottom-color: rgba(184, 108, 255, 0.3);
-        }
-
-        html[data-theme="gold"] .navbar.scrolled {
-            background: rgba(11, 11, 11, 0.94);
-            border-bottom-color: rgba(245, 208, 111, 0.36);
-        }
-
-        body.home-only .navbar {
-            display: none;
-        }
-
-        html[data-theme="dark"] .navbar {
-            background: rgba(11, 15, 20, 0.78);
-            border-bottom: 1px solid rgba(56, 232, 255, 0.12);
-            box-shadow: 0 8px 24px rgba(5, 12, 24, 0.45);
-        }
-
-        html[data-theme="light"] .navbar {
-            background: rgba(231, 238, 248, 0.86);
-            border-bottom: 1px solid rgba(79, 70, 229, 0.2);
-            box-shadow: 0 12px 28px rgba(70, 90, 140, 0.18);
-        }
-
-        html[data-theme="purple"] .navbar {
-            background: rgba(11, 7, 20, 0.82);
-            border-bottom: 1px solid rgba(184, 108, 255, 0.22);
-            box-shadow: 0 10px 24px rgba(10, 6, 18, 0.6);
-        }
-
-        html[data-theme="gold"] .navbar {
-            background: rgba(11, 11, 11, 0.86);
-            border-bottom: 1px solid rgba(245, 208, 111, 0.3);
-            box-shadow: 0 10px 24px rgba(5, 4, 3, 0.7);
-        }
-
-        .logo {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .logo-img {
-            width: 32px;
-            height: 32px;
-            flex: 0 0 32px;
-            filter: drop-shadow(0 0 16px rgba(56, 232, 255, 0.55));
-        }
-
-        .logo-text {
-            font-size: 1.35rem;
-            font-weight: 800;
-            letter-spacing: 0.5px;
-            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            text-shadow: 0 0 24px rgba(56, 232, 255, 0.4);
-        }
-
-        .user-menu {
-            display: flex;
-            gap: 16px;
-            align-items: center;
-        }
-
-        .user-email {
-            color: var(--text-secondary);
-            font-size: 0.9rem;
-        }
-
-        .user-role-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 700;
-            text-transform: uppercase;
-            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
-            color: white;
-            letter-spacing: 0.4px;
-        }
-
-        .user-role-badge.standard {
-            background: linear-gradient(135deg, #c07a2b, #8b4f1f);
-            color: #ffffff;
-        }
-
-        .user-role-badge.premium {
-            background: linear-gradient(135deg, #FFD700, #FFA500);
-            box-shadow: 0 0 20px rgba(255, 215, 0, 0.4);
-            color: #111111;
-        }
-
-        .user-role-badge.admin {
-            background: linear-gradient(135deg, #f5d06f, #ffd86b);
-            box-shadow: 0 0 18px rgba(245, 208, 111, 0.45);
-            color: #0a0a0a;
-        }
-
-        .hamburger-menu {
-            display: flex;
-            flex-direction: column;
-            background: rgba(13, 168, 232, 0.1);
-            border: 1px solid rgba(13, 168, 232, 0.3);
-            cursor: pointer;
-            padding: 8px;
-            gap: 5px;
-            width: 44px;
-            height: 44px;
-            align-items: center;
-            justify-content: center;
-            border-radius: 8px;
-            transition: all 0.3s ease;
-        }
-
-        .hamburger-menu:hover {
-            background: rgba(13, 168, 232, 0.2);
-            border-color: #0da8e8;
-        }
-
-        .hamburger-menu span {
-            width: 26px;
-            height: 3px;
-            background: #0da8e8;
-            border-radius: 2px;
-            transition: all 0.3s ease;
-            display: block;
-        }
-
-        .hamburger-menu.active span:nth-child(1) {
-            transform: rotate(45deg) translate(8px, 8px);
-        }
-
-        .hamburger-menu.active span:nth-child(2) { opacity: 0; }
-
-        .hamburger-menu.active span:nth-child(3) {
-            transform: rotate(-45deg) translate(7px, -7px);
-        }
-
-        .menu-panel {
-            position: fixed;
-            right: -350px;
-            top: 0;
-            width: 350px;
-            height: 100vh;
-            background: rgba(15, 18, 28, 0.96);
-            border-left: 1px solid rgba(56, 232, 255, 0.18);
-            z-index: 998;
-            transition: right 0.3s ease;
-            overflow-y: auto;
-            backdrop-filter: blur(8px);
-        }
-
-        .menu-nav .menu-item {
-            position: relative;
-            overflow: hidden;
-        }
-
-        .menu-nav .menu-item::after {
-            content: "";
-            position: absolute;
-            left: 12px;
-            right: 12px;
-            bottom: 8px;
-            height: 2px;
-            background: linear-gradient(90deg, transparent, var(--accent), transparent);
-            transform: translateX(-120%);
-            transition: transform 0.4s ease;
-            opacity: 0.7;
-        }
-
-        .menu-nav .menu-item:hover::after {
-            transform: translateX(0%);
-        }
-
-        .menu-nav .menu-item i {
-            transition: color 0.3s ease;
-        }
-
-        .menu-nav .menu-item:hover i {
-            color: var(--accent);
-        }
-
-        .container,
-        .footer,
-        .navbar {
-            position: relative;
-            z-index: 1;
-        }
-
-        h1,
-        .section-title {
-            font-family: 'Orbitron', 'Sora', sans-serif;
-            letter-spacing: 0.6px;
-            position: relative;
-            overflow: hidden;
-        }
-
-
-        .hero-badge {
-            position: relative;
-            padding-left: 28px;
-        }
-
-        .hero-badge::before {
-            content: "";
-            position: absolute;
-            left: 6px;
-            top: 50%;
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background: var(--accent);
-            transform: translateY(-50%);
-            box-shadow: 0 0 12px rgba(56, 232, 255, 0.8);
-            animation: blink 1.4s ease-in-out infinite;
-        }
-
-        @keyframes blink {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.35; }
-        }
-
-        .hero-metrics .metric strong,
-        .step-number {
-            font-family: 'Space Mono', monospace;
-        }
-
-        .section {
-            position: relative;
-        }
-
-        .section::before {
-            content: "";
-            position: absolute;
-            inset: -40px 0 auto 0;
-            height: 80px;
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), transparent);
-            opacity: 0.4;
-            pointer-events: none;
-        }
-
-        html[data-theme="dark"] .section::before,
-        html[data-theme="purple"] .section::before,
-        html[data-theme="gold"] .section::before {
-            background: linear-gradient(180deg, rgba(56, 232, 255, 0.14), transparent);
-        }
-
-        .card,
-        .testimonial,
-        .step,
-        .compare .card,
-        .faq details {
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03));
-            backdrop-filter: blur(18px);
-            border: 1px solid rgba(255, 255, 255, 0.14);
-            border-radius: 20px;
-            transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .card::before,
-        .testimonial::before,
-        .step::before,
-        .compare .card::before,
-        .faq details::before {
-            content: "";
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 3px;
-            background: linear-gradient(90deg, transparent, var(--accent), transparent);
-            transform: translateX(-120%);
-            transition: transform 0.4s ease;
-        }
-
-        .card:hover,
-        .testimonial:hover,
-        .step:hover,
-        .compare .card:hover,
-        .faq details:hover {
-            transform: translateY(-5px);
-            border-color: var(--accent);
-            box-shadow: 0 18px 30px rgba(15, 30, 50, 0.35);
-        }
-
-        .card:hover::before,
-        .testimonial:hover::before,
-        .step:hover::before,
-        .compare .card:hover::before,
-        .faq details:hover::before {
-            transform: translateX(0%);
-        }
-
-        .card i,
-        .step i,
-        .compare i,
-        .testimonial i {
-            transition: color 0.3s ease;
-        }
-
-        .card:hover i,
-        .step:hover i,
-        .compare .card:hover i,
-        .testimonial:hover i {
-            color: var(--accent);
-        }
-
-        .cta-duo .btn.primary {
-            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
-            box-shadow: 0 14px 30px rgba(56, 232, 255, 0.25);
-        }
-
-        .cta-duo .btn.secondary {
-            border: 1px solid rgba(255, 255, 255, 0.35);
-            background: transparent;
-        }
-
-        .btn {
-            transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
-        }
-
-        .btn.primary:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 18px 36px rgba(56, 232, 255, 0.4);
-        }
-
-        .btn.secondary:hover {
-            transform: translateY(-4px);
-            border-color: var(--accent);
-            box-shadow: 0 16px 30px rgba(56, 232, 255, 0.2);
-        }
-
-        .grid .card:nth-child(1),
-        .grid .card:nth-child(2) {
-            animation: floatCard 6s ease-in-out infinite;
-        }
-
-        @keyframes floatCard {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
-        }
-
-        .reveal {
-            opacity: 0;
-            transform: translate3d(0, 24px, 0);
-            transition: opacity 0.6s ease, transform 0.6s ease;
-            will-change: opacity, transform;
-        }
-
-        .reveal.visible {
-            opacity: 1;
-            transform: translate3d(0, 0, 0);
-        }
-
-        html[data-theme="light"] .menu-panel {
-            background: rgba(233, 238, 248, 0.96);
-            border-left: 1px solid rgba(79, 70, 229, 0.18);
-        }
-
-        html[data-theme="purple"] .menu-panel {
-            background: rgba(12, 8, 22, 0.96);
-            border-left: 1px solid rgba(184, 108, 255, 0.25);
-        }
-
-        html[data-theme="gold"] .menu-panel {
-            background: rgba(12, 11, 12, 0.96);
-            border-left: 1px solid rgba(245, 208, 111, 0.28);
-        }
-
-        .menu-panel.active { right: 0; }
-
-        .menu-close {
-            position: absolute;
-            top: 16px;
-            right: 16px;
-            background: none;
-            border: none;
-            color: var(--primary);
-            font-size: 32px;
-            cursor: pointer;
-            width: 40px;
-            height: 40px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.3s ease;
-        }
-
-        .menu-close:hover {
-            color: var(--secondary);
-            transform: rotate(90deg);
-        }
-
-        .menu-content { padding: 80px 24px 24px; }
-
-        .menu-user-info {
-            margin-bottom: 32px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .menu-user-email {
-            color: var(--primary);
-            font-size: 14px;
-            font-weight: 600;
-            word-break: break-all;
-        }
-
-        .menu-nav {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .menu-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            width: 100%;
-            padding: 14px 16px;
-            background: rgba(13, 168, 232, 0.1);
-            border: 1px solid var(--border-color);
-            color: var(--text-primary);
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-align: left;
-            text-decoration: none;
-        }
-
-        .menu-item:hover {
-            background: rgba(13, 168, 232, 0.2);
-            border-color: var(--primary);
-            transform: translateX(4px);
-        }
-
-        .menu-item.logout-item {
-            color: #f44336;
-            background: rgba(244, 67, 54, 0.1);
-            border-color: rgba(244, 67, 54, 0.3);
-        }
-
-        .menu-item.logout-item:hover {
-            background: rgba(244, 67, 54, 0.2);
-            border-color: #f44336;
-        }
-
-        .menu-item.login-item {
-            color: var(--accent);
-            background: rgba(56, 232, 255, 0.12);
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 24px;
-        }
-
-        .container,
-        .hero,
-        .section,
-        .card,
-        .testimonial,
-        .step,
-        .compare,
-        .faq {
-            text-align: center;
-        }
-
-        .hero {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 24px;
-            align-items: center;
-            padding: 40px 0 16px;
-        }
-
-        .hero-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 6px 12px;
-            border-radius: 999px;
-            background: rgba(56, 232, 255, 0.12);
-            border: 1px solid rgba(56, 232, 255, 0.3);
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-            margin-bottom: 14px;
-        }
-
-        .hero h1 {
-            font-size: clamp(2rem, 4vw, 3.2rem);
-            margin-bottom: 16px;
-        }
-
-        .hero p {
-            color: var(--text-secondary);
-            font-size: clamp(1.05rem, 2.2vw, 1.3rem);
-            line-height: 1.6;
-            margin-bottom: 20px;
-        }
-
-        .hero-actions {
-            display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
-            margin-bottom: 20px;
-        }
-
-        .hero-actions .btn {
-            padding: 18px 28px;
-            font-size: 1.05rem;
-            border-radius: 16px;
-        }
-
-        .hero-metrics {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            gap: 12px;
-        }
-
-        .metric {
-            background: rgba(56, 232, 255, 0.08);
-            border: 1px solid rgba(56, 232, 255, 0.2);
-            border-radius: 14px;
-            padding: 12px;
-        }
-
-        .metric span {
-            display: block;
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-        }
-
-        .metric strong {
-            font-size: 1.2rem;
-        }
-
-        .hero-visual {
-            display: grid;
-            gap: 14px;
-        }
-
-        .cta-row {
-            display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
-        }
-
-        .btn {
-            padding: 12px 18px;
-            border-radius: 12px;
-            border: 1px solid transparent;
-            background: linear-gradient(135deg, rgba(56, 232, 255, 0.25), rgba(139, 92, 246, 0.25));
-            color: var(--text-primary);
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .btn.secondary {
-            background: transparent;
-            border: 1px solid var(--border);
-            color: var(--text-primary);
-        }
-
-        .btn:hover { transform: translateY(-1px); border-color: var(--accent); }
-
-        .hero-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 20px;
-            box-shadow: 0 18px 32px rgba(0, 0, 0, 0.16);
-        }
-
-        .mini-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-            gap: 12px;
-        }
-
-        .mini-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 14px;
-            padding: 12px;
-            display: grid;
-            gap: 6px;
-        }
-
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 12px;
-            margin-top: 14px;
-        }
-
-        .stat {
-            background: rgba(56, 232, 255, 0.08);
-            border: 1px solid rgba(56, 232, 255, 0.2);
-            border-radius: 12px;
-            padding: 12px;
-        }
-
-        .section {
-            margin: 48px 0;
-        }
-
-        .section-title {
-            font-size: 1.6rem;
-            margin-bottom: 8px;
-        }
-
-        .section-sub {
-            color: var(--text-secondary);
-            margin-bottom: 20px;
-        }
-
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 16px;
-        }
-
-        .card {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 18px;
-            box-shadow: 0 16px 30px rgba(0, 0, 0, 0.15);
-        }
-
-        .card h3 {
-            font-size: 1.05rem;
-            margin-bottom: 8px;
-        }
-
-
-        .card p { color: var(--text-secondary); line-height: 1.5; }
-
-        .cta-duo {
-            display: flex;
-            justify-content: center;
-            gap: 16px;
-            flex-wrap: wrap;
-            margin: 88px 0 112px;
-        }
-
-        .cta-duo .btn {
-            padding: 20px 32px;
-            border-radius: 14px;
-            font-size: 1.1rem;
-        }
-
-        .btn.primary {
-            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
-            color: #ffffff;
-            border: 1px solid rgba(56, 232, 255, 0.3);
-            box-shadow: 0 0 18px rgba(56, 232, 255, 0.35);
-        }
-
-        html[data-theme="gold"] .btn.primary {
-            color: #111111;
-        }
-
-        .steps {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 16px;
-        }
-
-        .step {
-            background: rgba(56, 232, 255, 0.08);
-            border: 1px solid rgba(56, 232, 255, 0.2);
-            border-radius: 16px;
-            padding: 16px;
-        }
-
-        .step-number {
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
-            display: grid;
-            place-items: center;
-            color: white;
-            font-weight: 800;
-            margin-bottom: 10px;
-        }
-
-        .compare {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 16px;
-        }
-
-        .compare ul { list-style: none; display: grid; gap: 10px; }
-        .compare li { display: flex; gap: 10px; align-items: start; color: var(--text-secondary); }
-
-        .testimonials {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 16px;
-        }
-
-        .testimonial {
-            background: rgba(56, 232, 255, 0.08);
-            border: 1px solid rgba(56, 232, 255, 0.2);
-            border-radius: 16px;
-            padding: 16px;
-        }
-
-        .faq details {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 12px 16px;
-            margin-bottom: 10px;
-        }
-
-        .faq details p {
-            margin-top: 10px;
-            color: var(--text-secondary);
-            line-height: 1.6;
-        }
-
-        .footer {
-            text-align: center;
-            color: var(--text-secondary);
-            font-size: 0.8rem;
-            padding: 24px 0 40px;
-        }
-
-        @media (max-width: 768px) {
-            .container { padding: 12px; }
-            .hero { padding-top: 24px; }
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rolin Signal • Ana Sayfa</title>
+<meta name="description" content="Rolin Signal ile kripto piyasalarını anlık takip edin. Canlı sinyaller, akıllı alarmlar, backtest ve otomatik trade.">
+<link rel="canonical" href="https://www.rolinsignal.com/home.html">
+<meta name="apple-mobile-web-app-title" content="Rolin Signal">
+<meta name="application-name" content="Rolin Signal">
+<link rel="icon" type="image/svg+xml" href="/logo.svg">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="apple-touch-icon" sizes="167x167" href="/apple-touch-icon-167.png">
+<link rel="apple-touch-icon" sizes="152x152" href="/apple-touch-icon-152.png">
+<link rel="apple-touch-icon" sizes="120x120" href="/apple-touch-icon-120.png">
+<link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta name="theme-color" content="#0b0f14">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+:root {
+  --gold-50:  #FFF9EB;
+  --gold-100: #FFF0C7;
+  --gold-200: #FFDC82;
+  --gold-300: #FFC94D;
+  --gold-400: #F5B731;
+  --gold-500: #D99A10;
+  --gold-600: #B47A08;
+  --gold-700: #8A5B09;
+
+  --teal-50:  #EEFCF8;
+  --teal-100: #C8F5E8;
+  --teal-200: #88E8CC;
+  --teal-300: #46D4AB;
+  --teal-400: #1EBD90;
+  --teal-500: #0E9B75;
+  --teal-600: #097C5E;
+  --teal-700: #08634C;
+
+  --slate-50:  #F4F6F8;
+  --slate-100: #E3E7EC;
+  --slate-200: #C8CFD8;
+  --slate-300: #9BA5B4;
+  --slate-400: #6C7689;
+  --slate-500: #4A5568;
+  --slate-600: #353E4F;
+  --slate-700: #252D3B;
+  --slate-800: #1A2030;
+  --slate-900: #111827;
+  --slate-950: #0A0F1A;
+
+  --bg-primary:    var(--slate-950);
+  --bg-secondary:  var(--slate-900);
+  --bg-card:       rgba(26, 32, 48, 0.65);
+  --bg-card-hover: rgba(30, 38, 56, 0.85);
+  --text-primary:  #F1F3F6;
+  --text-secondary:#9BA5B4;
+  --text-muted:    #6C7689;
+  --accent:        var(--gold-400);
+  --accent-glow:   rgba(245, 183, 49, 0.25);
+  --teal:          var(--teal-400);
+  --teal-glow:     rgba(30, 189, 144, 0.2);
+
+  --border-subtle: rgba(155, 165, 180, 0.1);
+  --border-card:   rgba(155, 165, 180, 0.08);
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
+  --radius-xl: 32px;
+
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-body:    'DM Sans', system-ui, sans-serif;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration: 0.5s;
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.65;
+  overflow-x: hidden;
+}
+
+a { color: inherit; text-decoration: none; }
+img { max-width: 100%; display: block; }
+button { font-family: inherit; cursor: pointer; border: none; }
+ul { list-style: none; }
+
+.container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -3;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(245,183,49,0.06) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 50% at 80% 20%, rgba(30,189,144,0.05) 0%, transparent 55%),
+    radial-gradient(ellipse 90% 80% at 50% 80%, rgba(14,155,117,0.04) 0%, transparent 50%),
+    linear-gradient(175deg, #0E1320 0%, #0A0F1A 40%, #111827 100%);
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background-image:
+    linear-gradient(rgba(155,165,180,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(155,165,180,0.03) 1px, transparent 1px);
+  background-size: 60px 60px;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, black 20%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 30%, black 20%, transparent 75%);
+}
+
+.orb {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(100px);
+  pointer-events: none;
+  z-index: -1;
+  will-change: transform;
+}
+.orb--gold {
+  width: 500px; height: 500px;
+  background: radial-gradient(circle, rgba(245,183,49,0.1), transparent 70%);
+  top: -10%; left: -8%;
+  animation: orbFloat 18s ease-in-out infinite alternate;
+}
+.orb--teal {
+  width: 420px; height: 420px;
+  background: radial-gradient(circle, rgba(30,189,144,0.08), transparent 70%);
+  top: 50%; right: -6%;
+  animation: orbFloat 22s ease-in-out infinite alternate-reverse;
+}
+.orb--slate {
+  width: 600px; height: 600px;
+  background: radial-gradient(circle, rgba(37,45,59,0.4), transparent 70%);
+  bottom: -15%; left: 30%;
+  animation: orbFloat 25s ease-in-out infinite alternate;
+}
+
+@keyframes orbFloat {
+  0%   { transform: translate(0, 0) scale(1); }
+  50%  { transform: translate(30px, -20px) scale(1.05); }
+  100% { transform: translate(-20px, 15px) scale(0.97); }
+}
+
+.reveal {
+  opacity: 0;
+  transform: translateY(36px);
+  transition: opacity 0.7s var(--ease-out), transform 0.7s var(--ease-out);
+}
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.reveal-delay-1 { transition-delay: 0.1s; }
+.reveal-delay-2 { transition-delay: 0.2s; }
+.reveal-delay-3 { transition-delay: 0.3s; }
+.reveal-delay-4 { transition-delay: 0.4s; }
+.reveal-delay-5 { transition-delay: 0.5s; }
+
+.navbar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 1000;
+  padding: 0 24px;
+  transition: background 0.35s ease, box-shadow 0.35s ease, backdrop-filter 0.35s ease;
+}
+.navbar.scrolled {
+  background: rgba(10, 15, 26, 0.82);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  box-shadow: 0 1px 0 var(--border-subtle), 0 8px 32px rgba(0,0,0,0.25);
+}
+.navbar__inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 72px;
+}
+
+.navbar__logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+.navbar__logo img {
+  width: 36px;
+  height: 36px;
+  filter: drop-shadow(0 0 12px rgba(245, 183, 49, 0.35));
+}
+.navbar__logo span {
+  color: var(--gold-400);
+}
+
+.navbar__links {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.navbar__links a {
+  padding: 8px 18px;
+  font-size: 0.925rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  transition: color 0.25s ease, background 0.25s ease;
+}
+.navbar__links a:hover {
+  color: var(--text-primary);
+  background: rgba(155,165,180,0.06);
+}
+.navbar__cta {
+  padding: 9px 22px !important;
+  font-weight: 600 !important;
+  color: var(--slate-950) !important;
+  background: linear-gradient(135deg, var(--gold-300), var(--gold-400)) !important;
+  border-radius: var(--radius-sm) !important;
+  box-shadow: 0 2px 12px var(--accent-glow);
+  transition: transform 0.25s ease, box-shadow 0.25s ease !important;
+}
+.navbar__cta:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px var(--accent-glow) !important;
+  background: linear-gradient(135deg, var(--gold-200), var(--gold-300)) !important;
+}
+
+.navbar__toggle {
+  display: none;
+  flex-direction: column;
+  gap: 5px;
+  background: none;
+  padding: 4px;
+}
+.navbar__toggle span {
+  display: block;
+  width: 24px;
+  height: 2.5px;
+  background: var(--text-primary);
+  border-radius: 2px;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+.navbar__toggle.active span:nth-child(1) {
+  transform: translateY(7.5px) rotate(45deg);
+}
+.navbar__toggle.active span:nth-child(2) {
+  opacity: 0;
+}
+.navbar__toggle.active span:nth-child(3) {
+  transform: translateY(-7.5px) rotate(-45deg);
+}
+
+.hero {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  padding: 120px 0 80px;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero__deco {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid var(--border-subtle);
+  pointer-events: none;
+}
+.hero__deco--1 {
+  width: 340px; height: 340px;
+  top: 12%; right: 5%;
+  opacity: 0.3;
+  animation: spinSlow 40s linear infinite;
+}
+.hero__deco--2 {
+  width: 200px; height: 200px;
+  bottom: 18%; left: 3%;
+  opacity: 0.2;
+  animation: spinSlow 30s linear infinite reverse;
+}
+@keyframes spinSlow {
+  to { transform: rotate(360deg); }
+}
+
+.hero .container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 60px;
+  align-items: center;
+}
+
+.hero__content { position: relative; z-index: 2; }
+
+.hero__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px 6px 8px;
+  background: rgba(245,183,49,0.08);
+  border: 1px solid rgba(245,183,49,0.15);
+  border-radius: 100px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--gold-300);
+  margin-bottom: 28px;
+  animation: heroFadeUp 0.8s var(--ease-out) both;
+}
+.hero__badge i {
+  background: var(--accent);
+  color: var(--slate-950);
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+}
+
+.hero__title {
+  font-family: var(--font-display);
+  font-size: clamp(2.4rem, 5vw, 3.8rem);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+  margin-bottom: 24px;
+  animation: heroFadeUp 0.8s var(--ease-out) 0.1s both;
+}
+.hero__title .highlight {
+  position: relative;
+  white-space: nowrap;
+}
+.hero__title .highlight::after {
+  content: '';
+  position: absolute;
+  left: 0; bottom: 2px;
+  width: 100%; height: 12px;
+  background: linear-gradient(90deg, var(--accent-glow), var(--teal-glow));
+  border-radius: 4px;
+  z-index: -1;
+  opacity: 0.7;
+}
+
+.hero__desc {
+  font-size: 1.15rem;
+  color: var(--text-secondary);
+  line-height: 1.7;
+  max-width: 520px;
+  margin-bottom: 36px;
+  animation: heroFadeUp 0.8s var(--ease-out) 0.2s both;
+}
+
+.hero__actions {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  animation: heroFadeUp 0.8s var(--ease-out) 0.3s both;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 30px;
+  font-family: var(--font-display);
+  font-size: 0.975rem;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  transition: all 0.3s var(--ease-out);
+  position: relative;
+  overflow: hidden;
+}
+.btn--primary {
+  background: linear-gradient(135deg, var(--gold-300) 0%, var(--gold-500) 100%);
+  color: var(--slate-950);
+  box-shadow: 0 4px 24px var(--accent-glow), 0 1px 3px rgba(0,0,0,0.2);
+}
+.btn--primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 36px rgba(245,183,49,0.35), 0 2px 6px rgba(0,0,0,0.15);
+}
+.btn--primary:active { transform: translateY(0); }
+
+.btn--secondary {
+  background: rgba(155,165,180,0.06);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  backdrop-filter: blur(8px);
+}
+.btn--secondary:hover {
+  background: rgba(155,165,180,0.12);
+  border-color: rgba(155,165,180,0.2);
+  transform: translateY(-2px);
+}
+
+.hero__trust {
+  margin-top: 48px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  animation: heroFadeUp 0.8s var(--ease-out) 0.45s both;
+}
+.hero__trust-avatars {
+  display: flex;
+}
+.hero__trust-avatars span {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  border: 2.5px solid var(--bg-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--slate-950);
+  margin-left: -10px;
+}
+.hero__trust-avatars span:first-child { margin-left: 0; }
+.hero__trust-avatars span:nth-child(1) { background: linear-gradient(135deg, var(--gold-300), var(--gold-500)); }
+.hero__trust-avatars span:nth-child(2) { background: linear-gradient(135deg, var(--teal-300), var(--teal-500)); }
+.hero__trust-avatars span:nth-child(3) { background: linear-gradient(135deg, var(--gold-400), #E86F3A); }
+.hero__trust-avatars span:nth-child(4) { background: linear-gradient(135deg, var(--teal-200), var(--gold-300)); z-index: 1; }
+.hero__trust-text {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+.hero__trust-text strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.hero__visual {
+  position: relative;
+  z-index: 2;
+  animation: heroFadeUp 0.9s var(--ease-out) 0.35s both;
+}
+.hero__banner {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: transparent;
+}
+.hero__banner img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.hero__card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  backdrop-filter: blur(16px);
+  box-shadow:
+    0 20px 60px rgba(0,0,0,0.3),
+    0 1px 0 rgba(255,255,255,0.04) inset;
+}
+.hero__card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-card);
+}
+.hero__card-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+}
+.hero__card-dot--r { background: #FF5F56; }
+.hero__card-dot--y { background: #FFBD2E; }
+.hero__card-dot--g { background: #27C93F; }
+.hero__card-header span {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-family: var(--font-display);
+}
+.hero__card-body {
+  padding: 24px 20px;
+}
+
+.signal-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+  background: rgba(155,165,180,0.03);
+  border: 1px solid transparent;
+  transition: border-color 0.3s ease, background 0.3s ease;
+}
+.signal-row:hover {
+  border-color: var(--border-subtle);
+  background: rgba(155,165,180,0.06);
+}
+.signal-row:last-child { margin-bottom: 0; }
+.signal-row__pair {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.signal-row__icon {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-family: var(--font-display);
+}
+.signal-row__icon--btc { background: rgba(247,147,26,0.15); color: #F7931A; }
+.signal-row__icon--eth { background: rgba(98,126,234,0.15); color: #627EEA; }
+.signal-row__icon--sol { background: rgba(0,255,163,0.12); color: #00FFA3; }
+.signal-row__icon--avax { background: rgba(232,65,66,0.12); color: #E84142; }
+.signal-row__name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.signal-row__sub {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.signal-row__price {
+  text-align: right;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.signal-row__change {
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-top: 2px;
+}
+.signal-row__change.up { color: var(--teal-400); }
+.signal-row__change.down { color: #E84142; }
+
+.signal-row__badge {
+  padding: 4px 10px;
+  border-radius: 100px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.signal-row__badge--long {
+  background: rgba(30,189,144,0.12);
+  color: var(--teal-400);
+  border: 1px solid rgba(30,189,144,0.2);
+}
+.signal-row__badge--short {
+  background: rgba(232,65,66,0.1);
+  color: #E84142;
+  border: 1px solid rgba(232,65,66,0.18);
+}
+
+.hero__visual::before {
+  content: '';
+  position: absolute;
+  width: 80%;
+  height: 80%;
+  top: 10%;
+  left: 10%;
+  background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+  filter: blur(60px);
+  z-index: -1;
+}
+
+@keyframes heroFadeUp {
+  from { opacity: 0; transform: translateY(32px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.hero__card-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background: rgba(30,189,144,0.1);
+  border: 1px solid rgba(30,189,144,0.2);
+  border-radius: 100px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--teal-400);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 16px;
+}
+.hero__card-live::before {
+  content: '';
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--teal-400);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.8); }
+}
+
+.stats {
+  padding: 40px 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(17,24,39,0.4);
+  backdrop-filter: blur(8px);
+}
+.stats__grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+  text-align: center;
+}
+.stats__item {
+  position: relative;
+}
+.stats__item:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 10%;
+  height: 80%;
+  width: 1px;
+  background: var(--border-subtle);
+}
+.stats__number {
+  font-family: var(--font-display);
+  font-size: clamp(1.7rem, 3vw, 2.4rem);
+  font-weight: 700;
+  line-height: 1.2;
+  background: linear-gradient(135deg, var(--gold-200), var(--gold-400));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.stats__label {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+.features {
+  padding: 120px 0;
+  position: relative;
+}
+
+.section-header {
+  text-align: center;
+  margin-bottom: 64px;
+}
+.section-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: rgba(30,189,144,0.06);
+  border: 1px solid rgba(30,189,144,0.12);
+  border-radius: 100px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--teal-400);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 20px;
+}
+.section-title {
+  font-family: var(--font-display);
+  font-size: clamp(1.8rem, 3.5vw, 2.8rem);
+  font-weight: 700;
+  line-height: 1.18;
+  letter-spacing: -0.025em;
+  margin-bottom: 16px;
+}
+.section-desc {
+  font-size: 1.1rem;
+  color: var(--text-secondary);
+  max-width: 560px;
+  margin: 0 auto;
+  line-height: 1.65;
+}
+
+.features__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.feature-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  padding: 36px 28px;
+  backdrop-filter: blur(12px);
+  transition: transform 0.4s var(--ease-out), border-color 0.4s ease, box-shadow 0.4s ease;
+  position: relative;
+  overflow: hidden;
+}
+.feature-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 3px;
+  background: linear-gradient(90deg, transparent, var(--accent), var(--teal), transparent);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+.feature-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(155,165,180,0.15);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.2);
+}
+.feature-card:hover::before { opacity: 1; }
+
+.feature-card__icon {
+  width: 52px; height: 52px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  margin-bottom: 22px;
+}
+.feature-card__icon--gold {
+  background: rgba(245,183,49,0.1);
+  color: var(--gold-400);
+  border: 1px solid rgba(245,183,49,0.15);
+}
+.feature-card__icon--teal {
+  background: rgba(30,189,144,0.08);
+  color: var(--teal-400);
+  border: 1px solid rgba(30,189,144,0.12);
+}
+.feature-card__icon--blue {
+  background: rgba(98,126,234,0.1);
+  color: #7B93EE;
+  border: 1px solid rgba(98,126,234,0.15);
+}
+
+.feature-card__title {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin-bottom: 10px;
+  letter-spacing: -0.01em;
+}
+.feature-card__desc {
+  font-size: 0.92rem;
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
+
+.how {
+  padding: 100px 0 120px;
+  position: relative;
+}
+
+.how__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+  position: relative;
+}
+.how__grid::before {
+  content: '';
+  position: absolute;
+  top: 48px;
+  left: calc(16.66% + 16px);
+  right: calc(16.66% + 16px);
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--teal));
+  opacity: 0.3;
+}
+
+.how__step {
+  text-align: center;
+  position: relative;
+}
+.how__step-num {
+  width: 56px; height: 56px;
+  margin: 0 auto 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--slate-950);
+  background: linear-gradient(135deg, var(--gold-300), var(--teal-400));
+  box-shadow: 0 4px 20px var(--accent-glow);
+  position: relative;
+  z-index: 2;
+}
+.how__step-title {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.how__step-desc {
+  font-size: 0.92rem;
+  color: var(--text-secondary);
+  max-width: 280px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+.screenshot {
+  padding: 80px 0 120px;
+  position: relative;
+}
+.screenshot__wrapper {
+  position: relative;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  border: none;
+  background: transparent;
+  backdrop-filter: blur(16px);
+}
+.screenshot__wrapper::before {
+  display: none;
+}
+.screenshot__mockup {
+  width: 100%;
+  background: transparent;
+  display: block;
+  position: relative;
+  overflow: visible;
+}
+.screenshot__image {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 8, 14, 0.72);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  z-index: 2000;
+}
+.modal.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.modal__content {
+  width: 100%;
+  max-width: 520px;
+  background: linear-gradient(180deg, rgba(26, 32, 48, 0.96), rgba(17, 24, 39, 0.98));
+  border: 1px solid rgba(245, 183, 49, 0.18);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  box-shadow: 0 18px 60px rgba(0,0,0,0.45);
+}
+.modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.modal__title {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+.modal__close {
+  background: none;
+  color: var(--text-secondary);
+  font-size: 1.4rem;
+}
+.modal__body {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+.modal__list {
+  margin: 16px 0 20px;
+  display: grid;
+  gap: 8px;
+}
+.modal__list li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.modal__list i {
+  color: var(--teal-400);
+  margin-top: 3px;
+}
+.modal__actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.modal__actions .btn {
+  justify-content: center;
+  flex: 1 1 180px;
+}
+
+.mockup-dash {
+  width: 92%;
+  height: 85%;
+  display: grid;
+  grid-template-columns: 200px 1fr 240px;
+  gap: 12px;
+  padding: 16px;
+}
+.mockup-sidebar {
+  background: rgba(155,165,180,0.04);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-card);
+  padding: 16px;
+}
+.mockup-sidebar__item {
+  height: 10px;
+  background: rgba(155,165,180,0.08);
+  border-radius: 4px;
+  margin-bottom: 14px;
+}
+.mockup-sidebar__item:nth-child(2) { width: 75%; }
+.mockup-sidebar__item:nth-child(3) { width: 85%; }
+.mockup-sidebar__item.active {
+  background: linear-gradient(90deg, var(--accent-glow), var(--teal-glow));
+}
+.mockup-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.mockup-chart {
+  flex: 1;
+  background: rgba(155,165,180,0.03);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-card);
+  position: relative;
+  overflow: hidden;
+  min-height: 150px;
+}
+.mockup-chart svg {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 80%;
+}
+.mockup-chart-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.mockup-mini-card {
+  background: rgba(155,165,180,0.03);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-card);
+  padding: 14px;
+  height: 70px;
+}
+.mockup-mini-card__line {
+  height: 8px;
+  width: 60%;
+  background: rgba(155,165,180,0.08);
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+.mockup-mini-card__val {
+  height: 14px;
+  width: 40%;
+  border-radius: 4px;
+}
+.mockup-mini-card:nth-child(1) .mockup-mini-card__val {
+  background: linear-gradient(90deg, rgba(30,189,144,0.3), rgba(30,189,144,0.1));
+}
+.mockup-mini-card:nth-child(2) .mockup-mini-card__val {
+  background: linear-gradient(90deg, rgba(245,183,49,0.3), rgba(245,183,49,0.1));
+}
+.mockup-panel {
+  background: rgba(155,165,180,0.04);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-card);
+  padding: 16px;
+}
+.mockup-panel__head {
+  height: 10px;
+  width: 50%;
+  background: rgba(155,165,180,0.1);
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+.mockup-panel__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.mockup-panel__dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+}
+.mockup-panel__dot--g { background: var(--teal-400); }
+.mockup-panel__dot--y { background: var(--gold-400); }
+.mockup-panel__dot--r { background: #E84142; }
+.mockup-panel__bar {
+  flex: 1;
+  height: 6px;
+  background: rgba(155,165,180,0.06);
+  border-radius: 3px;
+  margin: 0 10px;
+  overflow: hidden;
+}
+.mockup-panel__bar-fill {
+  height: 100%;
+  border-radius: 3px;
+}
+.mockup-panel__bar-fill--g { width: 78%; background: linear-gradient(90deg, var(--teal-400), var(--teal-300)); }
+.mockup-panel__bar-fill--y { width: 62%; background: linear-gradient(90deg, var(--gold-400), var(--gold-300)); }
+.mockup-panel__bar-fill--r { width: 35%; background: linear-gradient(90deg, #E84142, #F58E8F); }
+.mockup-panel__val {
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  min-width: 30px;
+  text-align: right;
+}
+
+.pricing {
+  padding: 100px 0 120px;
+  position: relative;
+}
+
+.pricing__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.price-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  padding: 40px 32px;
+  backdrop-filter: blur(12px);
+  position: relative;
+  transition: transform 0.4s var(--ease-out), box-shadow 0.4s ease;
+}
+.price-card:hover {
+  transform: translateY(-4px);
+}
+.price-card--featured {
+  border-color: rgba(245,183,49,0.25);
+  box-shadow: 0 0 60px var(--accent-glow);
+  background: linear-gradient(180deg, rgba(245,183,49,0.04) 0%, var(--bg-card) 40%);
+}
+.price-card--featured:hover {
+  box-shadow: 0 8px 80px rgba(245,183,49,0.2);
+}
+
+.price-card__popular {
+  position: absolute;
+  top: -13px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 5px 20px;
+  background: linear-gradient(135deg, var(--gold-300), var(--gold-500));
+  color: var(--slate-950);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 700;
+  border-radius: 100px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.price-card__name {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+.price-card__price {
+  font-family: var(--font-display);
+  font-size: 2.8rem;
+  font-weight: 700;
+  line-height: 1.1;
+  margin-bottom: 4px;
+}
+.price-card__price span {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.price-card__period {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 28px;
+}
+
+.price-card__features {
+  margin-bottom: 32px;
+}
+.price-card__features li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+.price-card__features li i {
+  color: var(--teal-400);
+  font-size: 0.8rem;
+  width: 18px;
+  text-align: center;
+}
+.price-card__features li i.fa-xmark {
+  color: var(--text-muted);
+}
+
+.price-card__btn {
+  width: 100%;
+  justify-content: center;
+  padding: 13px 24px;
+  font-size: 0.925rem;
+}
+
+.faq {
+  padding: 100px 0 120px;
+}
+.faq__list {
+  max-width: 720px;
+  margin: 0 auto;
+}
+.faq__item {
+  border-bottom: 1px solid var(--border-subtle);
+}
+.faq__question {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: none;
+  padding: 22px 0;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: left;
+  transition: color 0.25s ease;
+}
+.faq__question:hover { color: var(--accent); }
+.faq__question i {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  transition: transform 0.35s var(--ease-out);
+}
+.faq__item.active .faq__question i {
+  transform: rotate(45deg);
+  color: var(--accent);
+}
+.faq__answer {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.45s var(--ease-out), padding 0.45s var(--ease-out);
+}
+.faq__item.active .faq__answer {
+  max-height: 300px;
+  padding-bottom: 20px;
+}
+.faq__answer p {
+  font-size: 0.92rem;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.cta-banner {
+  padding: 80px 0 100px;
+}
+.cta-banner__box {
+  position: relative;
+  padding: 72px 48px;
+  text-align: center;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgba(245,183,49,0.08) 0%, rgba(30,189,144,0.06) 100%);
+  border: 1px solid rgba(245,183,49,0.12);
+}
+.cta-banner__box::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 50%, rgba(245,183,49,0.12), transparent 50%),
+    radial-gradient(circle at 80% 50%, rgba(30,189,144,0.1), transparent 50%);
+  pointer-events: none;
+}
+.cta-banner__title {
+  font-family: var(--font-display);
+  font-size: clamp(1.6rem, 3vw, 2.4rem);
+  font-weight: 700;
+  margin-bottom: 16px;
+  position: relative;
+}
+.cta-banner__desc {
+  font-size: 1.1rem;
+  color: var(--text-secondary);
+  margin-bottom: 36px;
+  position: relative;
+}
+.cta-banner__actions {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  flex-wrap: wrap;
+  position: relative;
+}
+
+.footer {
+  padding: 48px 0;
+  border-top: 1px solid var(--border-subtle);
+  background: rgba(10,15,26,0.5);
+}
+.footer__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+.footer__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.15rem;
+}
+.footer__brand img {
+  width: 30px;
+  height: 30px;
+}
+.footer__links {
+  display: flex;
+  gap: 20px;
+}
+.footer__links a {
+  width: 40px; height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: rgba(155,165,180,0.06);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 1rem;
+  transition: color 0.25s ease, background 0.25s ease, border-color 0.25s ease;
+}
+.footer__links a:hover {
+  color: var(--text-primary);
+  background: rgba(155,165,180,0.12);
+  border-color: rgba(155,165,180,0.2);
+}
+.footer__copy {
+  width: 100%;
+  text-align: center;
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.65;
+}
+
+.mobile-menu {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 999;
+  background: rgba(10,15,26,0.96);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  padding: 100px 32px 40px;
+  flex-direction: column;
+  gap: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.35s ease;
+}
+.mobile-menu.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.mobile-menu a {
+  display: block;
+  padding: 16px 0;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  transition: color 0.25s ease;
+}
+.mobile-menu a:hover { color: var(--text-primary); }
+.mobile-menu .btn {
+  margin-top: 16px;
+  justify-content: center;
+}
+
+@media (max-width: 1024px) {
+  .hero .container {
+    grid-template-columns: 1fr;
+    gap: 48px;
+  }
+  .hero__visual { max-width: 600px; margin: 0 auto; }
+  .features__grid { grid-template-columns: repeat(2, 1fr); }
+  .pricing__grid { grid-template-columns: repeat(2, 1fr); }
+  .mockup-dash { grid-template-columns: 1fr 1fr; }
+  .mockup-sidebar { display: none; }
+}
+
+@media (max-width: 768px) {
+  .navbar__links { display: none; }
+  .navbar__toggle { display: flex; }
+
+  .hero { padding: 100px 0 60px; min-height: auto; }
+  .hero__title { font-size: clamp(1.9rem, 6vw, 2.6rem); }
+  .hero__desc { font-size: 1rem; }
+  .hero__trust { flex-direction: column; align-items: flex-start; gap: 12px; }
+
+  .stats__grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 28px 16px;
+  }
+  .stats__item:nth-child(2)::after { display: none; }
+
+  .features__grid { grid-template-columns: 1fr; max-width: 480px; margin: 0 auto; }
+
+  .how__grid {
+    grid-template-columns: 1fr;
+    gap: 40px;
+    max-width: 360px;
+    margin: 0 auto;
+  }
+  .how__grid::before { display: none; }
+
+  .pricing__grid {
+    grid-template-columns: 1fr;
+    max-width: 400px;
+    margin: 0 auto;
+  }
+
+  .mockup-dash { grid-template-columns: 1fr; }
+  .mockup-panel { display: none; }
+
+  .cta-banner__box { padding: 48px 24px; }
+
+  .footer__inner { justify-content: center; text-align: center; }
+}
+
+@media (max-width: 480px) {
+  .container { padding: 0 16px; }
+  .hero__actions { flex-direction: column; }
+  .hero__actions .btn { width: 100%; justify-content: center; }
+  .btn { padding: 13px 24px; font-size: 0.925rem; }
+  .feature-card { padding: 28px 22px; }
+  .price-card { padding: 32px 24px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+</style>
 </head>
-<body class="home-only">
-    <div class="background-effects" aria-hidden="true">
-        <div class="grid-pattern"></div>
-        <div class="orb orb-1"></div>
-        <div class="orb orb-2"></div>
-        <div class="orb orb-3"></div>
-    </div>
-    <nav class="navbar">
-        <div class="logo">
-            <img src="logo.svg" alt="Rolin Signal" class="logo-img" />
-            <span class="logo-text">Rolin Signal</span>
-        </div>
-        <div class="user-menu">
-            <span class="user-email" id="userEmail">Misafir</span>
-            <span class="user-role-badge" id="userRoleBadge" style="display:none;"></span>
-            <button class="hamburger-menu" id="hamburgerBtn" onclick="window.toggleHamburgerMenu()" title="Menü">
-                <span></span>
-                <span></span>
-                <span></span>
-            </button>
-        </div>
-    </nav>
-    <div class="menu-panel" id="menuPanel">
-        <button class="menu-close" onclick="closeHamburgerMenu()">×</button>
-        <div class="menu-content">
-            <div class="menu-user-info">
-                <div class="menu-user-email" id="menuUserEmail">Misafir</div>
-            </div>
-            <nav class="menu-nav">
-                <a href="profile.html" class="menu-item" onclick="closeHamburgerMenu()">
-                    <i class="fa-solid fa-user"></i>
-                    Profil
-                </a>
-                <a href="index.html" class="menu-item" onclick="closeHamburgerMenu()">
-                    <i class="fa-solid fa-chart-line"></i>
-                    Dashboard
-                </a>
-                <a href="her-durumda.html" class="menu-item" onclick="closeHamburgerMenu()">
-                    <i class="fa-solid fa-layer-group"></i>
-                    Her Durumda
-                </a>
-                <a href="kazananlar.html" class="menu-item" onclick="closeHamburgerMenu()">
-                    <i class="fa-solid fa-trophy"></i>
-                    Kazananlar
-                </a>
-                <a href="login.html" class="menu-item login-item" id="loginMenu" onclick="closeHamburgerMenu()">
-                    <i class="fa-solid fa-right-to-bracket"></i>
-                    Giriş Yap
-                </a>
-                <button class="menu-item logout-item" id="logoutMenu" onclick="window.logout()" style="display:none;">
-                    <i class="fa-solid fa-right-from-bracket"></i>
-                    Çıkış Yap
-                </button>
-            </nav>
-        </div>
+<body>
+
+<div class="orb orb--gold" aria-hidden="true"></div>
+<div class="orb orb--teal" aria-hidden="true"></div>
+<div class="orb orb--slate" aria-hidden="true"></div>
+
+<nav class="navbar" role="navigation" aria-label="Ana menü">
+  <div class="navbar__inner">
+    <a href="home.html" class="navbar__logo" aria-label="Rolin Signal Ana Sayfa">
+      <img src="logo.svg" alt="Rolin Signal">
+      <span>RolinSignal</span>
+    </a>
+
+    <div class="navbar__links">
+      <a href="#features">Özellikler</a>
+      <a href="#pricing">Fiyatlar</a>
+      <a href="#faq">SSS</a>
+      <a href="login.html" class="navbar__cta">Giriş Yap</a>
     </div>
 
-    <div class="container">
-        <section class="hero">
-            <div>
-                <div class="hero-badge"><i class="fa-solid fa-sparkles"></i> Yeni nesil kripto deneyimi</div>
-                <h1>Veriyle güçlenen net bir görünüm.</h1>
-                <p>Canlı tarama, strateji karşılaştırma ve dashboard kontrolü tek akışta birleşir. Sade, hızlı, güven veren bir deneyim.</p>
-                <div class="hero-metrics">
-                    <div class="metric">
-                        <span>Canlı Tarama</span>
-                        <strong>24/7</strong>
-                    </div>
-                    <div class="metric">
-                        <span>Modül Sayısı</span>
-                        <strong>5+</strong>
-                    </div>
-                    <div class="metric">
-                        <span>Strateji Kıyas</span>
-                        <strong>Çoklu</strong>
-                    </div>
-                </div>
-            </div>
-        </section>
+    <button class="navbar__toggle" aria-label="Menüyü aç" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
 
-        <div class="cta-duo">
-            <a class="btn primary" href="install.html"><i class="fa-solid fa-mobile-screen"></i> Mobil için Başla</a>
-            <a class="btn secondary" href="login.html"><i class="fa-solid fa-desktop"></i> Masaüstü için Başla</a>
+<div class="mobile-menu" id="mobileMenu" aria-hidden="true">
+  <a href="#features" class="mobile-link">Özellikler</a>
+  <a href="#pricing" class="mobile-link">Fiyatlar</a>
+  <a href="#faq" class="mobile-link">SSS</a>
+  <a href="https://t.me/keremcones" target="_blank" rel="noopener" class="mobile-link">Telegram İletişim</a>
+  <a href="login.html" class="btn btn--primary">Giriş Yap</a>
+</div>
+
+<section class="hero" id="hero">
+  <div class="hero__deco hero__deco--1" aria-hidden="true"></div>
+  <div class="hero__deco hero__deco--2" aria-hidden="true"></div>
+
+  <div class="container">
+    <div class="hero__content">
+      <div class="hero__badge">
+        <i class="fas fa-bolt"></i>
+        Canlı sinyaller aktif — 7/24 piyasa takibi
+      </div>
+
+      <h1 class="hero__title">
+        Kripto Piyasalarında<br>
+        <span class="highlight">Akıllı Sinyallerle</span> Takipte Kal
+      </h1>
+
+      <p class="hero__desc">
+        Yapay zeka destekli sinyal sistemi, gerçek zamanlı alarmlar ve
+        Binance otomatik trade ile piyasayı takip etmeyi kolaylaştırır.
+        Tarafsız ve bilgilendirici sinyaller sunar.
+      </p>
+
+      <div class="hero__actions">
+        <a href="install.html" class="btn btn--primary">
+          <i class="fas fa-mobile-screen"></i>
+          Mobil için Başla
+        </a>
+        <a href="login.html" class="btn btn--secondary">
+          <i class="fas fa-desktop"></i>
+          Masaüstü için Başla
+        </a>
+      </div>
+
+      <div class="hero__trust">
+        <div class="hero__trust-avatars">
+          <span>AK</span>
+          <span>BY</span>
+          <span>CE</span>
+          <span>+</span>
         </div>
-
-        <section class="section" id="features">
-            <h2 class="section-title">Öne çıkanlar</h2>
-            <p class="section-sub">Hızlı keşif, derin kıyas ve akıcı kontrol. Hepsi tek yerde.</p>
-            <div class="grid">
-                <div class="card">
-                    <h3><i class="fa-solid fa-magnifying-glass-chart"></i> Piyasa Tarayıcı</h3>
-                    <p>Piyasanın en hareketli anlarını tek bakışta yakalayın.</p>
-                </div>
-                <div class="card">
-                    <h3><i class="fa-solid fa-trophy"></i> En Çok Kazananlar</h3>
-                    <p>Kazananları görün, performansı hızla karşılaştırın.</p>
-                </div>
-                <div class="card">
-                    <h3><i class="fa-solid fa-scale-balanced"></i> Strateji Karşılaştırma</h3>
-                    <p>Aynı coin, farklı strateji. Net sonuç, net karar.</p>
-                </div>
-                <div class="card">
-                    <h3><i class="fa-solid fa-stopwatch"></i> Zaman Dilimi Kontrolü</h3>
-                    <p>Dakikadan güne uzanan berrak zaman ölçeği.</p>
-                </div>
-                <div class="card">
-                    <h3><i class="fa-solid fa-bell"></i> Bildirim Hazırlığı</h3>
-                    <p>Sinyal akışına hazır, temiz ve düzenli.</p>
-                </div>
-                <div class="card">
-                    <h3><i class="fa-solid fa-filter"></i> Esnek Filtreler</h3>
-                    <p>Kazanç ve oranlara göre zahmetsiz filtreleme.</p>
-                </div>
-                <div class="card">
-                    <h3><i class="fa-solid fa-sliders"></i> Hızlı Ayar Paneli</h3>
-                    <p>TP/SL/Bar değerleriyle senaryoları anında deneyin.</p>
-                </div>
-                <div class="card">
-                    <h3><i class="fa-solid fa-layer-group"></i> Modül Geçişleri</h3>
-                    <p>Kazananlar, Her Durumda ve Dashboard arasında pürüzsüz geçiş.</p>
-                </div>
-                <div class="card">
-                    <h3><i class="fa-solid fa-robot"></i> Binance Otomatik Trade</h3>
-                    <p>Sinyal tetiklenince emirler otomatik açılır, TP/SL yönetimi yapılır.</p>
-                </div>
-                <div class="card">
-                    <h3><i class="fa-solid fa-paper-plane"></i> Telegram Bildirimleri</h3>
-                    <p>Alarm ve otomatik işlem sonuçlarını Telegram üzerinden anında gör.</p>
-                </div>
-            </div>
-        </section>
-
-        <section class="section" id="how">
-            <h2 class="section-title">3 adımda başla</h2>
-            <p class="section-sub">Kurulum hızlı, deneyim akıcı.</p>
-            <div class="steps">
-                <div class="step">
-                    <div class="step-number">1</div>
-                    <h3>Giriş yap</h3>
-                    <p>Hesabına gir, kişisel ayarlarını birkaç dokunuşta tamamla.</p>
-                </div>
-                <div class="step">
-                    <div class="step-number">2</div>
-                    <h3>Modülü seç</h3>
-                    <p>Kazananlar veya Her Durumda ile keşfe başla.</p>
-                </div>
-                <div class="step">
-                    <div class="step-number">3</div>
-                    <h3>Karşılaştır & uygula</h3>
-                    <p>Sonuçları gör, kararını ver ve dashboard’a geç.</p>
-                </div>
-            </div>
-        </section>
-
-        <section class="section" id="compare">
-            <h2 class="section-title">Platform ile manuel takip farkı</h2>
-            <p class="section-sub">Sadelik, hız ve kontrol farkını hisset.</p>
-            <div class="compare">
-                <div class="card">
-                    <h3><i class="fa-solid fa-robot"></i> Platform</h3>
-                    <ul>
-                        <li><i class="fa-solid fa-check"></i> Anlık kazanan görünümü</li>
-                        <li><i class="fa-solid fa-check"></i> Çoklu strateji kıyası</li>
-                        <li><i class="fa-solid fa-check"></i> Tek panelde net kontrol</li>
-                        <li><i class="fa-solid fa-check"></i> Esnek zaman dilimi filtreleri</li>
-                    </ul>
-                </div>
-                <div class="card">
-                    <h3><i class="fa-solid fa-user"></i> Manuel</h3>
-                    <ul>
-                        <li><i class="fa-solid fa-minus"></i> Parçalı takip</li>
-                        <li><i class="fa-solid fa-minus"></i> Uzayan analiz süresi</li>
-                        <li><i class="fa-solid fa-minus"></i> Tutarsız filtreler</li>
-                        <li><i class="fa-solid fa-minus"></i> Kıyaslamak zor</li>
-                    </ul>
-                </div>
-            </div>
-        </section>
-
-        <section class="section" id="testimonials">
-            <h2 class="section-title">Kullanıcı notları</h2>
-            <p class="section-sub">Gerçek deneyimler, sade cümleler.</p>
-            <div class="testimonials">
-                <div class="testimonial">
-                    <strong>★★★★★</strong>
-                    <p>"Kazananlar listesi kararımı dakikalara indirdi."</p>
-                    <div style="margin-top: 8px; color: var(--text-secondary);">— A.K.</div>
-                </div>
-                <div class="testimonial">
-                    <strong>★★★★★</strong>
-                    <p>"Aynı coin için farklı stratejileri net görmek harika."</p>
-                    <div style="margin-top: 8px; color: var(--text-secondary);">— E.T.</div>
-                </div>
-                <div class="testimonial">
-                    <strong>★★★★★</strong>
-                    <p>"Arayüz sakin ve hızlı. Her şey tek akışta."</p>
-                    <div style="margin-top: 8px; color: var(--text-secondary);">— S.Y.</div>
-                </div>
-                <div class="testimonial">
-                    <strong>★★★★★</strong>
-                    <p>"Zaman dilimi seçimleri net; kıyaslamak kolay."</p>
-                    <div style="margin-top: 8px; color: var(--text-secondary);">— M.D.</div>
-                </div>
-                <div class="testimonial">
-                    <strong>★★★★★</strong>
-                    <p>"Piyasa tarayıcı her gün en net fırsatları gösteriyor."</p>
-                    <div style="margin-top: 8px; color: var(--text-secondary);">— H.Ö.</div>
-                </div>
-                <div class="testimonial">
-                    <strong>★★★★★</strong>
-                    <p>"Kendi stratejimi eklemek hızlı ve sezgisel."</p>
-                    <div style="margin-top: 8px; color: var(--text-secondary);">— R.K.</div>
-                </div>
-            </div>
-        </section>
-
-        <section class="section" id="faq">
-            <h2 class="section-title">Sık sorulanlar</h2>
-            <div class="faq">
-                <details>
-                    <summary>Platformu kullanmak için hesap gerekli mi?</summary>
-                    <p>Dashboard ve kişisel ayarlar için giriş gerekir. Ana sayfa ise deneyimi keşfetmeniz için açıktır.</p>
-                </details>
-                <details>
-                    <summary>Hangi piyasa tipleri destekleniyor?</summary>
-                    <p>Binance Spot ve Futures desteklenir; seçiminize göre arayüz sizi doğru akışa taşır.</p>
-                </details>
-                <details>
-                    <summary>Sonuçlar nasıl sıralanıyor?</summary>
-                    <p>Toplam kâr, win rate veya profit factor bazında sıralama yapılabilir. İhtiyacınız olanı öne çıkarır.</p>
-                </details>
-            </div>
-        </section>
-
+        <div class="hero__trust-text">
+          <strong>1.200+</strong> aktif kullanıcı<br>
+          şu anda Rolin Signal'i takip ediyor
+        </div>
+      </div>
     </div>
 
-    <div class="footer">
-        Yatırım danışmanlığı değildir; genel bilgilendirme amaçlıdır, sorumluluk kullanıcıya aittir.
+    <div class="hero__visual">
+      <div class="hero__banner">
+        <img src="banner-image.png" alt="Rolin Signal banner">
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="stats" aria-label="Platform istatistikleri">
+  <div class="container">
+    <div class="stats__grid">
+      <div class="stats__item reveal">
+        <div class="stats__number" data-count="1200" data-format="full">0</div>
+        <div class="stats__label">Aktif Kullanıcı</div>
+      </div>
+      <div class="stats__item reveal reveal-delay-1">
+        <div class="stats__number" data-count="8200000">0</div>
+        <div class="stats__label">Üretilen Sinyal</div>
+      </div>
+      <div class="stats__item reveal reveal-delay-2">
+        <div class="stats__number" data-count="99.9" data-suffix="%" data-decimal="1">0</div>
+        <div class="stats__label">Kesintisiz Çalışma</div>
+      </div>
+      <div class="stats__item reveal reveal-delay-3">
+        <div class="stats__number" data-count="73">0</div>
+        <div class="stats__label">Desteklenen Parite</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="features" id="features">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label"><i class="fas fa-gem"></i> Özellikler</div>
+      <h2 class="section-title">Piyasanın Nabzını Tutun</h2>
+      <p class="section-desc">
+        Rolin Signal, size yalnızca sinyal vermekle kalmaz — kararlarınızı
+        veriye dayalı hale getirir.
+      </p>
     </div>
 
-    <script>
-        let supabaseClient = null;
-        let currentUser = null;
+    <div class="features__grid">
+      <div class="feature-card reveal">
+        <div class="feature-card__icon feature-card__icon--gold">
+          <i class="fas fa-bolt-lightning"></i>
+        </div>
+        <h3 class="feature-card__title">Anlık Canlı Sinyaller</h3>
+        <p class="feature-card__desc">
+          7/24 güncellenen, yapay zeka destekli sinyal motoru ile
+          gelişmeleri hızlıca takip edin.
+        </p>
+      </div>
 
-        function updateUserRoleBadge(membershipType, isAdmin) {
-            const badgeEl = document.getElementById('userRoleBadge');
-            if (!badgeEl) return;
+      <div class="feature-card reveal reveal-delay-1">
+        <div class="feature-card__icon feature-card__icon--teal">
+          <i class="fas fa-bell"></i>
+        </div>
+        <h3 class="feature-card__title">Akıllı Alarm Sistemi</h3>
+        <p class="feature-card__desc">
+          Fiyat hedeflerine ulaşıldığında, trend kırılımında veya
+          özel koşullarda anında bildirim alın.
+        </p>
+      </div>
 
-            if (isAdmin) {
-                badgeEl.innerHTML = '<i class="fa-solid fa-shield"></i> Admin';
-                badgeEl.className = 'user-role-badge admin';
-                badgeEl.style.display = 'inline-flex';
-                return;
-            }
+      <div class="feature-card reveal reveal-delay-2">
+        <div class="feature-card__icon feature-card__icon--blue">
+          <i class="fas fa-chart-line"></i>
+        </div>
+        <h3 class="feature-card__title">Backtest Motoru</h3>
+        <p class="feature-card__desc">
+          Stratejilerinizi geçmiş veriyle test edin. Gerçek parayla
+          riske girmeden performansı ölçün.
+        </p>
+      </div>
 
-            if (membershipType === 'premium') {
-                badgeEl.innerHTML = '<i class="fa-solid fa-star"></i> Premium';
-                badgeEl.className = 'user-role-badge premium';
-                badgeEl.style.display = 'inline-flex';
-                return;
-            }
+      <div class="feature-card reveal reveal-delay-1">
+        <div class="feature-card__icon feature-card__icon--teal">
+          <i class="fab fa-telegram"></i>
+        </div>
+        <h3 class="feature-card__title">Telegram Bildirimleri</h3>
+        <p class="feature-card__desc">
+          Sinyaller ve alarmlar doğrudan Telegram'a düşer. Ekranı
+          sürekli takip etmenize gerek yok.
+        </p>
+      </div>
 
-            badgeEl.innerHTML = '<i class="fa-solid fa-leaf"></i> Free';
-            badgeEl.className = 'user-role-badge standard';
-            badgeEl.style.display = 'inline-flex';
+      <div class="feature-card reveal reveal-delay-2">
+        <div class="feature-card__icon feature-card__icon--gold">
+          <i class="fas fa-robot"></i>
+        </div>
+        <h3 class="feature-card__title">Binance Otomatik Trade</h3>
+        <p class="feature-card__desc">
+          API entegrasyonu ile sinyal geldiğinde otomatik pozisyon
+          açın veya kapatın. Tam otomasyon.
+        </p>
+      </div>
+
+      <div class="feature-card reveal reveal-delay-3">
+        <div class="feature-card__icon feature-card__icon--blue">
+          <i class="fas fa-shield-halved"></i>
+        </div>
+        <h3 class="feature-card__title">Risk Yönetimi</h3>
+        <p class="feature-card__desc">
+          Stop-loss, take-profit ve pozisyon boyutu önerileriyle
+          sermayenizi koruyun.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="how" id="how">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label"><i class="fas fa-route"></i> Nasıl Çalışır</div>
+      <h2 class="section-title">3 Adımda Başlayın</h2>
+      <p class="section-desc">
+        Dakikalar içinde kurulumu tamamlayın ve sinyalleri almaya başlayın.
+      </p>
+    </div>
+
+    <div class="how__grid">
+      <div class="how__step reveal">
+        <div class="how__step-num">1</div>
+        <h3 class="how__step-title">Hesap Oluşturun</h3>
+        <p class="how__step-desc">
+          Ücretsiz kaydolun ve platformu keşfedin. Kredi kartı gerekmez.
+        </p>
+      </div>
+
+      <div class="how__step reveal reveal-delay-2">
+        <div class="how__step-num">2</div>
+        <h3 class="how__step-title">Borsanızı Bağlayın</h3>
+        <p class="how__step-desc">
+          Binance API anahtarlarınızı güvenle entegre edin. Şifreli bağlantı.
+        </p>
+      </div>
+
+      <div class="how__step reveal reveal-delay-4">
+        <div class="how__step-num">3</div>
+        <h3 class="how__step-title">Sinyalleri Alın</h3>
+        <p class="how__step-desc">
+          Canlı sinyaller, alarmlar ve otomatik trade ile takipte kalın.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="screenshot reveal" aria-label="Ürün ön izleme">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label"><i class="fas fa-desktop"></i> Platform</div>
+      <h2 class="section-title">Güçlü Dashboard, Basit Arayüz</h2>
+      <p class="section-desc">
+        Profesyonel araçlar, temiz ve anlaşılır bir arayüzde buluşuyor.
+      </p>
+    </div>
+
+      <div class="screenshot__wrapper reveal">
+        <div class="screenshot__mockup">
+          <img src="img-timeline.png" alt="Rolin Signal zaman cizelgesi" class="screenshot__image">
+        </div>
+      </div>
+  </div>
+</section>
+
+<section class="pricing" id="pricing">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label"><i class="fas fa-tag"></i> Fiyatlandırma</div>
+      <h2 class="section-title">Size Uygun Planı Seçin</h2>
+      <p class="section-desc">
+        Ücretsiz başlayın, ihtiyacınız büyüdükçe yükseltin. Gizli ücret yok.
+      </p>
+    </div>
+
+    <div class="pricing__grid">
+      <div class="price-card reveal">
+        <div class="price-card__name">Başlangıç</div>
+        <div class="price-card__price">$0 <span>/ ay</span></div>
+        <div class="price-card__period">Sonsuza kadar ücretsiz</div>
+        <ul class="price-card__features">
+          <li><i class="fas fa-xmark"></i> Günlük 0 sinyal</li>
+          <li><i class="fas fa-check"></i> Temel tarama</li>
+          <li><i class="fas fa-check"></i> Topluluk erişimi</li>
+          <li><i class="fas fa-xmark"></i> Backtest motoru</li>
+          <li><i class="fas fa-xmark"></i> Otomatik trade</li>
+        </ul>
+        <a href="login.html" class="btn btn--secondary price-card__btn">Ücretsiz Başla</a>
+      </div>
+
+      <div class="price-card price-card--featured reveal reveal-delay-1">
+        <div class="price-card__popular">En Popüler</div>
+        <div class="price-card__name">Premium</div>
+        <div class="price-card__price">$230 <span>/ yıl</span></div>
+        <div class="price-card__period">Yıllık plan</div>
+        <ul class="price-card__features">
+          <li><i class="fas fa-check"></i> Sınırsız sinyal</li>
+          <li><i class="fas fa-check"></i> 5 alarm hakkı</li>
+          <li><i class="fas fa-check"></i> Telegram bildirimleri</li>
+          <li><i class="fas fa-check"></i> Backtest motoru</li>
+          <li><i class="fas fa-check"></i> Binance otomatik trade</li>
+        </ul>
+        <button class="btn btn--primary price-card__btn" type="button" data-open-premium>
+          <i class="fas fa-crown"></i> Premium'a Yükselt
+        </button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="faq" id="faq">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="section-label"><i class="fas fa-circle-question"></i> SSS</div>
+      <h2 class="section-title">Sıkça Sorulan Sorular</h2>
+      <p class="section-desc">
+        Merak ettiğiniz her şey burada. Bulamadığınız bir şey varsa
+        Telegram'dan ulaşın.
+      </p>
+    </div>
+
+    <div class="faq__list">
+      <div class="faq__item reveal">
+        <button class="faq__question" aria-expanded="false">
+          Rolin Signal nedir ve nasıl çalışır?
+          <i class="fas fa-plus"></i>
+        </button>
+        <div class="faq__answer">
+          <p>
+            Rolin Signal, kripto piyasalarını 7/24 analiz eden yapay zeka
+            destekli bir sinyal ve alarm platformudur. Teknik analiz, on-chain
+            veri ve piyasa duygu analizini birleştirerek size en uygun
+            sinyal ve analiz bildirimleri sunar.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq__item reveal reveal-delay-1">
+        <button class="faq__question" aria-expanded="false">
+          Otomatik trade güvenli mi?
+          <i class="fas fa-plus"></i>
+        </button>
+        <div class="faq__answer">
+          <p>
+            Binance API entegrasyonumuz yalnızca trade iznine sahiptir;
+            çekim yapılamaz. API anahtarlarınız şifreli olarak saklanır
+            ve hiçbir zaman üçüncü taraflarla paylaşılmaz. Ayrıca her
+            işlem için risk limitleri belirleyebilirsiniz.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq__item reveal reveal-delay-2">
+        <button class="faq__question" aria-expanded="false">
+          Ücretsiz plan ne kadar süre kullanılabilir?
+          <i class="fas fa-plus"></i>
+        </button>
+        <div class="faq__answer">
+          <p>
+            Başlangıç planı sonsuza kadar ücretsizdir. Günlük 3 sinyal
+            ve temel alarm özelliklerini hiçbir süre kısıtlaması olmadan
+            kullanabilirsiniz. İhtiyaçlarınız büyüdüğünde Premium'a
+            yükseltebilirsiniz.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq__item reveal reveal-delay-3">
+        <button class="faq__question" aria-expanded="false">
+          Hangi borsalar destekleniyor?
+          <i class="fas fa-plus"></i>
+        </button>
+        <div class="faq__answer">
+          <p>
+            Şu an Binance Spot ve Futures tam entegrasyonlu olarak
+            desteklenmektedir. Telegram bildirimleri ise tüm borsalar
+            için kullanılabilir.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq__item reveal reveal-delay-4">
+        <button class="faq__question" aria-expanded="false">
+          Destek almak için ne yapmalıyım?
+          <i class="fas fa-plus"></i>
+        </button>
+        <div class="faq__answer">
+          <p>
+            Telegram üzerinden
+            <a href="https://t.me/keremcones" target="_blank" rel="noopener" style="color: var(--accent); text-decoration: underline;">@keremcones</a>
+            hesabına mesaj atarak veya Telegram kanalımız
+            <a href="https://t.me/rolinlong" target="_blank" rel="noopener" style="color: var(--accent); text-decoration: underline;">@rolinlong</a>
+            üzerinden toplulukla etkileşime geçerek destek alabilirsiniz.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="cta-banner reveal">
+  <div class="container">
+    <div class="cta-banner__box">
+      <h2 class="cta-banner__title">
+        Kripto Yolculuğunuza<br>Bugün Başlayın
+      </h2>
+      <p class="cta-banner__desc">
+        1.200+ kişi Rolin Signal topluluğunda. Siz de katılın.
+      </p>
+      <div class="cta-banner__actions">
+        <a href="login.html" class="btn btn--primary">
+          <i class="fas fa-rocket"></i> Hemen Başla
+        </a>
+        <a href="https://t.me/rolinlong" target="_blank" rel="noopener" class="btn btn--secondary">
+          <i class="fab fa-telegram"></i> Telegram Kanalı
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="footer" role="contentinfo">
+  <div class="container">
+    <div class="footer__inner">
+      <div class="footer__brand">
+        <img src="logo.svg" alt="Rolin Signal">
+        Rolin Signal
+      </div>
+
+      <div class="footer__links">
+        <a href="https://t.me/keremcones" target="_blank" rel="noopener" aria-label="Telegram İletişim">
+          <i class="fab fa-telegram"></i>
+        </a>
+        <a href="https://t.me/rolinlong" target="_blank" rel="noopener" aria-label="Telegram Kanalı">
+          <i class="fas fa-bullhorn"></i>
+        </a>
+        <a href="https://rolinlong.com" target="_blank" rel="noopener" aria-label="Web Sitesi">
+          <i class="fas fa-globe"></i>
+        </a>
+        <a href="https://youtube.com/@RolinLong" target="_blank" rel="noopener" aria-label="YouTube">
+          <i class="fab fa-youtube"></i>
+        </a>
+      </div>
+    </div>
+
+    <div class="footer__copy">
+      <p>
+        © 2026 Rolin Signal. Tüm hakları saklıdır.<br>
+        <small>
+          Kripto para yatırımları yüksek risk içerir. Rolin Signal yatırım
+          tavsiyesi vermez; sinyaller bilgi amaçlıdır. Yatırım kararlarınızdan
+          yalnızca siz sorumlusunuz.
+        </small>
+      </p>
+    </div>
+  </div>
+</footer>
+
+<div class="modal" id="premiumModal" aria-hidden="true" role="dialog" aria-labelledby="premiumModalTitle">
+  <div class="modal__content">
+    <div class="modal__header">
+      <div class="modal__title" id="premiumModalTitle">Premium Ol</div>
+      <button class="modal__close" type="button" aria-label="Kapat">&times;</button>
+    </div>
+    <div class="modal__body">
+      Premium ile sinyallere tam erişim, gelişmiş alarmlar ve Binance otomatik trade özelliklerini açarsınız.
+      <ul class="modal__list">
+        <li><i class="fas fa-check"></i> Sınırsız sinyal ve 5 alarm hakkı</li>
+        <li><i class="fas fa-check"></i> Telegram bildirimleri</li>
+        <li><i class="fas fa-check"></i> Backtest motoru ve performans raporları</li>
+        <li><i class="fas fa-check"></i> Binance otomatik trade</li>
+      </ul>
+      <div class="modal__actions">
+        <a href="https://t.me/keremcones" target="_blank" rel="noopener" class="btn btn--primary">
+          <i class="fab fa-telegram"></i> Satın al
+        </a>
+        <button class="btn btn--secondary" type="button" data-close-premium>Vazgec</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  const navbar = document.querySelector('.navbar');
+
+  function onScroll() {
+    const y = window.scrollY;
+    if (y > 40) {
+      navbar.classList.add('scrolled');
+    } else {
+      navbar.classList.remove('scrolled');
+    }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
+  const toggle = document.querySelector('.navbar__toggle');
+  const mobileMenu = document.getElementById('mobileMenu');
+  const mobileLinks = mobileMenu.querySelectorAll('.mobile-link');
+
+  toggle.addEventListener('click', function() {
+    const isOpen = mobileMenu.classList.toggle('open');
+    this.classList.toggle('active');
+    this.setAttribute('aria-expanded', isOpen);
+    mobileMenu.setAttribute('aria-hidden', !isOpen);
+    document.body.style.overflow = isOpen ? 'hidden' : '';
+  });
+
+  mobileLinks.forEach(function(link) {
+    link.addEventListener('click', function() {
+      mobileMenu.classList.remove('open');
+      toggle.classList.remove('active');
+      toggle.setAttribute('aria-expanded', 'false');
+      mobileMenu.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+    });
+  });
+
+  const reveals = document.querySelectorAll('.reveal');
+  const revealObserver = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        revealObserver.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+
+  reveals.forEach(function(el) {
+    revealObserver.observe(el);
+  });
+
+  const counters = document.querySelectorAll('.stats__number[data-count]');
+  let countersDone = false;
+
+  const counterObserver = new IntersectionObserver(function(entries) {
+    if (countersDone) return;
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        countersDone = true;
+        animateCounters();
+        counterObserver.disconnect();
+      }
+    });
+  }, { threshold: 0.3 });
+
+  if (counters.length) {
+    counterObserver.observe(counters[0].parentElement.parentElement);
+  }
+
+  function animateCounters() {
+    counters.forEach(function(el) {
+      var target = parseFloat(el.dataset.count);
+      var suffix = el.dataset.suffix || '';
+      var dec = parseInt(el.dataset.decimal) || 0;
+      var duration = 2000;
+      var start = performance.now();
+
+      function formatNumber(n) {
+        if (el.dataset.format === 'full') {
+          return Math.round(n).toLocaleString('tr-TR');
         }
+        if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+        if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 1 : 1) + 'K';
+        return dec > 0 ? n.toFixed(dec) : Math.round(n).toString();
+      }
 
-        async function checkAuth() {
-            const { data: { session } } = await supabaseClient.auth.getSession();
-            const loginMenu = document.getElementById('loginMenu');
-            const logoutMenu = document.getElementById('logoutMenu');
+      function step(now) {
+        var elapsed = now - start;
+        var progress = Math.min(elapsed / duration, 1);
+        var eased = 1 - Math.pow(1 - progress, 3);
+        var current = eased * target;
+        el.textContent = formatNumber(current) + suffix;
+        if (progress < 1) requestAnimationFrame(step);
+      }
 
-            if (!session) {
-                document.getElementById('userEmail').textContent = 'Misafir';
-                document.getElementById('menuUserEmail').textContent = 'Misafir';
-                if (loginMenu) loginMenu.style.display = 'flex';
-                if (logoutMenu) logoutMenu.style.display = 'none';
-                return;
-            }
+      requestAnimationFrame(step);
+    });
+  }
 
-            currentUser = session.user;
-            document.getElementById('userEmail').textContent = currentUser.email;
-            document.getElementById('menuUserEmail').textContent = currentUser.email;
-            if (loginMenu) loginMenu.style.display = 'none';
-            if (logoutMenu) logoutMenu.style.display = 'flex';
+  document.querySelectorAll('.faq__question').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var item = this.parentElement;
+      var isActive = item.classList.contains('active');
 
-            try {
-                const { data: userProfile } = await supabaseClient
-                    .from('user_profiles')
-                    .select('membership_type, is_admin')
-                    .eq('id', currentUser.id)
-                    .maybeSingle();
+      document.querySelectorAll('.faq__item.active').forEach(function(open) {
+        open.classList.remove('active');
+        open.querySelector('.faq__question').setAttribute('aria-expanded', 'false');
+      });
 
-                if (!userProfile) {
-                    updateUserRoleBadge('standard', false);
-                } else {
-                    updateUserRoleBadge(userProfile.membership_type || 'standard', !!userProfile.is_admin);
-                }
-            } catch {
-                updateUserRoleBadge('standard', false);
-            }
-        }
+      if (!isActive) {
+        item.classList.add('active');
+        this.setAttribute('aria-expanded', 'true');
+      }
+    });
+  });
 
-        window.toggleHamburgerMenu = function() {
-            const panel = document.getElementById('menuPanel');
-            const btn = document.getElementById('hamburgerBtn');
-            if (!panel || !btn) return;
-            panel.classList.toggle('active');
-            btn.classList.toggle('active');
-        };
+  document.querySelectorAll('a[href^="#"]').forEach(function(link) {
+    link.addEventListener('click', function(e) {
+      var target = document.querySelector(this.getAttribute('href'));
+      if (target) {
+        e.preventDefault();
+        var offset = 80;
+        var top = target.getBoundingClientRect().top + window.scrollY - offset;
+        window.scrollTo({ top: top, behavior: 'smooth' });
+      }
+    });
+  });
 
-        window.closeHamburgerMenu = function() {
-            const panel = document.getElementById('menuPanel');
-            const btn = document.getElementById('hamburgerBtn');
-            if (panel) panel.classList.remove('active');
-            if (btn) btn.classList.remove('active');
-        };
+  var premiumModal = document.getElementById('premiumModal');
+  var openPremiumButtons = document.querySelectorAll('[data-open-premium]');
+  var closePremiumButtons = document.querySelectorAll('[data-close-premium]');
+  var modalCloseButton = premiumModal ? premiumModal.querySelector('.modal__close') : null;
 
-        window.logout = async function() {
-            try {
-                const { error } = await supabaseClient.auth.signOut();
-                if (error) throw error;
-                window.location.replace('login.html');
-            } catch (error) {
-                console.error('Çıkış hatası:', error.message);
-                localStorage.clear();
-                window.location.replace('login.html');
-            }
-        };
+  function openPremiumModal() {
+    if (!premiumModal) return;
+    premiumModal.classList.add('open');
+    premiumModal.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+  }
 
-        window.addEventListener('DOMContentLoaded', async () => {
-            const { createClient } = window.supabase;
-            supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-            await checkAuth();
+  function closePremiumModal() {
+    if (!premiumModal) return;
+    premiumModal.classList.remove('open');
+    premiumModal.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+  }
 
-            const navbar = document.querySelector('.navbar');
-            if (navbar) {
-                const handleScroll = () => {
-                    if (window.scrollY > 20) {
-                        navbar.classList.add('scrolled');
-                    } else {
-                        navbar.classList.remove('scrolled');
-                    }
-                };
-                handleScroll();
-                window.addEventListener('scroll', handleScroll, { passive: true });
-            }
+  openPremiumButtons.forEach(function(btn) {
+    btn.addEventListener('click', openPremiumModal);
+  });
+  closePremiumButtons.forEach(function(btn) {
+    btn.addEventListener('click', closePremiumModal);
+  });
+  if (modalCloseButton) {
+    modalCloseButton.addEventListener('click', closePremiumModal);
+  }
+  if (premiumModal) {
+    premiumModal.addEventListener('click', function(event) {
+      if (event.target === premiumModal) {
+        closePremiumModal();
+      }
+    });
+  }
 
-            const revealTargets = document.querySelectorAll('.section, .card, .step, .testimonial, .compare .card, .cta-duo .btn, .hero-metrics .metric');
-            revealTargets.forEach((el) => el.classList.add('reveal'));
-
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach((entry) => {
-                    if (entry.isIntersecting) {
-                        entry.target.classList.add('visible');
-                        observer.unobserve(entry.target);
-                    }
-                });
-            }, { threshold: 0.15 });
-
-            revealTargets.forEach((el) => observer.observe(el));
-        });
-    </script>
+})();
+</script>
 </body>
 </html>

@@ -70,10 +70,13 @@ async function getSymbolPricePrecision(symbol: string, marketType: "spot" | "fut
   const symbols = (data?.symbols || []).reduce((acc: Record<string, any>, item: any) => {
     const priceFilter = (item.filters || []).find((f: any) => f.filterType === "PRICE_FILTER");
     const tickSize = priceFilter?.tickSize;
-    const pricePrecision = typeof item.pricePrecision === "number"
-      ? item.pricePrecision
-      : (tickSize ? getTickSizeDecimals(String(tickSize)) : null);
-    acc[String(item.symbol)] = { pricePrecision };
+    const tickDecimals = tickSize ? getTickSizeDecimals(String(tickSize)) : null;
+    const pricePrecision = typeof item.pricePrecision === "number" ? item.pricePrecision : null;
+    const resolvedPrecisionCandidates = [pricePrecision, tickDecimals].filter((value) => Number.isFinite(value)) as number[];
+    const resolvedPrecision = resolvedPrecisionCandidates.length
+      ? Math.max(...resolvedPrecisionCandidates)
+      : null;
+    acc[String(item.symbol)] = { pricePrecision: resolvedPrecision };
     return acc;
   }, {});
 
@@ -88,6 +91,18 @@ function formatPriceWithPrecision(value: number, precision: number | null): stri
     return value.toFixed(8);
   }
   return value.toFixed(Math.max(0, precision));
+}
+
+function formatTurkeyDateTime(timestampMs?: number): string {
+  const baseDate = Number.isFinite(timestampMs) ? new Date(Number(timestampMs)) : new Date();
+  const turkeyTime = new Date(baseDate.toLocaleString("en-US", { timeZone: "Europe/Istanbul" }));
+  const day = String(turkeyTime.getDate()).padStart(2, "0");
+  const month = String(turkeyTime.getMonth() + 1).padStart(2, "0");
+  const year = turkeyTime.getFullYear();
+  const hours = String(turkeyTime.getHours()).padStart(2, "0");
+  const minutes = String(turkeyTime.getMinutes()).padStart(2, "0");
+  const seconds = String(turkeyTime.getSeconds()).padStart(2, "0");
+  return `${day}.${month}.${year} ${hours}:${minutes}:${seconds}`;
 }
 
 // Global ban cooldown (Binance 418)
@@ -820,14 +835,22 @@ async function executeAutoTrade(
     }
 
     const leverage = marketType === "futures" ? Number(futures_leverage || 10) : 1;
-    const positionSizePercent = marketType === "futures" ? Number(futures_position_size_percent || 5) : Number(spot_position_size_percent || 5);
+    const positionSizeUsd = marketType === "futures"
+      ? Number(futures_position_size_percent || 20)
+      : Number(spot_position_size_percent || 20);
 
     const balance = await getBinanceBalance(api_key, api_secret, marketType);
     if (balance <= 0) {
       return { success: false, message: "Insufficient balance" };
     }
 
-    const tradeAmount = balance * (positionSizePercent / 100);
+    const tradeAmount = positionSizeUsd;
+    if (!Number.isFinite(tradeAmount) || tradeAmount <= 0) {
+      return { success: false, message: "Invalid position size" };
+    }
+    if (tradeAmount > balance) {
+      return { success: false, message: "Insufficient balance" };
+    }
     const symbolInfo = await getSymbolInfo(symbol, marketType);
     if (!symbolInfo) {
       return { success: false, message: "Symbol info not found" };
@@ -1118,6 +1141,7 @@ interface TechnicalIndicators {
   ema12: number;
   ema26: number;
   price: number;
+  lastClosedTimestamp: number;
   closes: number[];
   volumes: number[];
   highs: number[];
@@ -1145,6 +1169,7 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
   const volumes = closedKlines.map((k: any) => parseFloat(k[5]));
   const highs = closedKlines.map((k: any) => parseFloat(k[2]));
   const lows = closedKlines.map((k: any) => parseFloat(k[3]));
+  const lastClosedTimestamp = Number(closedKlines[closedKlines.length - 1]?.[0] ?? Date.now());
   const lastPrice = closes[closes.length - 1];
 
   // Calculate MACD
@@ -1188,6 +1213,7 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
     ema12: ema12,
     ema26: ema26,
     price: lastPrice,
+    lastClosedTimestamp: lastClosedTimestamp,
     closes: closes,
     volumes: volumes,
     highs: highs,
@@ -1612,7 +1638,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             };
             
             const directionEmoji = signal.direction === "LONG" ? "🟢" : "🔴";
-            const now = new Date().toLocaleString('tr-TR');
+            const formattedDateTime = formatTurkeyDateTime(indicators.lastClosedTimestamp);
             
             triggerMessage = `🔔 ALARM AKTİVE! 🔔\n\n` +
               `💰 Çift: ${symbol}\n` +
@@ -1625,7 +1651,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
               `   TP: $${formatPriceWithPrecision(takeProfit, alarmPricePrecision)} (+${tpGain.toFixed(2)}%)\n` +
               `   SL: $${formatPriceWithPrecision(stopLoss, alarmPricePrecision)} (${slLoss.toFixed(2)}%)\n\n` +
               `⏱️ Bar Sınırı: ${alarm.bar_close_limit || 5}\n\n` +
-              `⏰ Zaman: ${now}`;
+              `⏰ Zaman: ${formattedDateTime}`;
             
             console.log(`✅ User alarm triggered for ${symbol}: ${signal.direction}`);
           }
@@ -1831,16 +1857,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             : `\n\nℹ️ <b>Otomatik işlem:</b> Kapalı`;
         }
         
-        // Format date as DD.MM.YYYY HH:MM:SS in GMT+3 (Turkey timezone)
-        const now = new Date();
-        const turkeyTime = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Istanbul" }));
-        const day = String(turkeyTime.getDate()).padStart(2, "0");
-        const month = String(turkeyTime.getMonth() + 1).padStart(2, "0");
-        const year = turkeyTime.getFullYear();
-        const hours = String(turkeyTime.getHours()).padStart(2, "0");
-        const minutes = String(turkeyTime.getMinutes()).padStart(2, "0");
-        const seconds = String(turkeyTime.getSeconds()).padStart(2, "0");
-        const formattedDateTime = `${day}.${month}.${year} ${hours}:${minutes}:${seconds}`;
+        const formattedDateTime = formatTurkeyDateTime(indicators.lastClosedTimestamp);
 
         // Get signal analysis score for market strength
         const userConfidenceThreshold = Number(alarm.confidence_score || 70);

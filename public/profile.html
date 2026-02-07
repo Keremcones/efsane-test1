@@ -1765,8 +1765,8 @@
                 if (futuresToggle) futuresToggle.checked = !!data.futures_enabled;
                 if (spotToggle) spotToggle.checked = !!data.spot_enabled;
                 if (leverageSelect && data.futures_leverage) leverageSelect.value = String(data.futures_leverage);
-                if (futuresSize && data.futures_position_size_percent) futuresSize.value = String(data.futures_position_size_percent);
-                if (spotSize && data.spot_position_size_percent) spotSize.value = String(data.spot_position_size_percent);
+                if (futuresSize) futuresSize.value = String(Number.isFinite(Number(data.futures_position_size_percent)) ? data.futures_position_size_percent : 20);
+                if (spotSize) spotSize.value = String(Number.isFinite(Number(data.spot_position_size_percent)) ? data.spot_position_size_percent : 20);
             } catch (e) {
                 console.error('Binance ayarları yükleme hatası:', e);
             }
@@ -2046,8 +2046,8 @@
             const futuresEnabled = document.getElementById('futuresEnabledToggle')?.checked;
             const spotEnabled = document.getElementById('spotEnabledToggle')?.checked;
             const futuresLeverage = Number(document.getElementById('futuresLeverage')?.value || 10);
-            const futuresPositionSize = Number(document.getElementById('futuresPositionSize')?.value || 5);
-            const spotPositionSize = Number(document.getElementById('spotPositionSize')?.value || 5);
+            const futuresPositionSize = Number(document.getElementById('futuresPositionSize')?.value || 20);
+            const spotPositionSize = Number(document.getElementById('spotPositionSize')?.value || 20);
 
             if (autoTradeEnabled) {
                 if (!apiKey || apiKey.length < 20) {

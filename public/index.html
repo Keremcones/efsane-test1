@@ -155,6 +155,34 @@
             text-align: center;
         }
 
+        .footer-links {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 12px 18px;
+            margin: 20px auto 8px;
+            padding: 0 24px;
+            font-size: 0.85rem;
+        }
+
+        .footer-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(120, 130, 150, 0.2);
+            background: rgba(255, 255, 255, 0.04);
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .footer-links a:hover {
+            color: var(--text-primary);
+            border-color: rgba(120, 130, 150, 0.45);
+            background: rgba(255, 255, 255, 0.08);
+            transform: translateY(-1px);
+        }
+
         .navbar {
             background: rgba(240, 246, 255, 0.82);
             border-bottom: 1px solid rgba(124, 92, 255, 0.22);
@@ -1978,6 +2006,13 @@
                 <p>Gelişmiş analiz yapılıyor...</p>
             </div>
         </div>
+    </div>
+
+    <div class="footer-links">
+        <a href="https://t.me/keremcones" target="_blank" rel="noopener noreferrer">💬 Telegram İletişim</a>
+        <a href="https://t.me/rolinlong" target="_blank" rel="noopener noreferrer">📣 Telegram Kanalı</a>
+        <a href="https://www.rolinlong.com" target="_blank" rel="noopener noreferrer">🌐 İnternet Sitemiz</a>
+        <a href="https://www.youtube.com/@RolinLong" target="_blank" rel="noopener noreferrer">▶️ Youtube Kanalımız</a>
     </div>
 
     <div class="legal-footer">

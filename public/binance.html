@@ -595,25 +595,8 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Pozisyon Büyüklüğü</label>
-                        <select id="futuresPositionSize" class="form-input">
-                            <option value="1">%1</option>
-                            <option value="2">%2</option>
-                            <option value="3">%3</option>
-                            <option value="5" selected>%5</option>
-                            <option value="10">%10</option>
-                            <option value="15">%15</option>
-                            <option value="20">%20</option>
-                            <option value="25">%25</option>
-                            <option value="30">%30</option>
-                            <option value="40">%40</option>
-                            <option value="50">%50</option>
-                            <option value="60">%60</option>
-                            <option value="70">%70</option>
-                            <option value="80">%80</option>
-                            <option value="90">%90</option>
-                            <option value="100">%100</option>
-                        </select>
+                        <label class="form-label">Pozisyon Büyüklüğü ($)</label>
+                        <input type="number" id="futuresPositionSize" class="form-input" min="1" step="1" value="20" />
                     </div>
                     <div class="form-group">
                         <label class="form-label">Emir Tipi</label>
@@ -623,11 +606,11 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Limit Sapma (%)</label>
+                        <label class="form-label">Limit Sapma (%) (Emir fiyatindan ne kadar uzak olsun)</label>
                         <input type="number" id="futuresLimitDeviationPercent" class="form-input" min="0" step="0.1" value="0.3" />
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Limit Bekleme (sn)</label>
+                        <label class="form-label">Limit Bekleme (sn) (Dolmazsa markete gecsin)</label>
                         <input type="number" id="futuresLimitTimeoutSeconds" class="form-input" min="5" step="1" value="60" />
                     </div>
                 </div>
@@ -642,25 +625,8 @@
                         </label>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Pozisyon Büyüklüğü</label>
-                        <select id="spotPositionSize" class="form-input">
-                            <option value="1">%1</option>
-                            <option value="2">%2</option>
-                            <option value="3">%3</option>
-                            <option value="5" selected>%5</option>
-                            <option value="10">%10</option>
-                            <option value="15">%15</option>
-                            <option value="20">%20</option>
-                            <option value="25">%25</option>
-                            <option value="30">%30</option>
-                            <option value="40">%40</option>
-                            <option value="50">%50</option>
-                            <option value="60">%60</option>
-                            <option value="70">%70</option>
-                            <option value="80">%80</option>
-                            <option value="90">%90</option>
-                            <option value="100">%100</option>
-                        </select>
+                        <label class="form-label">Pozisyon Büyüklüğü ($)</label>
+                        <input type="number" id="spotPositionSize" class="form-input" min="1" step="1" value="20" />
                     </div>
                 </div>
 
@@ -901,11 +867,11 @@
                 document.getElementById('spotEnabledToggle').checked = !!data.spot_enabled;
                 document.getElementById('futuresLeverage').value = String(data.futures_leverage || 10);
                 document.getElementById('futuresMarginType').value = String(data.futures_margin_type || 'CROSS');
-                document.getElementById('futuresPositionSize').value = String(data.futures_position_size_percent || 5);
+                document.getElementById('futuresPositionSize').value = String(Number.isFinite(Number(data.futures_position_size_percent)) ? data.futures_position_size_percent : 20);
                 document.getElementById('futuresOrderType').value = String(data.futures_entry_type || 'MARKET').toUpperCase() === 'LIMIT' ? 'LIMIT' : 'MARKET';
                 document.getElementById('futuresLimitDeviationPercent').value = String(Number.isFinite(Number(data.futures_limit_deviation_percent)) ? data.futures_limit_deviation_percent : 0.3);
                 document.getElementById('futuresLimitTimeoutSeconds').value = String(Number.isFinite(Number(data.futures_limit_timeout_seconds)) ? data.futures_limit_timeout_seconds : 60);
-                document.getElementById('spotPositionSize').value = String(data.spot_position_size_percent || 5);
+                document.getElementById('spotPositionSize').value = String(Number.isFinite(Number(data.spot_position_size_percent)) ? data.spot_position_size_percent : 20);
                 window.updateFuturesLimitUI();
             } catch (e) {
                 console.error('Binance ayarları yükleme hatası:', e);
@@ -956,11 +922,11 @@
             const spotEnabled = document.getElementById('spotEnabledToggle').checked;
             const futuresLeverage = Number(document.getElementById('futuresLeverage').value || 10);
             const futuresMarginType = String(document.getElementById('futuresMarginType').value || 'CROSS');
-            const futuresPositionSize = Number(document.getElementById('futuresPositionSize').value || 5);
+            const futuresPositionSize = Number(document.getElementById('futuresPositionSize').value || 20);
             const futuresOrderType = String(document.getElementById('futuresOrderType').value || 'MARKET').toUpperCase();
             const futuresLimitDeviationPercent = Number(document.getElementById('futuresLimitDeviationPercent').value || 0.3);
             const futuresLimitTimeoutSeconds = Number(document.getElementById('futuresLimitTimeoutSeconds').value || 60);
-            const spotPositionSize = Number(document.getElementById('spotPositionSize').value || 5);
+            const spotPositionSize = Number(document.getElementById('spotPositionSize').value || 20);
 
             if (autoTradeEnabled) {
                 if (!apiKey || apiKey.length < 20) {
