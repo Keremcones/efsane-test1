@@ -361,24 +361,116 @@
         }
 
         .hero {
-            background: linear-gradient(135deg, rgba(56, 232, 255, 0.12), rgba(139, 92, 246, 0.12));
-            border: 1px solid rgba(56, 232, 255, 0.2);
-            border-radius: 20px;
-            padding: 28px;
-            box-shadow: 0 18px 40px rgba(9, 20, 34, 0.6);
+            background: linear-gradient(135deg, rgba(56, 232, 255, 0.08), rgba(139, 92, 246, 0.12));
+            border: 1px solid rgba(56, 232, 255, 0.16);
+            border-radius: 24px;
+            padding: 42px 32px;
+            box-shadow: 0 24px 60px rgba(9, 20, 34, 0.55);
             display: grid;
-            gap: 12px;
+            gap: 14px;
             text-align: center;
         }
 
-        .hero h1 {
-            font-size: 1.8rem;
+        .hero__eyebrow {
+            font-size: 0.85rem;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+        }
+
+        .hero__title {
+            font-size: clamp(2rem, 3.6vw, 3rem);
             font-weight: 800;
         }
 
-        .hero p {
+        .hero__subtitle {
             color: var(--text-primary);
+            font-size: 1rem;
+            line-height: 1.7;
+            max-width: 720px;
+            margin: 0 auto;
+        }
+
+        .hero__meta {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 14px;
+            flex-wrap: wrap;
+            font-weight: 700;
+        }
+
+        .hero__price {
+            font-size: 1.3rem;
+            color: var(--accent-gold);
+        }
+
+        .hero__note {
+            color: var(--text-secondary);
             font-size: 0.95rem;
+        }
+
+        .hero__actions {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 6px;
+        }
+
+        .hero__actions .btn-cta {
+            padding: 12px 24px;
+            border-radius: 999px;
+        }
+
+        .section {
+            margin-top: 34px;
+            text-align: center;
+        }
+
+        .section-title {
+            font-size: clamp(1.5rem, 2.5vw, 2.2rem);
+            font-weight: 800;
+            margin-bottom: 10px;
+        }
+
+        .section-subtitle {
+            color: var(--text-secondary);
+            font-size: 1rem;
+            max-width: 720px;
+            margin: 0 auto;
+            line-height: 1.7;
+        }
+
+        .feature-grid {
+            margin-top: 18px;
+            display: grid;
+            gap: 16px;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        }
+
+        .feature-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 18px;
+            text-align: left;
+            display: grid;
+            gap: 8px;
+        }
+
+        .feature-card h3 {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .feature-card p {
+            color: var(--text-secondary);
+            font-size: 0.92rem;
             line-height: 1.6;
         }
 
@@ -574,25 +666,55 @@
 
     <div class="container">
         <section class="hero">
-            <h1><i class="fa-solid fa-crown"></i> Premium Plan</h1>
-            <p><i class="fa-regular fa-calendar"></i> 2021’den beri teknik analiz ve strateji içerikleri üretiyor, <i class="fa-solid fa-location-dot"></i> İstanbul ve Bursa’da buluşmalar düzenliyoruz.</p>
-            <p><strong class="highlight">Alım-Satım Botu Eğitim Paketi – Rolin Signal Sistemi</strong> ile ömür boyu erişim.</p>
+            <span class="hero__eyebrow">Rolin Signal Premium</span>
+            <h1 class="hero__title">Sinyal deneyimini sessizce güçlendir.</h1>
+            <p class="hero__subtitle">
+                Akıllı sinyal takibi, gelişmiş alarmlar, Telegram bildirimleri ve Binance otomatik trade; hepsi
+                tek panelde, sade bir akışla.
+            </p>
+            <div class="hero__meta">
+                <span class="hero__price">$230 / yıl</span>
+                <span class="hero__note">Yıllık plan</span>
+            </div>
+            <div class="hero__actions">
+                <button class="btn-cta" onclick="window.open('https://t.me/keremcones', '_blank')">
+                    <i class="fa-brands fa-telegram"></i> Telegram ile Satın Al
+                </button>
+            </div>
         </section>
 
-        <div class="grid">
-            <div class="card">
-                <div class="card-title"><i class="fa-solid fa-star"></i> Ömür Boyu Kullanım Garantisi</div>
-                <p style="line-height: 1.6;">
-                    Bu sistemi satın aldığınızda tüm içeriklere ve gelecekteki tüm sistemlere, güncellemelere ömür boyu kullanım hakkı elde edersiniz.
-                </p>
+        <section class="section">
+            <h2 class="section-title">Rolin Signal ne sunar?</h2>
+            <p class="section-subtitle">
+                Rolin Signal, kripto piyasalarını sizin yerinize takip eder. Ekran başında kalmadan;
+                sinyal, alarm ve otomasyon akışını tek merkezden yönetirsiniz.
+            </p>
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <h3><i class="fa-solid fa-bolt"></i> Akıllı sinyal takibi</h3>
+                    <p>Gerçek zamanlı veri akışıyla sinyalleri net ve anlaşılır biçimde takip edin.</p>
+                </div>
+                <div class="feature-card">
+                    <h3><i class="fa-solid fa-bell"></i> Gelişmiş alarmlar</h3>
+                    <p>Özel koşullara göre alarm kurun, önemli hareketleri kaçırmayın.</p>
+                </div>
+                <div class="feature-card">
+                    <h3><i class="fa-brands fa-telegram"></i> Telegram bildirimleri</h3>
+                    <p>Sinyaller ve alarmlar anında Telegram’a düşer, ekran takip yükü azalır.</p>
+                </div>
+                <div class="feature-card">
+                    <h3><i class="fa-solid fa-robot"></i> Binance otomatik trade</h3>
+                    <p>API entegrasyonu ile sinyal geldiğinde otomatik işlem akışı kurun.</p>
+                </div>
             </div>
+        </section>
 
-            <div class="card">
-                <div class="card-title"><i class="fa-solid fa-box-open"></i> Paket İçeriği</div>
-                <p style="margin-bottom: 10px; font-weight: 700; font-size: 1.02rem;" class="highlight">
-                    Rolin Signal + TradingView İndikatör Paketi<br>
-                    Ömür Boyu Premium
-                </p>
+        <section class="section">
+            <h2 class="section-title">İndikatör Paketleri</h2>
+            <p class="section-subtitle">
+                Premium paketle birlikte, aşağıdaki indikatör içeriklerine erişim sağlanır.
+            </p>
+            <div class="card" style="margin-top: 16px;">
                 <div class="chip-grid">
                     <span><i class="fa-solid fa-chart-column"></i> Rocco İndikatörü</span>
                     <span><i class="fa-solid fa-gem"></i> Supreme İndikatörü</span>
@@ -612,17 +734,30 @@
                     <span><i class="fa-solid fa-wand-magic-sparkles"></i> Scalping Pro İndikatörü</span>
                     <span><i class="fa-solid fa-satellite-dish"></i> ASTRO Profesyonel</span>
                 </div>
-                <p style="margin-top: 12px; font-size: 0.9rem;" class="muted">Satın alır almaz tüm içeriklere anında erişim garantisi.</p>
+                <p style="margin-top: 12px; font-size: 0.9rem;" class="muted">Satın alır almaz erişim sağlanır.</p>
             </div>
+        </section>
 
-            <div class="card price-card">
-                <div class="card-title" style="justify-content: center;"><i class="fa-solid fa-tag"></i> Tek Fiyat</div>
-                <div class="amount">230 USD</div>
-                <div class="muted" style="margin-top: 6px;">Ömür Boyu Kullanım</div>
+        <section class="section">
+            <h2 class="section-title">Fiyat</h2>
+            <p class="section-subtitle">Premium plan yıllık olarak sunulur.</p>
+            <div class="grid">
+                <div class="card price-card">
+                    <div class="card-title" style="justify-content: center;"><i class="fa-solid fa-tag"></i> Tek Fiyat</div>
+                    <div class="amount">230 USD</div>
+                    <div class="muted" style="margin-top: 6px;">Yıllık Plan</div>
+                </div>
             </div>
+            <div class="cta">
+                <button class="btn-cta" onclick="window.open('https://t.me/keremcones', '_blank')">
+                    <i class="fa-brands fa-telegram"></i> Telegram ile Satın Al
+                </button>
+            </div>
+        </section>
 
-            <div class="card">
-                <div class="card-title"><i class="fa-solid fa-link"></i> Bağlantılar</div>
+        <section class="section">
+            <h2 class="section-title">Bağlantılar</h2>
+            <div class="card" style="margin-top: 16px;">
                 <div class="links">
                     <div>
                         <i class="fa-solid fa-play"></i> Tanıtım Videosu:
@@ -638,19 +773,15 @@
                     </div>
                 </div>
             </div>
+        </section>
 
-            <div class="cta">
-                <button class="btn-cta" onclick="window.open('https://t.me/keremcones', '_blank')">
-                    <i class="fa-brands fa-telegram"></i> Telegram ile Satın Al
-                </button>
-            </div>
-
-            <div class="card">
-                <div class="card-title"><i class="fa-solid fa-circle-question"></i> S.S.S</div>
+        <section class="section">
+            <h2 class="section-title">S.S.S</h2>
+            <div class="card" style="margin-top: 16px;">
                 <div class="faq-list">
                     <details class="faq-item">
                         <summary>Premium satın aldığımda ne kadar süre erişimim olacak?</summary>
-                        <div class="answer">Ömür boyu erişim sağlar. Yeni içerik ve güncellemeler de dahildir.</div>
+                        <div class="answer">Yıllık erişim sağlar. Süre sonunda yenileme yapılabilir.</div>
                     </details>
                     <details class="faq-item">
                         <summary>Satın alma sonrası erişim ne zaman açılır?</summary>
@@ -662,11 +793,11 @@
                     </details>
                     <details class="faq-item">
                         <summary>Güncellemeler ücretli mi?</summary>
-                        <div class="answer">Hayır. Ömür boyu kullanım kapsamında tüm güncellemeler ücretsizdir.</div>
+                        <div class="answer">Yıllık plan süresince tüm güncellemeler dahildir.</div>
                     </details>
                     <details class="faq-item">
                         <summary>Satın aldıktan sonra iade mümkün mü?</summary>
-                        <div class="answer">Dijital içerik ve ömür boyu erişim olduğu için iade koşulları iletişim sonrası netleştirilir.</div>
+                        <div class="answer">Dijital içerik olduğu için iade koşulları iletişim sonrası netleştirilir.</div>
                     </details>
                     <details class="faq-item">
                         <summary>Destek alabilir miyim?</summary>
@@ -674,7 +805,7 @@
                     </details>
                 </div>
             </div>
-        </div>
+        </section>
     </div>
 
     <div class="legal-footer">
