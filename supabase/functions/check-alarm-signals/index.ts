@@ -2095,6 +2095,17 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           continue;
         }
 
+        try {
+          if (signal.alarm_id) {
+            await supabase
+              .from("alarms")
+              .update({ binance_order_id: null })
+              .eq("id", signal.alarm_id);
+          }
+        } catch (e) {
+          console.warn(`⚠️ Failed to clear binance_order_id for alarm ${signal.alarm_id}:`, e);
+        }
+
         console.log(`✅ Signal ${signal.id} (${signal.symbol}) CLOSED: ${closeReason} | P&L: ${profitLoss.toFixed(2)}%`);
 
         closedSignals.push({
