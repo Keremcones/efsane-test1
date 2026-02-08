@@ -794,10 +794,6 @@ async function executeAutoTrade(
       .eq("auto_trade_enabled", true)
       .maybeSingle();
 
-      pricePrecision: number,
-      quantity: number,
-      quantityPrecision: number
-
     if (marketType === "futures" && !userKeys.futures_enabled) {
       return { success: false, message: "Futures auto-trade not enabled" };
     }
