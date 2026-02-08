@@ -22,9 +22,10 @@ async function analyzeMultiTimeframe(symbol) {
             const lows = klines.map(k => parseFloat(k[3]));
             const volumes = klines.map(k => parseFloat(k[5]));
             
-            const indicators = calculateIndicators(closes, highs, lows, volumes);
-            const sr = findSupportResistance(highs, lows, closes);
-            const signal = generateAdvancedSignal(indicators, closes[closes.length-1], sr);
+            const indicators = calculateAlarmIndicators(closes, highs, lows, volumes);
+            const signal = indicators
+                ? generateSignalScoreAligned(indicators)
+                : { direction: 'N/A', score: 0 };
             
             return {
                 timeframe: tf,
@@ -578,6 +579,261 @@ function calculateRiskReward(entry, sr, direction) {
     };
 }
 
+// Alarm tarafi ile uyumlu indikator hesaplari
+function calculateAlarmStochastic(highs, lows, closes, period = 14) {
+    if (closes.length < period) return { K: 0, D: 0 };
+    const recentHighs = highs.slice(-period);
+    const recentLows = lows.slice(-period);
+    const currentClose = closes[closes.length - 1];
+    const highestHigh = Math.max(...recentHighs);
+    const lowestLow = Math.min(...recentLows);
+    const k = ((currentClose - lowestLow) / (highestHigh - lowestLow)) * 100;
+    return { K: k, D: k };
+}
+
+function calculateAlarmMacd(closes) {
+    const ema12 = calculateEMA(closes, 12);
+    const ema26 = calculateEMA(closes, 26);
+    if (!ema12 || !ema26) return { macdLine: 0, signalLine: 0, histogram: 0 };
+    const macdLine = ema12 - ema26;
+    const signalLine = calculateEMA(closes.map((_, i) => {
+        const window = closes.slice(0, i + 1);
+        return window.length >= 26 ? calculateEMA(window, 12) - calculateEMA(window, 26) : 0;
+    }), 9);
+    const histogram = macdLine - (signalLine || 0);
+    return { macdLine, signalLine: signalLine || 0, histogram };
+}
+
+function calculateAlarmIndicators(closes, highs, lows, volumes, lastClosedTimestamp) {
+    if (!closes || closes.length < 2) return null;
+
+    const lastPrice = closes[closes.length - 1];
+    const macdData = calculateAlarmMacd(closes);
+
+    let obv = 0;
+    let obvTrend = 'neutral';
+    for (let i = 0; i < closes.length; i++) {
+        if (i === 0) obv = volumes[i];
+        else if (closes[i] > closes[i - 1]) obv += volumes[i];
+        else if (closes[i] < closes[i - 1]) obv -= volumes[i];
+    }
+    if (closes[closes.length - 1] > closes[closes.length - 2]) obvTrend = 'rising';
+    else if (closes[closes.length - 1] < closes[closes.length - 2]) obvTrend = 'falling';
+
+    const highs20 = highs.slice(-20);
+    const lows20 = lows.slice(-20);
+    const resistance = highs20.length ? Math.max(...highs20) : lastPrice;
+    const support = lows20.length ? Math.min(...lows20) : lastPrice;
+    const stoch = calculateAlarmStochastic(highs, lows, closes);
+    const adx = calculateADX(highs, lows, closes) || 0;
+    const volumeMA = volumes.length > 0 ? volumes.reduce((a, b) => a + b, 0) / volumes.length : 0;
+
+    return {
+        rsi: calculateRSI(closes, 14) || 0,
+        sma20: calculateSMA(closes, 20) || 0,
+        sma50: calculateSMA(closes, 50) || 0,
+        ema12: calculateEMA(closes, 12) || 0,
+        ema26: calculateEMA(closes, 26) || 0,
+        price: lastPrice,
+        lastClosedTimestamp: Number.isFinite(lastClosedTimestamp) ? lastClosedTimestamp : Date.now(),
+        closes: closes,
+        volumes: volumes,
+        highs: highs,
+        lows: lows,
+        macd: macdData.macdLine,
+        histogram: macdData.histogram,
+        obv: obv,
+        obvTrend: obvTrend,
+        resistance: resistance,
+        support: support,
+        stoch: stoch,
+        adx: adx,
+        volumeMA: volumeMA
+    };
+}
+
+function generateSignalScoreAligned(indicators, userConfidenceThreshold = 70) {
+    const breakdown = {};
+
+    let trendScore = 0;
+    let trendDetails = {
+        emaAlignment: 0,
+        adxBonus: 0
+    };
+
+    if (indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50) {
+        trendScore += 30;
+        trendDetails.emaAlignment = 30;
+    } else if (indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50) {
+        trendScore -= 30;
+        trendDetails.emaAlignment = -30;
+    }
+
+    if (indicators.adx > 25) {
+        const adxBonus = Math.min((indicators.adx - 25) * 0.8, 20);
+        trendScore += adxBonus;
+        trendDetails.adxBonus = adxBonus;
+    }
+
+    breakdown.TREND_ANALIZI = {
+        score: trendScore,
+        weight: '40%',
+        details: {
+            'EMA12/EMA26 & SMA20/SMA50': `${trendDetails.emaAlignment > 0 ? 'LONG' : trendDetails.emaAlignment < 0 ? 'SHORT' : '-'} (${trendDetails.emaAlignment})`,
+            'ADX > 25 Bonus': `${trendDetails.adxBonus > 0 ? '+' : ''}${trendDetails.adxBonus.toFixed(2)}`,
+            'ADX Value': Number(indicators.adx || 0).toFixed(2),
+            'EMA12': Number(indicators.ema12 || 0).toFixed(8),
+            'EMA26': Number(indicators.ema26 || 0).toFixed(8),
+            'SMA20': Number(indicators.sma20 || 0).toFixed(8),
+            'SMA50': Number(indicators.sma50 || 0).toFixed(8)
+        }
+    };
+
+    let momentumScore = 0;
+    let momentumDetails = {
+        rsiScore: 0,
+        macdScore: 0,
+        stochScore: 0
+    };
+
+    if (indicators.rsi < 30) {
+        momentumScore += 25;
+        momentumDetails.rsiScore = 25;
+    } else if (indicators.rsi < 40) {
+        momentumScore += 15;
+        momentumDetails.rsiScore = 15;
+    } else if (indicators.rsi > 70) {
+        momentumScore -= 25;
+        momentumDetails.rsiScore = -25;
+    } else if (indicators.rsi > 60) {
+        momentumScore -= 15;
+        momentumDetails.rsiScore = -15;
+    }
+
+    const macdScore = indicators.macd > 0 ? 10 : -10;
+    momentumScore += macdScore;
+    momentumDetails.macdScore = macdScore;
+
+    if (indicators.stoch.K < 20) {
+        momentumScore += 10;
+        momentumDetails.stochScore = 10;
+    } else if (indicators.stoch.K > 80) {
+        momentumScore -= 10;
+        momentumDetails.stochScore = -10;
+    }
+
+    breakdown.MOMENTUM_ANALIZI = {
+        score: momentumScore,
+        weight: '30%',
+        details: {
+            'RSI': `${Number(indicators.rsi || 0).toFixed(2)} → ${momentumDetails.rsiScore > 0 ? '+' : ''}${momentumDetails.rsiScore}`,
+            'MACD': `${indicators.macd > 0 ? 'Positive' : 'Negative'} → ${momentumDetails.macdScore > 0 ? '+' : ''}${momentumDetails.macdScore}`,
+            'Stochastic K': `${Number(indicators.stoch.K || 0).toFixed(2)} → ${momentumDetails.stochScore > 0 ? '+' : ''}${momentumDetails.stochScore}`,
+            'MACD Value': Number(indicators.macd || 0).toFixed(8),
+            'Stochastic D': Number(indicators.stoch.D || 0).toFixed(2)
+        }
+    };
+
+    let volumeScore = 0;
+    let volumeDetails = {
+        obvScore: 0,
+        volumeMAScore: 0
+    };
+
+    if (indicators.obvTrend === 'rising') {
+        volumeScore += 10;
+        volumeDetails.obvScore = 10;
+    } else if (indicators.obvTrend === 'falling') {
+        volumeScore -= 10;
+        volumeDetails.obvScore = -10;
+    }
+
+    const volumes = indicators.volumes || [];
+    if (volumes.length >= 2) {
+        const lastVolume = volumes[volumes.length - 1];
+        const recent = volumes.slice(-10);
+        const avgVolume = recent.reduce((a, b) => a + b, 0) / (recent.length || 1);
+        if (lastVolume > avgVolume) {
+            volumeScore += 15;
+            volumeDetails.volumeMAScore = 15;
+        } else {
+            volumeScore -= 10;
+            volumeDetails.volumeMAScore = -10;
+        }
+    }
+
+    breakdown.VOLUME_ANALIZI = {
+        score: volumeScore,
+        weight: '15%',
+        details: {
+            'OBV Trend': `${indicators.obvTrend} → ${volumeDetails.obvScore > 0 ? '+' : ''}${volumeDetails.obvScore}`,
+            'Volume vs Avg': `${volumeDetails.volumeMAScore > 0 ? 'Above Avg' : 'Below Avg'} → ${volumeDetails.volumeMAScore > 0 ? '+' : ''}${volumeDetails.volumeMAScore}`,
+            'OBV Value': Number(indicators.obv || 0).toFixed(2)
+        }
+    };
+
+    let srScore = 0;
+    let srDetails = {
+        supportProximity: 0,
+        resistanceProximity: 0
+    };
+
+    if (indicators.resistance > 0 && indicators.support > 0 && indicators.price > 0) {
+        const distanceToSupport = (indicators.price - indicators.support) / indicators.price;
+        const distanceToResistance = (indicators.resistance - indicators.price) / indicators.price;
+
+        if (distanceToSupport < 0.02) {
+            srScore += 15;
+            srDetails.supportProximity = 15;
+        }
+        if (distanceToResistance < 0.02) {
+            srScore -= 15;
+            srDetails.resistanceProximity = -15;
+        }
+
+        breakdown.SUPPORT_RESISTANCE_ANALIZI = {
+            score: srScore,
+            weight: '15%',
+            details: {
+                'Support Proximity': `${(distanceToSupport * 100).toFixed(2)}% → ${srDetails.supportProximity > 0 ? '+' : ''}${srDetails.supportProximity}`,
+                'Resistance Proximity': `${(distanceToResistance * 100).toFixed(2)}% → ${srDetails.resistanceProximity}`,
+                'Support Level': Number(indicators.support || 0).toFixed(8),
+                'Resistance Level': Number(indicators.resistance || 0).toFixed(8),
+                'Current Price': Number(indicators.price || 0).toFixed(8)
+            }
+        };
+    }
+
+    const normalizedTrendScore = (trendScore / 50) * 40;
+    const normalizedMomentumScore = (momentumScore / 50) * 30;
+    const normalizedVolumeScore = (volumeScore / 25) * 15;
+    const normalizedSRScore = (srScore / 30) * 15;
+
+    let score = normalizedTrendScore + normalizedMomentumScore + normalizedVolumeScore + normalizedSRScore;
+    const direction = score > 0 ? 'LONG' : 'SHORT';
+    const confidence = Math.min(Math.max(Math.abs(score), 0), 100);
+
+    const isDowntrend = indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50;
+    const isUptrend = indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50;
+    const trendBlocks = (direction === 'LONG' && isDowntrend) || (direction === 'SHORT' && isUptrend);
+    const triggered = confidence >= userConfidenceThreshold && !trendBlocks;
+
+    breakdown.normalizedScore = {
+        trend: normalizedTrendScore.toFixed(2),
+        momentum: normalizedMomentumScore.toFixed(2),
+        volume: normalizedVolumeScore.toFixed(2),
+        sr: normalizedSRScore.toFixed(2),
+        total: score.toFixed(2)
+    };
+
+    return {
+        direction,
+        score: Math.round(confidence),
+        triggered,
+        breakdown
+    };
+}
+
 function getConfidenceLevel(score) {
     if (score >= 80) return 'HIGH';
     if (score >= 60) return 'MEDIUM_HIGH';
@@ -822,30 +1078,24 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             const windowLows = lows.slice(i - windowSize, i);
             const windowVolumes = volumes.slice(i - windowSize, i);
             
-            const indicators = calculateIndicators(windowCloses, windowHighs, windowLows, windowVolumes);
-            const sr = findSupportResistance(windowHighs, windowLows, windowCloses);
-            
-            // Kullanıcı TP/SL değerlerine göre backtestAverages oluştur
-            const userTPSL = {
-                LONG: {
-                    avgTPPercent: takeProfitPercent,
-                    avgSLPercent: -stopLossPercent
-                },
-                SHORT: {
-                    avgTPPercent: -takeProfitPercent,
-                    avgSLPercent: stopLossPercent
-                }
-            };
-            
-            // ✅ FORMASYONLAR OLMASA BİLE İŞLEM AÇILSIN - patterns şartını kaldır
-            const signal = generateAdvancedSignal(indicators, windowCloses[windowCloses.length-1], sr, [], null, confidenceThreshold, userTPSL);
-            
-            // Seçilen güven eşiğine göre işlem aç
-            const shouldOpenTrade = signal && signal.isValidSignal;
+            const indicators = calculateAlarmIndicators(windowCloses, windowHighs, windowLows, windowVolumes);
+            if (!indicators) {
+                continue;
+            }
+
+            const signal = generateSignalScoreAligned(indicators, confidenceThreshold);
+            const shouldOpenTrade = signal && signal.triggered;
             
             // DEBUG: Log ekle
             if (i < windowSize + 5 || i > closes.length - 10) {
-                console.log(`🔄 [${timeframe}] bar=${i} signal=${signal.direction} score=${signal.score} TP=${signal.tp?.toFixed(4)} SL=${signal.stop?.toFixed(4)} shouldOpen=${shouldOpenTrade}`);
+                const entryPriceDebug = windowCloses[windowCloses.length - 1];
+                const tpDebug = signal.direction === 'SHORT'
+                    ? entryPriceDebug * (1 - takeProfitPercent / 100)
+                    : entryPriceDebug * (1 + takeProfitPercent / 100);
+                const slDebug = signal.direction === 'SHORT'
+                    ? entryPriceDebug * (1 + stopLossPercent / 100)
+                    : entryPriceDebug * (1 - stopLossPercent / 100);
+                console.log(`🔄 [${timeframe}] bar=${i} signal=${signal.direction} score=${signal.score} TP=${tpDebug.toFixed(4)} SL=${slDebug.toFixed(4)} shouldOpen=${shouldOpenTrade}`);
             }
             
             if (!shouldOpenTrade) {
@@ -859,9 +1109,13 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             // ADIM 3: YENİ İŞLEM AÇ
             // ============================================
             
-            const entryPrice = windowCloses[windowCloses.length-1];
-            const takeProfit = signal.tp;
-            const stopLoss = signal.stop;
+            const entryPrice = windowCloses[windowCloses.length - 1];
+            const takeProfit = signal.direction === 'SHORT'
+                ? entryPrice * (1 - takeProfitPercent / 100)
+                : entryPrice * (1 + takeProfitPercent / 100);
+            const stopLoss = signal.direction === 'SHORT'
+                ? entryPrice * (1 + stopLossPercent / 100)
+                : entryPrice * (1 - stopLossPercent / 100);
             
             // Tarih ve saat (Türkiye saati)
             const tradeDate = new Date(klines[i][0]);
@@ -1051,24 +1305,15 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             const lastWindowLows = lows.slice(lastWindowStart, closedBarIndex + 1);
             const lastWindowVolumes = volumes.slice(lastWindowStart, closedBarIndex + 1);
             
-            const lastIndicators = calculateIndicators(lastWindowCloses, lastWindowHighs, lastWindowLows, lastWindowVolumes);
-            const lastSR = findSupportResistance(lastWindowHighs, lastWindowLows, lastWindowCloses);
+            const lastIndicators = calculateAlarmIndicators(lastWindowCloses, lastWindowHighs, lastWindowLows, lastWindowVolumes);
+            if (!lastIndicators) {
+                return { trades: results, lastTrade: null, averages };
+            }
+
+            const lastSignal = generateSignalScoreAligned(lastIndicators, confidenceThreshold);
             
-            const lastUserTPSL = {
-                LONG: {
-                    avgTPPercent: takeProfitPercent,
-                    avgSLPercent: -stopLossPercent
-                },
-                SHORT: {
-                    avgTPPercent: -takeProfitPercent,
-                    avgSLPercent: stopLossPercent
-                }
-            };
-            
-            const lastSignal = generateAdvancedSignal(lastIndicators, closes[closedBarIndex], lastSR, [], null, confidenceThreshold, lastUserTPSL);
-            
-            // SADECE isValidSignal true olan sinyalleri göster (confidence threshold geçenler)
-            if (lastSignal && lastSignal.isValidSignal) {
+            // SADECE triggered true olan sinyalleri göster (confidence threshold gecenler)
+            if (lastSignal && lastSignal.triggered) {
                 // ÖNEMLİ: Son kapalı işlem ile lastTrade arasında çakışma var mı kontrol et
                 // Eğer son işlem belirsiz durumdaysa (0% profit, actualTP=false, actualSL=false), 
                 // yeni sinyal gösterme
@@ -1107,12 +1352,20 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                     
                     const lastBarDateTurkey = new Date(klines[closedBarIndex][0]);
                     
+                    const lastEntryPrice = closes[closedBarIndex];
+                    const lastTakeProfit = lastSignal.direction === 'SHORT'
+                        ? lastEntryPrice * (1 - takeProfitPercent / 100)
+                        : lastEntryPrice * (1 + takeProfitPercent / 100);
+                    const lastStopLoss = lastSignal.direction === 'SHORT'
+                        ? lastEntryPrice * (1 + stopLossPercent / 100)
+                        : lastEntryPrice * (1 - stopLossPercent / 100);
+
                     // Kar/Zarar hesapla
                     let lastTradeProfit = 0;
                     if (lastSignal.direction === 'LONG') {
-                        lastTradeProfit = ((closes[lastBarIndex] - closes[closedBarIndex]) / closes[closedBarIndex]) * 100;
+                        lastTradeProfit = ((closes[lastBarIndex] - lastEntryPrice) / lastEntryPrice) * 100;
                     } else {
-                        lastTradeProfit = ((closes[closedBarIndex] - closes[lastBarIndex]) / closes[closedBarIndex]) * 100;
+                        lastTradeProfit = ((lastEntryPrice - closes[lastBarIndex]) / lastEntryPrice) * 100;
                     }
                     
                     lastTrade = {
@@ -1121,10 +1374,10 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                         date: lastBarDateTurkey.toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' }),
                         time: lastTimeStr,
                         signal: lastSignal.direction,
-                        entry: lastSignal.entry,  // ✅ Sinyal alındığında gelen entry fiyatı (closes[closedBarIndex] DEĞİL)
+                        entry: lastEntryPrice,
                         exit: closes[lastBarIndex],
-                        takeProfit: lastSignal.tp,
-                        stopLoss: lastSignal.stop,
+                        takeProfit: lastTakeProfit,
+                        stopLoss: lastStopLoss,
                         profit: lastTradeProfit,  // Kar/Zarar (number)
                         score: lastSignal.score,
                         duration: 'AÇIK',  // Son bar'da yeni açılan işlem
@@ -2532,6 +2785,8 @@ window.AdvancedIndicators = {
     calculateVolumeProfile,
     detectPatterns,
     detectDivergence,
+    calculateAlarmIndicators,
+    generateSignalScoreAligned,
     generateAdvancedSignal,
     runBacktest,
     predictNextPrice,

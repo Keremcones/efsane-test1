@@ -3457,9 +3457,6 @@
                 // Sentiment
                 const sentiment = await AdvancedIndicators.fetchMarketSentiment();
                 
-                // Backtest averages'ından yararlanarak sinyal oluştur
-                const backtestAverages = backtest && backtest.averages ? backtest.averages : null;
-                
                 const filteredBacktestTrades = backtest && Array.isArray(backtest.trades)
                     ? backtest.trades.filter(trade => {
                         const score = Number(trade.score);
@@ -3482,48 +3479,50 @@
                 
                 // SON BAR'ın son 100 bar'ıyla indikatorleri hesapla (backtest'in aynı klines'ından)
                 const windowSize = 100;
-                const lastBarIndex = klines.length - 1;
-                const windowStart = Math.max(0, lastBarIndex - windowSize + 1);
-                const windowKlines = klines.slice(windowStart, lastBarIndex + 1);
+                const lastClosedBarIndex = Math.max(0, klines.length - 2);
+                const windowStart = Math.max(0, lastClosedBarIndex - windowSize + 1);
+                const windowKlines = klines.slice(windowStart, lastClosedBarIndex + 1);
                 
                 const windowCloses = windowKlines.map(k => parseFloat(k[4]));
                 const windowHighs = windowKlines.map(k => parseFloat(k[2]));
                 const windowLows = windowKlines.map(k => parseFloat(k[3]));
                 const windowVolumes = windowKlines.map(k => parseFloat(k[5]));
                 
-                // Son bar için indikatorler
-                const lastBarIndicators = calculateIndicators(windowCloses, windowHighs, windowLows, windowVolumes);
-                const lastBarSR = findSupportResistance(windowHighs, windowLows, windowCloses);
-                
-                // Son bar'ın fiyatı (backtest'ten çekilen klines'dan)
-                const lastBarPrice = parseFloat(klines[lastBarIndex][4]);
-                
-                // Kullanıcı girişinden TP/SL override'ı oluştur
-                const userTPSL = {
-                    LONG: {
-                        avgTPPercent: takeProfitPercent,
-                        avgSLPercent: -stopLossPercent
-                    },
-                    SHORT: {
-                        avgTPPercent: -takeProfitPercent,
-                        avgSLPercent: stopLossPercent
-                    }
-                };
-                
-                // Gelişmiş sinyal - SON BAR'ın verisiyle
-                const signal = AdvancedIndicators.generateAdvancedSignal(
-                    lastBarIndicators,  // Son bar'ın indikatorleri
-                    lastBarPrice,       // Son bar'ın fiyatı
-                    lastBarSR,          // Son bar'ın S/R
-                    patterns, 
-                    divergence,
-                    confidenceThreshold,
-                    userTPSL
+                // Son kapali bar icin indikatorler (alarm ile uyumlu)
+                const lastClosedTimestamp = Number(klines[lastClosedBarIndex]?.[6] ?? klines[lastClosedBarIndex]?.[0] ?? Date.now());
+                const lastBarIndicators = AdvancedIndicators.calculateAlarmIndicators(
+                    windowCloses,
+                    windowHighs,
+                    windowLows,
+                    windowVolumes,
+                    lastClosedTimestamp
                 );
+                
+                // Son kapali bar'in fiyati
+                const lastBarPrice = parseFloat(klines[lastClosedBarIndex][4]);
+                
+                // Alarm ile uyumlu sinyal - son kapali bar verisiyle
+                const signalBase = lastBarIndicators
+                    ? AdvancedIndicators.generateSignalScoreAligned(lastBarIndicators, confidenceThreshold)
+                    : { direction: 'LONG', score: 0, triggered: false, breakdown: {} };
+                const signalEntry = lastBarPrice;
+                const signalTp = signalBase.direction === 'SHORT'
+                    ? signalEntry * (1 - takeProfitPercent / 100)
+                    : signalEntry * (1 + takeProfitPercent / 100);
+                const signalSl = signalBase.direction === 'SHORT'
+                    ? signalEntry * (1 + stopLossPercent / 100)
+                    : signalEntry * (1 - stopLossPercent / 100);
+                const signal = {
+                    ...signalBase,
+                    entry: signalEntry,
+                    tp: signalTp,
+                    stop: signalSl,
+                    isValidSignal: signalBase.triggered
+                };
                 
                 // SENKRONIZASYON: Backtest'in son bar sinyalini sinyal göster tarafından kullan
                 let displaySignal = signal;
-                let signalTimestamp = new Date().toISOString();
+                let signalTimestamp = new Date(lastClosedTimestamp).toISOString();
                 
                 // ÖNEMLI: Eğer backtest'te AÇIK işlem varsa, onu göster (yeni sinyal üretme!)
                 // Açık işlem = duration: 'AÇIK' veya isOpen: true
