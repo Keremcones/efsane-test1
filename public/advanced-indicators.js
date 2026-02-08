@@ -2449,6 +2449,8 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                             ? Number(rawBarCloseLimit)
                             : (autoTradeEnabled ? null : 5);
                         const barCloseLimitDisplay = barCloseLimitValue === null ? 99 : barCloseLimitValue;
+                        const parsedTp = Number(item.tp_percent);
+                        const parsedSl = Number(item.sl_percent);
                         const baseAlarm = {
                             id: String(item.id),  // Convert BIGSERIAL number to string for consistent type handling
                             symbol: item.symbol,
@@ -2457,8 +2459,8 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                             active: item.is_active,
                             createdAt: item.created_at,
                             confidenceScore: parseInt(item.confidence_score) || 60,
-                            takeProfitPercent: parseInt(item.tp_percent) || 5,
-                            stopLossPercent: parseInt(item.sl_percent) || 3,
+                            takeProfitPercent: Number.isFinite(parsedTp) ? parsedTp : 5,
+                            stopLossPercent: Number.isFinite(parsedSl) ? parsedSl : 3,
                             barCloseLimit: barCloseLimitValue,
                             auto_trade_enabled: autoTradeEnabled,
                             autoTradeEnabled: autoTradeEnabled
