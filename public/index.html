@@ -2059,6 +2059,7 @@
         let currentMembershipType = 'standard';
         let currentIsAdmin = false;
         let isApplyingDashboardFilters = false;
+        let isAutoTradeActive = false;
         const DASHBOARD_FILTERS_KEY = 'dashboard_filters_v1';
 
         function getDashboardFiltersFromStorage() {
@@ -4356,7 +4357,7 @@
                             <input type="number" id="barLimitInput" value="${barCloseLimit}" min="1" max="9999" step="1" 
                                 style="width: 100%; padding: 8px; background: var(--bg-primary); border: 1px solid var(--border); 
                                 border-radius: 6px; color: var(--text-primary); font-weight: 600;"
-                                onchange="barCloseLimit = parseInt(this.value); saveDashboardFilters(); console.log('barCloseLimit değiştirildi:', barCloseLimit); triggerBacktestUpdate();">
+                                onchange="handleBarCloseLimitChange(this.value);">
                             <p id="barLimitHelpText" style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 6px; margin-bottom: 0; line-height: 1.4;">TP/SL vurmayan işlemler kaç bar içinde kapanacağını belirler. Örnek: 5 bar = 5 bardan sonra işlem otomatik kapanır.</p>
                             <p id="autoTradeBarNote" style="display: none; font-size: 0.75rem; color: var(--accent); margin-top: 6px; margin-bottom: 0; line-height: 1.4; font-weight: 600;">Otomatik trade işlemlerinde bar kapanışı kullanılamaz, 9999 olmalıdır.</p>
                         </div>
@@ -5272,6 +5273,7 @@
                 console.warn('Auto trade notu güncellenemedi:', e);
             }
 
+            isAutoTradeActive = autoTradeEnabled;
             noteEl.style.display = autoTradeEnabled ? 'block' : 'none';
 
             const barInput = document.getElementById('barLimitInput');
@@ -5296,6 +5298,20 @@
                 }
                 if (barNote) barNote.style.display = 'none';
             }
+        }
+
+        function handleBarCloseLimitChange(value) {
+            const barInput = document.getElementById('barLimitInput');
+            if (isAutoTradeActive) {
+                barCloseLimit = 9999;
+                if (barInput) barInput.value = '9999';
+            } else {
+                const parsed = parseInt(value, 10);
+                barCloseLimit = Number.isFinite(parsed) ? parsed : barCloseLimit;
+            }
+            saveDashboardFilters();
+            console.log('barCloseLimit değiştirildi:', barCloseLimit);
+            triggerBacktestUpdate();
         }
 
         // Aktif sinyali alarm sistemi'ne ekle
@@ -5780,6 +5796,7 @@ Detaylar:
             if (analysisContent && currentAnalysis) {
                 analysisContent.innerHTML = generateAnalysisHTML(currentAnalysis);
             }
+            updateAutoTradeNotice();
             
             // Son açık işlemin P&L güncellemesini başlat
             startRealtimePnLUpdate();

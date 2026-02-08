@@ -930,6 +930,7 @@
                 <input id="barInput" type="number" value="5" min="1" max="100" step="1" 
                     style="width: 100%; padding: 8px; background: var(--bg-primary); border: 1px solid var(--border); 
                     border-radius: 6px; color: var(--text-primary); font-weight: 600;">
+                <p id="autoTradeBarNote" style="display: none; font-size: 0.75rem; color: var(--accent); margin-top: 6px; margin-bottom: 0; line-height: 1.4; font-weight: 600;">Otomatik trade aciksa bar kapanisi 9999 olmalidir.</p>
             </div>
             <div class="bar-limit-container" style="margin-top: 12px;">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
@@ -1036,6 +1037,45 @@
                 const value = btn.getAttribute(dataAttr);
                 btn.classList.toggle('active', value === activeValue);
             });
+        }
+
+        async function updateAutoTradeNotice() {
+            const barInput = document.getElementById('barInput');
+            const barNote = document.getElementById('autoTradeBarNote');
+            if (!barInput || !barNote || !currentUser || !supabaseClient) return;
+
+            let autoTradeEnabled = false;
+            try {
+                const { data: binanceSettings } = await supabaseClient
+                    .from('user_binance_keys')
+                    .select('auto_trade_enabled, futures_enabled, spot_enabled')
+                    .eq('user_id', currentUser.id)
+                    .maybeSingle();
+
+                if (binanceSettings?.auto_trade_enabled) {
+                    if (currentMarket === 'futures' && binanceSettings?.futures_enabled) {
+                        autoTradeEnabled = true;
+                    }
+                    if (currentMarket === 'spot' && binanceSettings?.spot_enabled) {
+                        autoTradeEnabled = true;
+                    }
+                }
+            } catch (e) {
+                console.warn('Auto trade notu guncellenemedi:', e);
+            }
+
+            if (autoTradeEnabled) {
+                barInput.value = '9999';
+                barInput.setAttribute('disabled', 'disabled');
+                barInput.style.opacity = '0.7';
+                barInput.style.cursor = 'not-allowed';
+                barNote.style.display = 'block';
+            } else {
+                barInput.removeAttribute('disabled');
+                barInput.style.opacity = '';
+                barInput.style.cursor = '';
+                barNote.style.display = 'none';
+            }
         }
 
         function formatSymbol(symbol) {
@@ -1325,6 +1365,7 @@
                     currentMarket = market;
                     localStorage.setItem('marketType', currentMarket);
                     setActiveButton(marketButtons, currentMarket, 'data-market');
+                    updateAutoTradeNotice();
                     scheduleUpdate();
                 });
             });
@@ -1482,6 +1523,7 @@
                 return;
             }
             setupControls();
+            updateAutoTradeNotice();
             loadWinners();
         });
 
