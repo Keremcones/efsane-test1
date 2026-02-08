@@ -886,7 +886,8 @@ async function executeAutoTrade(
       if (positionMode === "HEDGE") {
         return { success: false, message: "Futures Hedge mode is not supported. Use One-Way." };
       }
-      const resolvedMarginType = String(futures_margin_type || "CROSS").toUpperCase() === "ISOLATED" ? "ISOLATED" : "CROSS";
+      const rawMarginType = String(futures_margin_type || "").trim().toUpperCase();
+      const resolvedMarginType = rawMarginType === "ISOLATED" ? "ISOLATED" : "CROSS";
       try {
         await setFuturesMarginType(api_key, api_secret, symbol, resolvedMarginType as "CROSS" | "ISOLATED");
       } catch (e) {
