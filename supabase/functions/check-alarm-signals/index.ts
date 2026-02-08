@@ -782,7 +782,7 @@ async function executeAutoTrade(
   takeProfit: number,
   stopLoss: number,
   marketType: "spot" | "futures"
-): Promise<{ success: boolean; message: string; orderId?: string }> {
+): Promise<{ success: boolean; message: string; orderId?: string; blockedByOpenPosition?: boolean }> {
   try {
     const { data: userKeys, error: keysError } = await supabase
       .from("user_binance_keys")
@@ -822,12 +822,12 @@ async function executeAutoTrade(
       if (marketType === "futures") {
         const hasOpen = await hasOpenFuturesPosition(api_key, api_secret, symbol);
         if (hasOpen) {
-          return { success: false, message: `Açık futures pozisyonu var (${symbol}). Yeni işlem açılmadı.` };
+          return { success: false, message: `Açık futures pozisyonu var (${symbol}). Yeni işlem açılmadı.`, blockedByOpenPosition: true };
         }
       } else {
         const hasOpen = await hasOpenSpotOrders(api_key, api_secret, symbol);
         if (hasOpen) {
-          return { success: false, message: `Açık spot emri var (${symbol}). Yeni işlem açılmadı.` };
+          return { success: false, message: `Açık spot emri var (${symbol}). Yeni işlem açılmadı.`, blockedByOpenPosition: true };
         }
       }
     } catch (e) {
@@ -1169,7 +1169,8 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
   const volumes = closedKlines.map((k: any) => parseFloat(k[5]));
   const highs = closedKlines.map((k: any) => parseFloat(k[2]));
   const lows = closedKlines.map((k: any) => parseFloat(k[3]));
-  const lastClosedTimestamp = Number(closedKlines[closedKlines.length - 1]?.[0] ?? Date.now());
+  const lastClosedKline = closedKlines[closedKlines.length - 1];
+  const lastClosedTimestamp = Number(lastClosedKline?.[6] ?? lastClosedKline?.[0] ?? Date.now());
   const lastPrice = closes[closes.length - 1];
 
   // Calculate MACD
@@ -1819,7 +1820,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         const slPrice = rawSlPrice;
 
         // 🚀 AUTO TRADE EXECUTION
-        let tradeResult = { success: false, message: "Auto-trade not triggered" } as { success: boolean; message: string; orderId?: string };
+        let tradeResult = { success: false, message: "Auto-trade not triggered" } as { success: boolean; message: string; orderId?: string; blockedByOpenPosition?: boolean };
         let tradeNotificationText = "";
         const autoTradeEnabled = alarm.auto_trade_enabled === true;
 
@@ -1849,6 +1850,11 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
           ) {
             tradeNotificationText = `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${tradeResult.message}`;
           }
+        }
+
+        if (autoTradeEnabled && tradeResult.blockedByOpenPosition) {
+          console.log(`⏹️ Skipping signal for ${symbol}: open position detected for user ${alarm.user_id}`);
+          continue;
         }
 
         if (!tradeNotificationText) {
