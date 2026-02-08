@@ -1096,6 +1096,13 @@
             return `${value.toFixed(2)}%`;
         }
 
+        function parsePercentValue(value) {
+            if (value === null || value === undefined) return null;
+            if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+            const parsed = parseFloat(String(value).replace('%', ''));
+            return Number.isFinite(parsed) ? parsed : null;
+        }
+
         function renderWinners(list) {
             const container = document.getElementById('backtestResults');
             if (!container) return;
@@ -1248,30 +1255,43 @@
                 );
                 if (!backtest) return null;
 
-                const filteredTrades = Array.isArray(backtest.trades)
-                    ? backtest.trades.filter(trade => {
-                        const score = Number(trade.score);
-                        const isOpen = trade && (trade.isOpen === true || trade.duration === 'AÇIK' || trade.duration === 'AKTIF');
-                        if (!Number.isFinite(score) || score < confidenceThreshold) return false;
-                        return !isOpen;
-                    })
-                    : [];
+                const totalProfit = parsePercentValue(backtest.totalProfit);
+                const winRate = parsePercentValue(backtest.winRate);
+                const profitFactor = parsePercentValue(backtest.profitFactor);
+                const totalTrades = Number.isFinite(Number(backtest.totalTrades))
+                    ? Number(backtest.totalTrades)
+                    : null;
 
-                if (filteredTrades.length === 0) {
-                    return null;
+                if (totalProfit === null || winRate === null || profitFactor === null || totalTrades === null) {
+                    const filteredTrades = Array.isArray(backtest.trades)
+                        ? backtest.trades.filter(trade => {
+                            const score = Number(trade.score);
+                            const isOpen = trade && (trade.isOpen === true || trade.duration === 'AÇIK' || trade.duration === 'AKTIF');
+                            if (!Number.isFinite(score) || score < confidenceThreshold) return false;
+                            return !isOpen;
+                        })
+                        : [];
+
+                    if (filteredTrades.length === 0) {
+                        return null;
+                    }
+
+                    const metrics = calculateMetricsFromTrades(filteredTrades);
+                    return {
+                        symbol,
+                        totalProfit: metrics.totalProfit,
+                        winRate: metrics.winRate,
+                        profitFactor: metrics.profitFactor,
+                        totalTrades: metrics.totalTrades,
+                    };
                 }
-
-                const metrics = calculateMetricsFromTrades(filteredTrades);
-                const totalProfit = metrics.totalProfit;
-                const winRate = metrics.winRate;
-                const profitFactor = metrics.profitFactor;
 
                 return {
                     symbol,
                     totalProfit,
                     winRate,
                     profitFactor,
-                    totalTrades: metrics.totalTrades,
+                    totalTrades: totalTrades,
                 };
             } catch (error) {
                 console.warn(`Backtest hata: ${symbol}`, error.message);
