@@ -170,6 +170,7 @@ async function throttledFetch(url: string, options?: any): Promise<Response> {
 // Cache klines to avoid redundant API calls
 const klinesCache: Record<string, { data: any[]; timestamp: number }> = {};
 const KLINES_CACHE_TTL = 30000; // 30 seconds - reduce API pressure
+const MAX_BAR_DELAY_MS = 60 * 1000; // Max allowed delay after bar close
 
 function normalizeMarketType(value: any): "spot" | "futures" {
   const v = String(value || "").toLowerCase();
@@ -587,14 +588,6 @@ async function placeTakeProfitStopLoss(
 
   const tpPrice = takeProfit.toFixed(pricePrecision);
   const slPrice = stopLoss.toFixed(pricePrecision);
-  const qty = Number.isFinite(quantity)
-    ? quantity.toFixed(Math.max(0, quantityPrecision))
-    : "0";
-
-  const slValue = Number(stopLoss);
-  const offset = Math.max(slValue * 0.001, 1 / Math.pow(10, pricePrecision));
-  const slLimitValue = direction === "LONG" ? Math.max(0, slValue - offset) : slValue + offset;
-  const slLimitPrice = slLimitValue.toFixed(pricePrecision);
 
   let tpOrderId: string | undefined;
   let slOrderId: string | undefined;
@@ -602,39 +595,47 @@ async function placeTakeProfitStopLoss(
   let slError: string | undefined;
 
   const tpTimestamp = Date.now();
-  const tpQuery = `symbol=${symbol}&side=${closeSide}&type=LIMIT&price=${tpPrice}&quantity=${qty}`
-    + `&timeInForce=GTC&reduceOnly=true&timestamp=${tpTimestamp}`;
-  const tpSignature = await createBinanceSignature(tpQuery, apiSecret);
-  const tpResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${tpQuery}&signature=${tpSignature}`, {
-    method: "POST",
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
-
-  if (tpResponse.ok) {
-    const tpData = await tpResponse.json();
-    tpOrderId = String(tpData.orderId);
+  const algoTp = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "TAKE_PROFIT_MARKET", tpPrice);
+  if (algoTp.ok) {
+    tpOrderId = algoTp.orderId;
   } else {
-    const tpErr = await tpResponse.text();
-    console.error("❌ TP order failed:", tpErr);
-    tpError = tpErr;
+    const tpQuery = `symbol=${symbol}&side=${closeSide}&type=TAKE_PROFIT_MARKET&stopPrice=${tpPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true&timestamp=${tpTimestamp}`;
+    const tpSignature = await createBinanceSignature(tpQuery, apiSecret);
+    const tpResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${tpQuery}&signature=${tpSignature}`, {
+      method: "POST",
+      headers: { "X-MBX-APIKEY": apiKey }
+    });
+
+    if (tpResponse.ok) {
+      const tpData = await tpResponse.json();
+      tpOrderId = String(tpData.orderId);
+    } else {
+      const tpErr = await tpResponse.text();
+      console.error("❌ TP order failed:", tpErr);
+      tpError = algoTp.error || tpErr;
+    }
   }
 
   const slTimestamp = Date.now();
-  const slQuery = `symbol=${symbol}&side=${closeSide}&type=STOP&stopPrice=${slPrice}&price=${slLimitPrice}`
-    + `&quantity=${qty}&timeInForce=GTC&reduceOnly=true&workingType=MARK_PRICE&priceProtect=true&timestamp=${slTimestamp}`;
-  const slSignature = await createBinanceSignature(slQuery, apiSecret);
-  const slResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${slQuery}&signature=${slSignature}`, {
-    method: "POST",
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
-
-  if (slResponse.ok) {
-    const slData = await slResponse.json();
-    slOrderId = String(slData.orderId);
+  const algoSl = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "STOP_MARKET", slPrice);
+  if (algoSl.ok) {
+    slOrderId = algoSl.orderId;
   } else {
-    const slErr = await slResponse.text();
-    console.error("❌ SL order failed:", slErr);
-    slError = slErr;
+    const slQuery = `symbol=${symbol}&side=${closeSide}&type=STOP_MARKET&stopPrice=${slPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true&timestamp=${slTimestamp}`;
+    const slSignature = await createBinanceSignature(slQuery, apiSecret);
+    const slResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${slQuery}&signature=${slSignature}`, {
+      method: "POST",
+      headers: { "X-MBX-APIKEY": apiKey }
+    });
+
+    if (slResponse.ok) {
+      const slData = await slResponse.json();
+      slOrderId = String(slData.orderId);
+    } else {
+      const slErr = await slResponse.text();
+      console.error("❌ SL order failed:", slErr);
+      slError = algoSl.error || slErr;
+    }
   }
 
   return { tpOrderId, slOrderId, tpError, slError };
@@ -793,9 +794,9 @@ async function executeAutoTrade(
       .eq("auto_trade_enabled", true)
       .maybeSingle();
 
-    if (keysError || !userKeys) {
-      return { success: false, message: "Auto-trade not enabled" };
-    }
+      pricePrecision: number,
+      quantity: number,
+      quantityPrecision: number
 
     if (marketType === "futures" && !userKeys.futures_enabled) {
       return { success: false, message: "Futures auto-trade not enabled" };
@@ -853,6 +854,49 @@ async function executeAutoTrade(
     if (tradeAmount > balance) {
       return { success: false, message: "Insufficient balance" };
     }
+      const tpTimestamp = Date.now();
+      const algoTp = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "TAKE_PROFIT_MARKET", tpPrice);
+      if (algoTp.ok) {
+        tpOrderId = algoTp.orderId;
+      } else {
+        const tpQuery = `symbol=${symbol}&side=${closeSide}&type=TAKE_PROFIT_MARKET&stopPrice=${tpPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true&timestamp=${tpTimestamp}`;
+        const tpSignature = await createBinanceSignature(tpQuery, apiSecret);
+        const tpResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${tpQuery}&signature=${tpSignature}`, {
+          method: "POST",
+          headers: { "X-MBX-APIKEY": apiKey }
+        });
+
+        if (tpResponse.ok) {
+          const tpData = await tpResponse.json();
+          tpOrderId = String(tpData.orderId);
+        } else {
+          const tpErr = await tpResponse.text();
+          console.error("❌ TP order failed:", tpErr);
+          tpError = algoTp.error || tpErr;
+        }
+      }
+
+      const slTimestamp = Date.now();
+      const algoSl = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "STOP_MARKET", slPrice);
+      if (algoSl.ok) {
+        slOrderId = algoSl.orderId;
+      } else {
+        const slQuery = `symbol=${symbol}&side=${closeSide}&type=STOP_MARKET&stopPrice=${slPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true&timestamp=${slTimestamp}`;
+        const slSignature = await createBinanceSignature(slQuery, apiSecret);
+        const slResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${slQuery}&signature=${slSignature}`, {
+          method: "POST",
+          headers: { "X-MBX-APIKEY": apiKey }
+        });
+
+        if (slResponse.ok) {
+          const slData = await slResponse.json();
+          slOrderId = String(slData.orderId);
+        } else {
+          const slErr = await slResponse.text();
+          console.error("❌ SL order failed:", slErr);
+          slError = algoSl.error || slErr;
+        }
+      }
     const symbolInfo = await getSymbolInfo(symbol, marketType);
     if (!symbolInfo) {
       return { success: false, message: "Symbol info not found" };
@@ -1611,15 +1655,25 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       let shouldTrigger = false;
       let triggerMessage = "";
       let detectedSignal = null;
+      const lastClosedMs = Number(indicators.lastClosedTimestamp || 0);
+      const lastClosedIso = lastClosedMs ? new Date(lastClosedMs).toISOString() : new Date().toISOString();
+      const lastSignalTs = alarm.signal_timestamp || alarm.signalTimestamp;
+      const lastSignalMs = lastSignalTs ? Date.parse(String(lastSignalTs)) : NaN;
+      const nowMs = Date.now();
+      const barDelayMs = lastClosedMs ? nowMs - lastClosedMs : 0;
+      const isLateBar = Number.isFinite(barDelayMs) && barDelayMs > MAX_BAR_DELAY_MS;
 
       // STRATEGY 1: USER_ALARM (user-defined signals with TP/SL)
       if (alarm.type === "user_alarm") {
         const symbol = String(alarm.symbol || "").toUpperCase();
         const signalKey = `${alarm.user_id}:${String(alarm.id || "")}`;
         const symbolKey = `${alarm.user_id}:${symbol}`;
-        
-        // 🔴 ÖNEMLİ: Aynı user'ın aynı symbol'ü için açık sinyal varsa SKIP!
-        if (openSignalSymbols.has(symbolKey)) {
+
+        if (isLateBar) {
+          console.log(`⏹️ Skipping user_alarm for ${symbol}: bar close delay ${barDelayMs}ms exceeds limit`);
+        } else if (Number.isFinite(lastSignalMs) && lastSignalMs >= lastClosedMs) {
+          console.log(`⏹️ Skipping user_alarm for ${symbol}: same bar already processed (alarm ${alarm.id})`);
+        } else if (openSignalSymbols.has(symbolKey)) {
           console.log(`⏹️ Skipping user_alarm for ${symbol}: signal already active for this symbol (user: ${alarm.user_id})`);
         } else {
           const tpPercent = Number(alarm.tp_percent || 5);
@@ -1719,6 +1773,10 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
 
         if (openTradeSymbols.has(symbol)) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: ACTIVE_TRADE in progress`);
+        } else if (isLateBar) {
+          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: bar close delay ${barDelayMs}ms exceeds limit`);
+        } else if (Number.isFinite(lastSignalMs) && lastSignalMs >= lastClosedMs) {
+          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: same bar already processed (alarm ${alarm.id})`);
         } else if (openSignalSymbols.has(symbolKey)) {
           // 🔴 ÖNEMLI: Aynı symbol için açık auto_signal varsa skip!
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: auto_signal already active for this symbol (user: ${alarm.user_id})`);
@@ -1949,6 +2007,15 @@ ${tradeNotificationText}
         if (!signalInserted) {
           console.warn(`⚠️ active_signals insert failed for ${symbol} - telegram skipped`);
           continue;
+        }
+
+        try {
+          await supabase
+            .from("alarms")
+            .update({ signal_timestamp: lastClosedIso })
+            .eq("id", alarm.id);
+        } catch (e) {
+          console.warn(`⚠️ Failed to update alarm signal_timestamp for ${symbol}:`, e);
         }
 
         telegramPromises.push(sendTelegramNotification(alarm.user_id, telegramMessage));
