@@ -579,12 +579,22 @@ async function placeTakeProfitStopLoss(
   direction: "LONG" | "SHORT",
   takeProfit: number,
   stopLoss: number,
-  pricePrecision: number
+  pricePrecision: number,
+  quantity: number,
+  quantityPrecision: number
 ): Promise<{ tpOrderId?: string; slOrderId?: string; tpError?: string; slError?: string }> {
   const closeSide = direction === "LONG" ? "SELL" : "BUY";
 
   const tpPrice = takeProfit.toFixed(pricePrecision);
   const slPrice = stopLoss.toFixed(pricePrecision);
+  const qty = Number.isFinite(quantity)
+    ? quantity.toFixed(Math.max(0, quantityPrecision))
+    : "0";
+
+  const slValue = Number(stopLoss);
+  const offset = Math.max(slValue * 0.001, 1 / Math.pow(10, pricePrecision));
+  const slLimitValue = direction === "LONG" ? Math.max(0, slValue - offset) : slValue + offset;
+  const slLimitPrice = slLimitValue.toFixed(pricePrecision);
 
   let tpOrderId: string | undefined;
   let slOrderId: string | undefined;
@@ -592,47 +602,39 @@ async function placeTakeProfitStopLoss(
   let slError: string | undefined;
 
   const tpTimestamp = Date.now();
-  const algoTp = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "TAKE_PROFIT_MARKET", tpPrice);
-  if (algoTp.ok) {
-    tpOrderId = algoTp.orderId;
-  } else {
-    const tpQuery = `symbol=${symbol}&side=${closeSide}&type=TAKE_PROFIT_MARKET&stopPrice=${tpPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true&timestamp=${tpTimestamp}`;
-    const tpSignature = await createBinanceSignature(tpQuery, apiSecret);
-    const tpResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${tpQuery}&signature=${tpSignature}`, {
-      method: "POST",
-      headers: { "X-MBX-APIKEY": apiKey }
-    });
+  const tpQuery = `symbol=${symbol}&side=${closeSide}&type=LIMIT&price=${tpPrice}&quantity=${qty}`
+    + `&timeInForce=GTC&reduceOnly=true&timestamp=${tpTimestamp}`;
+  const tpSignature = await createBinanceSignature(tpQuery, apiSecret);
+  const tpResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${tpQuery}&signature=${tpSignature}`, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
 
-    if (tpResponse.ok) {
-      const tpData = await tpResponse.json();
-      tpOrderId = String(tpData.orderId);
-    } else {
-      const tpErr = await tpResponse.text();
-      console.error("❌ TP order failed:", tpErr);
-      tpError = algoTp.error || tpErr;
-    }
+  if (tpResponse.ok) {
+    const tpData = await tpResponse.json();
+    tpOrderId = String(tpData.orderId);
+  } else {
+    const tpErr = await tpResponse.text();
+    console.error("❌ TP order failed:", tpErr);
+    tpError = tpErr;
   }
 
   const slTimestamp = Date.now();
-  const algoSl = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "STOP_MARKET", slPrice);
-  if (algoSl.ok) {
-    slOrderId = algoSl.orderId;
-  } else {
-    const slQuery = `symbol=${symbol}&side=${closeSide}&type=STOP_MARKET&stopPrice=${slPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true&timestamp=${slTimestamp}`;
-    const slSignature = await createBinanceSignature(slQuery, apiSecret);
-    const slResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${slQuery}&signature=${slSignature}`, {
-      method: "POST",
-      headers: { "X-MBX-APIKEY": apiKey }
-    });
+  const slQuery = `symbol=${symbol}&side=${closeSide}&type=STOP&stopPrice=${slPrice}&price=${slLimitPrice}`
+    + `&quantity=${qty}&timeInForce=GTC&reduceOnly=true&workingType=MARK_PRICE&priceProtect=true&timestamp=${slTimestamp}`;
+  const slSignature = await createBinanceSignature(slQuery, apiSecret);
+  const slResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${slQuery}&signature=${slSignature}`, {
+    method: "POST",
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
 
-    if (slResponse.ok) {
-      const slData = await slResponse.json();
-      slOrderId = String(slData.orderId);
-    } else {
-      const slErr = await slResponse.text();
-      console.error("❌ SL order failed:", slErr);
-      slError = algoSl.error || slErr;
-    }
+  if (slResponse.ok) {
+    const slData = await slResponse.json();
+    slOrderId = String(slData.orderId);
+  } else {
+    const slErr = await slResponse.text();
+    console.error("❌ SL order failed:", slErr);
+    slError = slErr;
   }
 
   return { tpOrderId, slOrderId, tpError, slError };
@@ -912,7 +914,17 @@ async function executeAutoTrade(
     }
 
     if (marketType === "futures") {
-      const tpSlResult = await placeTakeProfitStopLoss(api_key, api_secret, symbol, direction, takeProfit, stopLoss, symbolInfo.pricePrecision);
+      const tpSlResult = await placeTakeProfitStopLoss(
+        api_key,
+        api_secret,
+        symbol,
+        direction,
+        takeProfit,
+        stopLoss,
+        symbolInfo.pricePrecision,
+        quantity,
+        symbolInfo.quantityPrecision
+      );
       let warningText = "";
       if (!tpSlResult.tpOrderId && tpSlResult.tpError) {
         warningText += ` TP oluşturulamadı: ${escapeTelegram(tpSlResult.tpError)}`;
