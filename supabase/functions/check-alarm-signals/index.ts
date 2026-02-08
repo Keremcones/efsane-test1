@@ -850,49 +850,6 @@ async function executeAutoTrade(
     if (tradeAmount > balance) {
       return { success: false, message: "Insufficient balance" };
     }
-      const tpTimestamp = Date.now();
-      const algoTp = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "TAKE_PROFIT_MARKET", tpPrice);
-      if (algoTp.ok) {
-        tpOrderId = algoTp.orderId;
-      } else {
-        const tpQuery = `symbol=${symbol}&side=${closeSide}&type=TAKE_PROFIT_MARKET&stopPrice=${tpPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true&timestamp=${tpTimestamp}`;
-        const tpSignature = await createBinanceSignature(tpQuery, apiSecret);
-        const tpResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${tpQuery}&signature=${tpSignature}`, {
-          method: "POST",
-          headers: { "X-MBX-APIKEY": apiKey }
-        });
-
-        if (tpResponse.ok) {
-          const tpData = await tpResponse.json();
-          tpOrderId = String(tpData.orderId);
-        } else {
-          const tpErr = await tpResponse.text();
-          console.error("❌ TP order failed:", tpErr);
-          tpError = algoTp.error || tpErr;
-        }
-      }
-
-      const slTimestamp = Date.now();
-      const algoSl = await placeFuturesAlgoOrder(apiKey, apiSecret, symbol, closeSide, "STOP_MARKET", slPrice);
-      if (algoSl.ok) {
-        slOrderId = algoSl.orderId;
-      } else {
-        const slQuery = `symbol=${symbol}&side=${closeSide}&type=STOP_MARKET&stopPrice=${slPrice}&closePosition=true&workingType=MARK_PRICE&priceProtect=true&timestamp=${slTimestamp}`;
-        const slSignature = await createBinanceSignature(slQuery, apiSecret);
-        const slResponse = await fetch(`https://fapi.binance.com/fapi/v1/order?${slQuery}&signature=${slSignature}`, {
-          method: "POST",
-          headers: { "X-MBX-APIKEY": apiKey }
-        });
-
-        if (slResponse.ok) {
-          const slData = await slResponse.json();
-          slOrderId = String(slData.orderId);
-        } else {
-          const slErr = await slResponse.text();
-          console.error("❌ SL order failed:", slErr);
-          slError = algoSl.error || slErr;
-        }
-      }
     const symbolInfo = await getSymbolInfo(symbol, marketType);
     if (!symbolInfo) {
       return { success: false, message: "Symbol info not found" };
