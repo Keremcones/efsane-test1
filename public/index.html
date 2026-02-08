@@ -5361,6 +5361,7 @@
             const urlTp = urlParams.get('tp');
             const urlSl = urlParams.get('sl');
             const urlBar = urlParams.get('bar');
+            const urlConf = urlParams.get('conf');
             const savedFilters = getDashboardFiltersFromStorage();
             const savedSymbol = savedFilters?.symbol;
 
@@ -5397,6 +5398,14 @@
 
             if (urlBar && !Number.isNaN(parseInt(urlBar, 10))) {
                 barCloseLimit = parseInt(urlBar, 10);
+            }
+
+            if (urlConf && !Number.isNaN(parseInt(urlConf, 10))) {
+                confidenceThreshold = Math.min(100, Math.max(1, parseInt(urlConf, 10)));
+                const confDisplay = document.getElementById('confidenceDisplay');
+                const confSlider = document.getElementById('confidenceSlider');
+                if (confDisplay) confDisplay.textContent = `${confidenceThreshold}%`;
+                if (confSlider) confSlider.value = String(confidenceThreshold);
             }
 
             if (urlSymbol) {

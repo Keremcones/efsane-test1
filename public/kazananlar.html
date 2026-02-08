@@ -795,6 +795,8 @@
         .gain-list {
             display: flex;
             justify-content: flex-end;
+            gap: 8px;
+            flex-wrap: wrap;
         }
 
         .gain-pill {
@@ -809,6 +811,11 @@
         .gain-pill.negative {
             background: rgba(255, 77, 109, 0.12);
             color: var(--accent-red);
+        }
+
+        .gain-pill.neutral {
+            background: rgba(245, 183, 49, 0.12);
+            color: var(--accent-yellow);
         }
 
         .empty-state {
@@ -1044,6 +1051,11 @@
             return `${sign}${value.toFixed(2)}%`;
         }
 
+        function formatRate(value) {
+            if (!Number.isFinite(value)) return '0.00%';
+            return `${value.toFixed(2)}%`;
+        }
+
         function renderWinners(list) {
             const container = document.getElementById('backtestResults');
             if (!container) return;
@@ -1057,6 +1069,8 @@
                 const isNegative = item.totalProfit < 0;
                 const gainClass = isNegative ? 'gain-pill negative' : 'gain-pill';
                 const gainText = formatPercent(item.totalProfit);
+                const winRateText = formatRate(item.winRate);
+                const profitFactorText = Number.isFinite(item.profitFactor) ? item.profitFactor.toFixed(2) : '0.00';
 
                 return `
                     <div class="result-row clickable" onclick="goToDashboard('${item.symbol}')">
@@ -1067,6 +1081,8 @@
                             </div>
                             <div class="gain-list">
                                 <span class="${gainClass}">${gainText}</span>
+                                <span class="gain-pill neutral">WR ${winRateText}</span>
+                                <span class="gain-pill neutral">PF ${profitFactorText}</span>
                             </div>
                         </div>
                     </div>
@@ -1076,21 +1092,31 @@
             container.innerHTML = rows;
         }
 
+        function getSortableValue(item, sortValue, sortOrder) {
+            let rawValue = 0;
+            if (sortValue === 'winRate') {
+                rawValue = item?.winRate;
+            } else if (sortValue === 'profitFactor') {
+                rawValue = item?.profitFactor;
+            } else {
+                rawValue = item?.totalProfit;
+            }
+
+            const numericValue = Number(rawValue);
+            if (Number.isFinite(numericValue)) return numericValue;
+            return sortOrder === 'asc' ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+        }
+
         function sortResults(list) {
             const sortValue = document.getElementById('sortWinners')?.value || 'totalProfit';
             const sortOrder = document.getElementById('sortOrder')?.value || 'desc';
-            const sorted = [...list];
-            if (sortValue === 'winRate') {
-                sorted.sort((a, b) => b.winRate - a.winRate);
-            } else if (sortValue === 'profitFactor') {
-                sorted.sort((a, b) => b.profitFactor - a.profitFactor);
-            } else {
-                sorted.sort((a, b) => b.totalProfit - a.totalProfit);
-            }
-            if (sortOrder === 'asc') {
-                sorted.reverse();
-            }
-            return sorted;
+            const direction = sortOrder === 'asc' ? 1 : -1;
+
+            return [...list].sort((a, b) => {
+                const valueA = getSortableValue(a, sortValue, sortOrder);
+                const valueB = getSortableValue(b, sortValue, sortOrder);
+                return direction * (valueA - valueB);
+            });
         }
 
         function updateProgress(processed, total, startTime) {
@@ -1134,14 +1160,25 @@
                 return { totalProfit: 0, winRate: 0, profitFactor: 0, totalTrades: 0 };
             }
 
+            const closedTrades = trades.filter(trade => {
+                const isOpen = trade && (trade.isOpen === true || trade.duration === 'AÇIK' || trade.duration === 'AKTIF');
+                return !isOpen;
+            });
+
+            if (closedTrades.length === 0) {
+                return { totalProfit: 0, winRate: 0, profitFactor: 0, totalTrades: 0 };
+            }
+
             let totalProfit = 0;
             let wins = 0;
             let lossSum = 0;
             let gainSum = 0;
+            let countedTrades = 0;
 
-            trades.forEach(trade => {
+            closedTrades.forEach(trade => {
                 const profit = Number(trade.profit);
                 if (!Number.isFinite(profit)) return;
+                countedTrades += 1;
                 totalProfit += profit;
                 if (profit >= 0) {
                     wins += 1;
@@ -1151,7 +1188,7 @@
                 }
             });
 
-            const totalTrades = trades.length;
+            const totalTrades = countedTrades;
             const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
             const profitFactor = lossSum > 0 ? (gainSum / lossSum) : (gainSum > 0 ? gainSum : 0);
 
@@ -1174,7 +1211,9 @@
                 const filteredTrades = Array.isArray(backtest.trades)
                     ? backtest.trades.filter(trade => {
                         const score = Number(trade.score);
-                        return Number.isFinite(score) ? score >= confidenceThreshold : false;
+                        const isOpen = trade && (trade.isOpen === true || trade.duration === 'AÇIK' || trade.duration === 'AKTIF');
+                        if (!Number.isFinite(score) || score < confidenceThreshold) return false;
+                        return !isOpen;
                     })
                     : [];
 
@@ -1450,13 +1489,15 @@
             const tp = parseFloat(document.getElementById('tpInput')?.value) || 5;
             const sl = parseFloat(document.getElementById('slInput')?.value) || 3;
             const bar = parseInt(document.getElementById('barInput')?.value, 10) || 5;
+            const conf = Number.isFinite(confidenceThreshold) ? confidenceThreshold : 40;
             const params = new URLSearchParams({
                 symbol,
                 market: currentMarket,
                 tf: currentTimeframe,
                 tp: tp.toString(),
                 sl: sl.toString(),
-                bar: bar.toString()
+                bar: bar.toString(),
+                conf: conf.toString()
             });
             window.location.href = `index.html?${params.toString()}`;
         };
