@@ -1172,7 +1172,7 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
 
   // ✅ Backtest ile birebir uyum için açık (son) bar'ı dahil etme
   const closedKlines = klines.slice(0, -1);
-  if (closedKlines.length < 50) return null;
+  if (closedKlines.length < 100) return null;
 
   const closes = closedKlines.map((k: any) => parseFloat(k[4]));
   const volumes = closedKlines.map((k: any) => parseFloat(k[5]));
@@ -2001,26 +2001,11 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
     const signals = rawSignals || [];
     if (!signals || signals.length === 0) return [];
 
-    // 🚀 PARALLELIZED: Fetch all prices in parallel
-    const pricePromises = signals.map(signal => {
-      const marketType = normalizeMarketType(signal.market_type || signal.marketType || signal.market);
-      const symbol = String(signal.symbol || "");
-      if (marketType === "futures") {
-        return getFuturesMarkPrice(symbol).then(p => (p === null ? getCurrentPrice(symbol, marketType) : p));
-      }
-      return getCurrentPrice(symbol, marketType);
-    });
-    const prices = await Promise.all(pricePromises);
-
     const closedSignals: ClosedSignal[] = [];
 
     for (let idx = 0; idx < signals.length; idx++) {
       try {
         const signal = signals[idx];
-        const rawPrice = prices[idx];
-        
-        if (rawPrice === null) continue;
-
         const symbol = String(signal.symbol || "");
         const direction = (signal.condition || signal.direction) as "LONG" | "SHORT";
         
@@ -2028,9 +2013,6 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           console.error(`❌ Invalid direction for signal ${signal.id}`);
           continue;
         }
-
-        const currentPrice = rawPrice;
-
         const tp = Number(signal.take_profit);
         const sl = Number(signal.stop_loss);
 
@@ -2044,50 +2026,36 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
 
         let shouldClose = false;
         let closeReason: "TP_HIT" | "SL_HIT" | "" = "";
+        let closePrice: number | null = null;
 
-        if (direction === "LONG") {
-          if (currentPrice >= takeProfit) {
-            shouldClose = true;
-            closeReason = "TP_HIT";
-          } else if (currentPrice <= stopLoss) {
-            shouldClose = true;
-            closeReason = "SL_HIT";
-          }
-        } else if (direction === "SHORT") {
-          if (currentPrice <= takeProfit) {
-            shouldClose = true;
-            closeReason = "TP_HIT";
-          } else if (currentPrice >= stopLoss) {
-            shouldClose = true;
-            closeReason = "SL_HIT";
-          }
-        }
-
-        if (!shouldClose) {
-          const marketType = normalizeMarketType(signal.market_type || signal.marketType || signal.market);
-          const timeframe = String(signal.timeframe || "1h");
-          const klines = await getKlines(symbol, marketType, timeframe, 2);
-          if (klines && klines.length >= 2) {
-            const lastClosed = klines[klines.length - 2];
-            const barHigh = Number(lastClosed?.[2]);
-            const barLow = Number(lastClosed?.[3]);
-            if (Number.isFinite(barHigh) && Number.isFinite(barLow)) {
-              if (direction === "LONG") {
-                if (barHigh >= takeProfit) {
-                  shouldClose = true;
-                  closeReason = "TP_HIT";
-                } else if (barLow <= stopLoss) {
-                  shouldClose = true;
-                  closeReason = "SL_HIT";
-                }
-              } else if (direction === "SHORT") {
-                if (barLow <= takeProfit) {
-                  shouldClose = true;
-                  closeReason = "TP_HIT";
-                } else if (barHigh >= stopLoss) {
-                  shouldClose = true;
-                  closeReason = "SL_HIT";
-                }
+        // Backtest ile uyum icin kapanis sadece son kapanan barin high/low degerine gore belirlenir.
+        const marketType = normalizeMarketType(signal.market_type || signal.marketType || signal.market);
+        const timeframe = String(signal.timeframe || "1h");
+        const klines = await getKlines(symbol, marketType, timeframe, 2);
+        if (klines && klines.length >= 2) {
+          const lastClosed = klines[klines.length - 2];
+          const barHigh = Number(lastClosed?.[2]);
+          const barLow = Number(lastClosed?.[3]);
+          if (Number.isFinite(barHigh) && Number.isFinite(barLow)) {
+            if (direction === "LONG") {
+              if (barHigh >= takeProfit) {
+                shouldClose = true;
+                closeReason = "TP_HIT";
+                closePrice = takeProfit;
+              } else if (barLow <= stopLoss) {
+                shouldClose = true;
+                closeReason = "SL_HIT";
+                closePrice = stopLoss;
+              }
+            } else if (direction === "SHORT") {
+              if (barLow <= takeProfit) {
+                shouldClose = true;
+                closeReason = "TP_HIT";
+                closePrice = takeProfit;
+              } else if (barHigh >= stopLoss) {
+                shouldClose = true;
+                closeReason = "SL_HIT";
+                closePrice = stopLoss;
               }
             }
           }
@@ -2095,9 +2063,10 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
 
         if (!shouldClose || !closeReason) continue;
 
+        const effectiveClosePrice = Number.isFinite(closePrice) ? Number(closePrice) : Number(signal.entry_price);
         const rawProfitLoss = direction === "LONG"
-          ? ((currentPrice - Number(signal.entry_price)) / Number(signal.entry_price)) * 100
-          : ((Number(signal.entry_price) - currentPrice) / Number(signal.entry_price)) * 100;
+          ? ((effectiveClosePrice - Number(signal.entry_price)) / Number(signal.entry_price)) * 100
+          : ((Number(signal.entry_price) - effectiveClosePrice) / Number(signal.entry_price)) * 100;
 
         const tpPercent = Number(signal.tp_percent);
         const slPercent = Number(signal.sl_percent);
@@ -2142,7 +2111,7 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           symbol,
           direction,
           close_reason: closeReason,
-          price: currentPrice,
+          price: Number.isFinite(closePrice) ? Number(closePrice) : Number(signal.entry_price),
           user_id: signal.user_id,
           market_type: signal.market_type || signal.marketType || signal.market,
           profitLoss,
