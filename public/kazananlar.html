@@ -1182,10 +1182,10 @@
                 if (!Number.isFinite(profit)) return;
                 countedTrades += 1;
                 totalProfit += profit;
-                if (profit >= 0) {
+                if (profit > 0) {
                     wins += 1;
                     gainSum += profit;
-                } else {
+                } else if (profit < 0) {
                     lossSum += Math.abs(profit);
                 }
             });

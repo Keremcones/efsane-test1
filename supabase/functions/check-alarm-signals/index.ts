@@ -1622,7 +1622,6 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         alarmMarketType,
         String(alarm.timeframe || "1h")
       );
-      await new Promise(resolve => setTimeout(resolve, 250));
 
       if (!indicators) {
         console.log(`⚠️ No indicators calculated for ${alarm.symbol}`);
@@ -2037,6 +2036,7 @@ ${tradeNotificationText}
 
   for (const batch of batches) {
     await Promise.all(batch.map(processAlarm));
+    await new Promise(resolve => setTimeout(resolve, 250));
   }
 
   // 🚀 PARALLELIZED: Send all Telegram messages in parallel
@@ -2398,6 +2398,7 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
     stop_loss: newSignal.stop_loss,
     tp_percent: newSignal.tp_percent,
     sl_percent: newSignal.sl_percent,
+    signal_timestamp: newSignal.signal_timestamp,
     status: "ACTIVE",
     created_at: newSignal.created_at
   };
