@@ -3603,6 +3603,20 @@
                 } else {
                     // Backtest son bar sinyali bulunamadı
                 }
+
+                // Risk/Reward (fallback for aligned signal paths)
+                if (typeof calculateRiskReward === 'function') {
+                    const rr = calculateRiskReward(parseFloat(displaySignal.entry), sr, displaySignal.direction);
+                    const rrValue = Number(rr?.ratio);
+                    if (Number.isFinite(rrValue)) {
+                        signal.riskRewardRatio = rrValue;
+                        displaySignal.riskRewardRatio = rrValue;
+                    }
+                }
+
+                const riskRewardValue = Number.isFinite(signal.riskRewardRatio) ? signal.riskRewardRatio : null;
+                const riskRewardDisplay = riskRewardValue !== null ? riskRewardValue.toFixed(2) : '--';
+                const riskRewardColor = riskRewardValue !== null && riskRewardValue >= 1.5 ? 'var(--accent)' : 'var(--accent-red)';
                 
                 currentAnalysis = {
                     symbol,
@@ -4303,8 +4317,8 @@
                             <div style="margin-top: 16px; padding: 12px; background: var(--bg-secondary); border-radius: 8px;">
                                 <div style="display: flex; justify-content: space-between; font-size: 0.9rem;">
                                     <span>Risk/Ödül:</span>
-                                    <span style="font-weight: 600; color: ${signal.riskRewardRatio >= 1.5 ? 'var(--accent)' : 'var(--accent-red)'}">
-                                        ${signal.riskRewardRatio}
+                                    <span style="font-weight: 600; color: ${riskRewardColor}">
+                                        ${riskRewardDisplay}
                                     </span>
                                 </div>
                             </div>
