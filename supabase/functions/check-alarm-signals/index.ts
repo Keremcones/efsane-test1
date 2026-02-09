@@ -1553,6 +1553,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
 
   const openSignalKeys = new Set();
   const openSignalSymbols = new Set();
+  const openSignalDirections = new Set();
   if (openAutoSignals && !openAutoSignalsError) {
     openAutoSignals.forEach((sig: any) => {
       // user_id + symbol kombinasyonu key oluştur
@@ -1560,6 +1561,8 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       openSignalKeys.add(key);
       const symbolKey = `${sig.user_id}:${String(sig.symbol || "").toUpperCase()}`;
       openSignalSymbols.add(symbolKey);
+      const directionKey = `${sig.user_id}:${String(sig.symbol || "").toUpperCase()}:${String(sig.direction || "").toUpperCase()}`;
+      openSignalDirections.add(directionKey);
     });
   }
   console.log(`📌 Open auto_signal count: ${openSignalKeys.size}`);
@@ -1632,13 +1635,18 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         } else {
           const tpPercent = Number(alarm.tp_percent || 5);
           const slPercent = Number(alarm.sl_percent || 3);
-          const entryPrice = indicators.price;
+          const entryPrice = Number(indicators.closes?.[indicators.closes.length - 1] ?? indicators.price);
           
           console.log(`📊 User alarm check: ${symbol}, TP=${tpPercent}%, SL=${slPercent}%`);
           
           // Check if any signal is detected
           const signal = generateSignalScore(indicators, Number(alarm.confidence_score || 70));
           if (signal.triggered) {
+            const directionKey = `${alarm.user_id}:${symbol}:${signal.direction}`;
+            if (openSignalDirections.has(directionKey)) {
+              console.log(`⏹️ Skipping user_alarm for ${symbol}: same direction already active (user: ${alarm.user_id})`);
+              continue;
+            }
             shouldTrigger = true;
             const takeProfit = signal.direction === "SHORT"
               ? entryPrice * (1 - tpPercent / 100)
@@ -1702,6 +1710,12 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
               triggered: true,
               breakdown: { trend: 0, momentum: 0, volume: 0, sr: 0 }
             };
+            const directionKey = `${alarm.user_id}:${symbol}:${detectedSignal.direction}`;
+            if (openSignalDirections.has(directionKey)) {
+              console.log(`⏹️ Skipping PRICE_LEVEL alarm for ${symbol}: same direction already active (user: ${alarm.user_id})`);
+              shouldTrigger = false;
+              detectedSignal = null;
+            }
           } else if (condition === "below" && indicators.price <= targetPrice) {
             shouldTrigger = true;
             triggerMessage = `📉 Price dropped below ${formatPriceWithPrecision(targetPrice, alarmPricePrecision)}$! (Current: $${formatPriceWithPrecision(indicators.price, alarmPricePrecision)})`;
@@ -1713,6 +1727,12 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
               triggered: true,
               breakdown: { trend: 0, momentum: 0, volume: 0, sr: 0 }
             };
+            const directionKey = `${alarm.user_id}:${symbol}:${detectedSignal.direction}`;
+            if (openSignalDirections.has(directionKey)) {
+              console.log(`⏹️ Skipping PRICE_LEVEL alarm for ${symbol}: same direction already active (user: ${alarm.user_id})`);
+              shouldTrigger = false;
+              detectedSignal = null;
+            }
           }
         }
       }
@@ -1744,6 +1764,11 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
           );
 
           if (signal.triggered) {
+            const directionKey = `${alarm.user_id}:${symbol}:${signal.direction}`;
+            if (openSignalDirections.has(directionKey)) {
+              console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: same direction already active (user: ${alarm.user_id})`);
+              continue;
+            }
             shouldTrigger = true;
             // Use signal's calculated confidence (market analysis), NOT alarm.confidence_score (user threshold)
             detectedSignal = {
@@ -1826,16 +1851,18 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         const slPercent = Number(alarm.sl_percent || 3);
         const direction = detectedSignal?.direction || "LONG";
         const directionTR = direction === "LONG" ? "🟢 LONG" : "🔴 SHORT";
+
+        const entryPrice = Number(indicators.closes?.[indicators.closes.length - 1] ?? indicators.price);
         
         const decimals = alarmPricePrecision;
         
         // Calculate TP/SL prices based on current price and percentages
         const rawTpPrice = direction === "SHORT"
-          ? indicators.price * (1 - tpPercent / 100)
-          : indicators.price * (1 + tpPercent / 100);
+          ? entryPrice * (1 - tpPercent / 100)
+          : entryPrice * (1 + tpPercent / 100);
         const rawSlPrice = direction === "SHORT"
-          ? indicators.price * (1 + slPercent / 100)
-          : indicators.price * (1 - slPercent / 100);
+          ? entryPrice * (1 + slPercent / 100)
+          : entryPrice * (1 - slPercent / 100);
         const tpPrice = rawTpPrice;
         const slPrice = rawSlPrice;
 
@@ -1849,7 +1876,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             alarm.user_id,
             symbol,
             direction,
-            indicators.price,
+            entryPrice,
             tpPrice,
             slPrice,
             normalizeMarketType(alarm.market_type || "spot")
@@ -1922,7 +1949,7 @@ ${tradeNotificationText}
             market_type: marketTypeNorm,
             timeframe: String(alarm.timeframe || "1h"),
             direction,
-            entry_price: indicators.price,
+            entry_price: entryPrice,
             take_profit: tpPrice,
             stop_loss: slPrice,
             tp_percent: tpPercent,
@@ -1944,6 +1971,7 @@ ${tradeNotificationText}
             signalInserted = true;
             openSignalSymbols.add(`${alarm.user_id}:${symbol}`);
             openSignalKeys.add(`${alarm.user_id}:${String(alarm.id || "")}`);
+            openSignalDirections.add(`${alarm.user_id}:${symbol}:${direction}`);
           }
         } catch (e) {
           console.error(`❌ Error creating signal for ${symbol}:`, e);
@@ -2274,7 +2302,6 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
     .eq("user_id", newSignal.user_id)
     .eq("symbol", newSignal.symbol)
     .eq("direction", newSignal.signal_direction)
-    .eq("entry_price", newSignal.entry_price)
     .eq("status", "ACTIVE")
     .maybeSingle();
 
