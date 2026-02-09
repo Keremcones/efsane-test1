@@ -1003,19 +1003,8 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 
                 if (openTrade.signal === 'LONG') {  // ✅ .direction yerine .signal
                     // LONG işlem
-                    // KURAL 1: TP'ye ulaştı mı? (BAR İÇİNDE HIT)
-                    if (currentHigh >= openTrade.takeProfit) {
-                        if (barsSinceEntry >= 4 && barsSinceEntry <= 6) {
-                            console.log(`🎯 LONG [${timeframe}] TP HIT bar${barsSinceEntry}: HIGH=${currentHigh.toFixed(4)} >= TP=${openTrade.takeProfit.toFixed(4)}`);
-                        }
-                        openTrade.exit = openTrade.takeProfit;  // ✅ TP fiyatında hemen çık
-                        openTrade.exitBarIndex = i;
-                        openTrade.actualTP = true;
-                        shouldClose = true;
-                        closeReason = 'TP';
-                    }
-                    // KURAL 2: SL'ye ulaştı mı? (BAR İÇİNDE HIT)
-                    else if (currentLow <= openTrade.stopLoss) {
+                    // KURAL 1: SL'ye ulaştı mı? (BAR İÇİNDE HIT)
+                    if (currentLow <= openTrade.stopLoss) {
                         if (barsSinceEntry >= 4 && barsSinceEntry <= 6) {
                             console.log(`🎯 LONG [${timeframe}] SL HIT bar${barsSinceEntry}: LOW=${currentLow.toFixed(4)} <= SL=${openTrade.stopLoss.toFixed(4)}`);
                         }
@@ -1025,12 +1014,10 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                         shouldClose = true;
                         closeReason = 'SL';
                     }
-                } else {
-                    // SHORT işlem
-                    // KURAL 1: TP'ye ulaştı mı? (BAR İÇİNDE HIT)
-                    if (currentLow <= openTrade.takeProfit) {
+                    // KURAL 2: TP'ye ulaştı mı? (BAR İÇİNDE HIT)
+                    else if (currentHigh >= openTrade.takeProfit) {
                         if (barsSinceEntry >= 4 && barsSinceEntry <= 6) {
-                            console.log(`🎯 SHORT [${timeframe}] TP HIT bar${barsSinceEntry}: LOW=${currentLow.toFixed(4)} <= TP=${openTrade.takeProfit.toFixed(4)}`);
+                            console.log(`🎯 LONG [${timeframe}] TP HIT bar${barsSinceEntry}: HIGH=${currentHigh.toFixed(4)} >= TP=${openTrade.takeProfit.toFixed(4)}`);
                         }
                         openTrade.exit = openTrade.takeProfit;  // ✅ TP fiyatında hemen çık
                         openTrade.exitBarIndex = i;
@@ -1038,8 +1025,10 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                         shouldClose = true;
                         closeReason = 'TP';
                     }
-                    // KURAL 2: SL'ye ulaştı mı? (BAR İÇİNDE HIT)
-                    else if (currentHigh >= openTrade.stopLoss) {
+                } else {
+                    // SHORT işlem
+                    // KURAL 1: SL'ye ulaştı mı? (BAR İÇİNDE HIT)
+                    if (currentHigh >= openTrade.stopLoss) {
                         if (barsSinceEntry >= 4 && barsSinceEntry <= 6) {
                             console.log(`🎯 SHORT [${timeframe}] SL HIT bar${barsSinceEntry}: HIGH=${currentHigh.toFixed(4)} >= SL=${openTrade.stopLoss.toFixed(4)}`);
                         }
@@ -1048,6 +1037,17 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                         openTrade.actualSL = true;
                         shouldClose = true;
                         closeReason = 'SL';
+                    }
+                    // KURAL 2: TP'ye ulaştı mı? (BAR İÇİNDE HIT)
+                    else if (currentLow <= openTrade.takeProfit) {
+                        if (barsSinceEntry >= 4 && barsSinceEntry <= 6) {
+                            console.log(`🎯 SHORT [${timeframe}] TP HIT bar${barsSinceEntry}: LOW=${currentLow.toFixed(4)} <= TP=${openTrade.takeProfit.toFixed(4)}`);
+                        }
+                        openTrade.exit = openTrade.takeProfit;  // ✅ TP fiyatında hemen çık
+                        openTrade.exitBarIndex = i;
+                        openTrade.actualTP = true;
+                        shouldClose = true;
+                        closeReason = 'TP';
                     }
                 }
                 
