@@ -1511,6 +1511,36 @@ async function sendTelegramToChatId(chatId: string, message: string): Promise<{ 
   }
 }
 
+const VALID_TIMEFRAMES = new Set(["1m", "5m", "15m", "30m", "1h", "4h", "1d"]);
+
+function validateAlarm(alarm: any): boolean {
+  const tpPercent = Number(alarm?.tp_percent ?? alarm?.takeProfitPercent ?? 5);
+  if (!Number.isFinite(tpPercent) || tpPercent <= 0 || tpPercent > 50) {
+    console.error("❌ Invalid TP:", alarm?.id, alarm?.tp_percent);
+    return false;
+  }
+
+  const slPercent = Number(alarm?.sl_percent ?? alarm?.stopLossPercent ?? 3);
+  if (!Number.isFinite(slPercent) || slPercent <= 0 || slPercent > 50) {
+    console.error("❌ Invalid SL:", alarm?.id, alarm?.sl_percent);
+    return false;
+  }
+
+  const confidence = Number(alarm?.confidence_threshold ?? alarm?.confidence_score ?? 70);
+  if (!Number.isFinite(confidence) || confidence < 0 || confidence > 100) {
+    console.error("❌ Invalid confidence:", alarm?.id, alarm?.confidence_threshold ?? alarm?.confidence_score);
+    return false;
+  }
+
+  const timeframe = String(alarm?.timeframe || "").trim();
+  if (!VALID_TIMEFRAMES.has(timeframe)) {
+    console.error("❌ Invalid timeframe:", alarm?.id, alarm?.timeframe);
+    return false;
+  }
+
+  return true;
+}
+
 // =====================
 // User alarm trigger logic (WITH SIGNAL GENERATION)
 // =====================
@@ -1567,48 +1597,36 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
   }
   console.log(`📌 Open auto_signal count: ${openSignalKeys.size}`);
 
-  // ⚠️ SEQUENTIAL (NOT parallel): Calculate indicators one-by-one to avoid rate limiting
-  // 🔴 ÖNEMLİ: Back test'e göre hep 100 bar kullanılıyor, AMA o barların timeframe'i user'ın alarm.timeframe'i ile aynı olmalı!
-  const indicatorsResults: (any)[] = [];
-  console.log(`📊 Starting to calculate indicators for ${alarms.length} alarms...`);
-  for (const alarm of alarms) {
-    console.log(`  ⏳ Calculating indicators for ${alarm.symbol}...`);
-    try {
-      const indicators = await calculateIndicators(
-        String(alarm.symbol || "").toUpperCase(),
-        normalizeMarketType(alarm.market_type || alarm.marketType || "spot"),
-        String(alarm.timeframe || "1h")  // ✅ BACK TEST ALİNMENT: User'ın timeframe'ini kullan
-      );
-      await new Promise(resolve => setTimeout(resolve, 250));
-      if (indicators) {
-        console.log(`  ✅ Indicators calculated for ${alarm.symbol}`);
-      } else {
-        console.log(`  ⚠️ Indicators NULL for ${alarm.symbol}`);
-      }
-      indicatorsResults.push(indicators);
-    } catch (e) {
-      console.error(`❌ CRITICAL: Failed to calculate indicators for ${alarm.symbol}:`, e);
-      indicatorsResults.push(null);
-    }
-  }
-  console.log(`📊 Indicator calculation completed. Results: ${indicatorsResults.filter(i => i).length}/${alarms.length} calculated`);
-
-  // Process alarms with calculated indicators
   const telegramPromises: Promise<void>[] = [];
+  const BATCH_SIZE = 10;
+  const batches: any[][] = [];
 
-  for (let i = 0; i < (alarms || []).length; i++) {
+  for (let i = 0; i < alarms.length; i += BATCH_SIZE) {
+    batches.push(alarms.slice(i, i + BATCH_SIZE));
+  }
+
+  const processAlarm = async (alarm: any): Promise<void> => {
     try {
-      const alarm = alarms[i];
-      const indicators = indicatorsResults[i];
+      if (!validateAlarm(alarm)) {
+        return;
+      }
+
       const alarmSymbol = String(alarm?.symbol || "").toUpperCase();
       const alarmMarketType = normalizeMarketType(alarm.market_type || alarm.marketType || "spot");
       const alarmPricePrecision = alarmSymbol
         ? await getSymbolPricePrecision(alarmSymbol, alarmMarketType)
         : null;
 
+      const indicators = await calculateIndicators(
+        alarmSymbol,
+        alarmMarketType,
+        String(alarm.timeframe || "1h")
+      );
+      await new Promise(resolve => setTimeout(resolve, 250));
+
       if (!indicators) {
         console.log(`⚠️ No indicators calculated for ${alarm.symbol}`);
-        continue;
+        return;
       }
 
       let shouldTrigger = false;
@@ -1644,13 +1662,13 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
           const directionFilter = String(alarm.direction_filter || "BOTH").toUpperCase();
           if (directionFilter !== "BOTH" && directionFilter !== signal.direction) {
             console.log(`⏹️ Skipping user_alarm for ${symbol}: direction_filter=${directionFilter}, signal=${signal.direction}`);
-            continue;
+            return;
           }
           if (signal.triggered) {
             const directionKey = `${alarm.user_id}:${symbol}:${signal.direction}`;
             if (openSignalDirections.has(directionKey)) {
               console.log(`⏹️ Skipping user_alarm for ${symbol}: same direction already active (user: ${alarm.user_id})`);
-              continue;
+              return;
             }
             shouldTrigger = true;
             const takeProfit = signal.direction === "SHORT"
@@ -1761,7 +1779,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
           const directionFilter = String(alarm.direction_filter || "BOTH").toUpperCase();
           if (directionFilter !== "BOTH" && directionFilter !== signal.direction) {
             console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: direction_filter=${directionFilter}, signal=${signal.direction}`);
-            continue;
+            return;
           }
 
           console.log(
@@ -1777,7 +1795,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             const directionKey = `${alarm.user_id}:${symbol}:${signal.direction}`;
             if (openSignalDirections.has(directionKey)) {
               console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: same direction already active (user: ${alarm.user_id})`);
-              continue;
+              return;
             }
             shouldTrigger = true;
             // Use signal's calculated confidence (market analysis), NOT alarm.confidence_score (user threshold)
@@ -1911,7 +1929,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
 
         if (autoTradeEnabled && tradeResult.blockedByOpenPosition) {
           console.log(`⏹️ Skipping signal for ${symbol}: open position detected for user ${alarm.user_id}`);
-          continue;
+          return;
         }
 
         if (!tradeNotificationText) {
@@ -1964,19 +1982,26 @@ ${tradeNotificationText}
             stop_loss: slPrice,
             tp_percent: tpPercent,
             sl_percent: slPercent,
+            signal_timestamp: lastClosedIso,
             status: "ACTIVE",
             score: detectedSignal?.score || 50  // ✅ ADD SCORE
           };
 
-          const { error: insertError } = await supabase.from("active_signals").insert(newActiveSignal);
-          if (insertError) {
-            if (insertError.code === "23505") {
-              console.warn(`⚠️ Duplicate active signal for ${symbol} (alarm ${alarm.id}) - skipping telegram`);
-            } else {
-              console.error(`❌ Failed to insert signal for ${symbol}:`, insertError);
+          const { data, error } = await supabase
+            .from("active_signals")
+            .insert(newActiveSignal)
+            .select()
+            .single();
+          if (error) {
+            if (error.code === "23505") {
+              console.log("Duplicate signal prevented:", symbol, direction);
+              return;
             }
-            signalInserted = false;
-          } else {
+            console.error("Insert failed:", alarm.id, error);
+            return;
+          }
+
+          if (data) {
             console.log(`✅ Signal created in active_signals for ${symbol}`);
             signalInserted = true;
             openSignalSymbols.add(`${alarm.user_id}:${symbol}`);
@@ -1985,12 +2010,12 @@ ${tradeNotificationText}
           }
         } catch (e) {
           console.error(`❌ Error creating signal for ${symbol}:`, e);
-          signalInserted = false;
+              return;
         }
 
         if (!signalInserted) {
           console.warn(`⚠️ active_signals insert failed for ${symbol} - telegram skipped`);
-          continue;
+          return;
         }
 
         try {
@@ -2006,8 +2031,12 @@ ${tradeNotificationText}
         console.log(`✅ User alarm triggered for ${symbol}: ${triggerMessage}`);
       }
     } catch (e) {
-      console.error(`❌ Error checking user alarm ${alarms[i]?.id}:`, e);
+      console.error(`❌ Error checking user alarm ${alarm?.id}:`, e);
     }
+  };
+
+  for (const batch of batches) {
+    await Promise.all(batch.map(processAlarm));
   }
 
   // 🚀 PARALLELIZED: Send all Telegram messages in parallel
@@ -2108,24 +2137,24 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           const barLow = Number(lastClosed?.[3]);
           if (Number.isFinite(barHigh) && Number.isFinite(barLow)) {
             if (direction === "LONG") {
-              if (barHigh >= takeProfit) {
-                shouldClose = true;
-                closeReason = "TP_HIT";
-                closePrice = takeProfit;
-              } else if (barLow <= stopLoss) {
+              if (barLow <= stopLoss) {
                 shouldClose = true;
                 closeReason = "SL_HIT";
                 closePrice = stopLoss;
+              } else if (barHigh >= takeProfit) {
+                shouldClose = true;
+                closeReason = "TP_HIT";
+                closePrice = takeProfit;
               }
             } else if (direction === "SHORT") {
-              if (barLow <= takeProfit) {
-                shouldClose = true;
-                closeReason = "TP_HIT";
-                closePrice = takeProfit;
-              } else if (barHigh >= stopLoss) {
+              if (barHigh >= stopLoss) {
                 shouldClose = true;
                 closeReason = "SL_HIT";
                 closePrice = stopLoss;
+              } else if (barLow <= takeProfit) {
+                shouldClose = true;
+                closeReason = "TP_HIT";
+                closePrice = takeProfit;
               }
             }
           }
