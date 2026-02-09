@@ -4007,7 +4007,7 @@
                             <i class="fa-solid fa-hourglass-half"></i> Backtest güncelleniyor...
                         </div>
                         <div class="backtest-results">
-                            ${(filteredBacktestTrades.length > 0) ? filteredBacktestTrades.slice(0, 50).map((trade, index) => {
+                            ${(filteredBacktestTrades.length > 0) ? filteredBacktestTrades.slice(0, 500).map((trade, index) => {
                                 const tradeId = 'trade-' + Math.random().toString(36).substr(2, 9);
                                 return `
                                 <div class="result-row result-row-expandable" onclick="toggleTradeDetails(this)" style="cursor: pointer;" data-trade-open="${trade.isOpen || trade.duration === 'AÇIK' ? 'true' : 'false'}" data-trade-entry="${trade.entry}" data-trade-signal="${trade.signal}" data-trade-id="${tradeId}">
