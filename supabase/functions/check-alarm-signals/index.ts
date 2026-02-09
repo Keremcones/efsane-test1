@@ -1641,6 +1641,11 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
           
           // Check if any signal is detected
           const signal = generateSignalScore(indicators, Number(alarm.confidence_score || 70));
+          const directionFilter = String(alarm.direction_filter || "BOTH").toUpperCase();
+          if (directionFilter !== "BOTH" && directionFilter !== signal.direction) {
+            console.log(`⏹️ Skipping user_alarm for ${symbol}: direction_filter=${directionFilter}, signal=${signal.direction}`);
+            continue;
+          }
           if (signal.triggered) {
             const directionKey = `${alarm.user_id}:${symbol}:${signal.direction}`;
             if (openSignalDirections.has(directionKey)) {
@@ -1753,6 +1758,11 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         } else {
           const userConfidenceThreshold = Number(alarm.confidence_score || 70);
           const signal = generateSignalScore(indicators, userConfidenceThreshold);
+          const directionFilter = String(alarm.direction_filter || "BOTH").toUpperCase();
+          if (directionFilter !== "BOTH" && directionFilter !== signal.direction) {
+            console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: direction_filter=${directionFilter}, signal=${signal.direction}`);
+            continue;
+          }
 
           console.log(
             `📊 ${alarm.symbol}: ` +
@@ -2007,7 +2017,7 @@ type ClosedSignal = {
   id: string | number;
   symbol: string;
   direction: "LONG" | "SHORT";
-  close_reason: "TP_HIT" | "SL_HIT";
+  close_reason: "TP_HIT" | "SL_HIT" | "TIMEOUT";
   price: number;
   user_id: string;
   profitLoss?: number;
@@ -2053,8 +2063,40 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         const stopLoss = sl;
 
         let shouldClose = false;
-        let closeReason: "TP_HIT" | "SL_HIT" | "" = "";
+        let closeReason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "" = "";
         let closePrice: number | null = null;
+
+        const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
+        const createdAtMs = Date.parse(String(signal.created_at || ""));
+        if (Number.isFinite(createdAtMs) && (Date.now() - createdAtMs) > maxAgeMs) {
+          const updateResult = await supabase
+            .from("active_signals")
+            .update({
+              status: "CLOSED",
+              close_reason: "TIMEOUT",
+              profit_loss: 0,
+              closed_at: new Date().toISOString()
+            })
+            .eq("id", signal.id)
+            .eq("status", "ACTIVE");
+
+          if (updateResult.error) {
+            console.error(`❌ updateError for signal ${signal.id}:`, updateResult.error);
+            continue;
+          }
+
+          closedSignals.push({
+            id: signal.id,
+            symbol,
+            direction,
+            close_reason: "TIMEOUT",
+            price: Number(signal.entry_price),
+            user_id: signal.user_id,
+            market_type: signal.market_type || signal.marketType || signal.market,
+            profitLoss: 0,
+          });
+          continue;
+        }
 
         // Backtest ile uyum icin kapanis sadece son kapanan barin high/low degerine gore belirlenir.
         const marketType = normalizeMarketType(signal.market_type || signal.marketType || signal.market);
@@ -2547,6 +2589,9 @@ serve(async (req: any) => {
       if (signal.close_reason === "TP_HIT") {
         statusMessage = "✅ KAPANDI - TP HIT!";
         emoji = "🎉";
+      } else if (signal.close_reason === "TIMEOUT") {
+        statusMessage = "⏱️ KAPANDI - TIMEOUT";
+        emoji = "⏱️";
       }
 
       const precision = await getSymbolPricePrecision(

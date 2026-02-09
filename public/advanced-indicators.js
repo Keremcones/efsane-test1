@@ -1110,10 +1110,10 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             // ADIM 2: YENİ SİNYAL KONTROLÜ
             // ============================================
             
-            const windowCloses = closes.slice(i - windowSize, i);
-            const windowHighs = highs.slice(i - windowSize, i);
-            const windowLows = lows.slice(i - windowSize, i);
-            const windowVolumes = volumes.slice(i - windowSize, i);
+            const windowCloses = closes.slice(i - windowSize + 1, i + 1);
+            const windowHighs = highs.slice(i - windowSize + 1, i + 1);
+            const windowLows = lows.slice(i - windowSize + 1, i + 1);
+            const windowVolumes = volumes.slice(i - windowSize + 1, i + 1);
             
             const indicators = calculateAlarmIndicators(windowCloses, windowHighs, windowLows, windowVolumes);
             if (!indicators) {
@@ -1125,7 +1125,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             
             // DEBUG: Log ekle
             if (i < windowSize + 5 || i > closes.length - 10) {
-                const entryPriceDebug = windowCloses[windowCloses.length - 1];
+                const entryPriceDebug = closes[i];
                 const tpDebug = signal.direction === 'SHORT'
                     ? entryPriceDebug * (1 - takeProfitPercent / 100)
                     : entryPriceDebug * (1 + takeProfitPercent / 100);
@@ -1146,7 +1146,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             // ADIM 3: YENİ İŞLEM AÇ
             // ============================================
             
-            const entryPrice = windowCloses[windowCloses.length - 1];
+            const entryPrice = closes[i];
             const takeProfit = signal.direction === 'SHORT'
                 ? entryPrice * (1 - takeProfitPercent / 100)
                 : entryPrice * (1 + takeProfitPercent / 100);
