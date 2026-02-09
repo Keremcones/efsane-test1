@@ -897,6 +897,12 @@ function getConfidenceLevel(score) {
     return 'LOW';
 }
 
+function resolveKlineCloseTimeMs(kline) {
+    const closeMs = Number(kline?.[6] ?? kline?.[0]);
+    if (!Number.isFinite(closeMs)) return Date.now();
+    return closeMs + 1;
+}
+
 // 7. BACKTEST SİSTEMİ
 async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 70, takeProfitPercent = 5, stopLossPercent = 3, marketType = null) {
     const results = [];
@@ -1155,7 +1161,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 : entryPrice * (1 - stopLossPercent / 100);
             
             // Tarih ve saat (Türkiye saati)
-            const tradeTimestamp = Number(klines[i][6] ?? klines[i][0]);
+            const tradeTimestamp = resolveKlineCloseTimeMs(klines[i]);
             const tradeDate = new Date(tradeTimestamp);
             const tradeTime = tradeDate.toLocaleTimeString('tr-TR', {
                 hour: '2-digit',
@@ -1330,7 +1336,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 }
                 
                 if (canShowLastTrade) {
-                    const lastBarTimestamp = Number(klines[closedBarIndex][6] ?? klines[closedBarIndex][0]);
+                    const lastBarTimestamp = resolveKlineCloseTimeMs(klines[closedBarIndex]);
                     const lastBarTimeUTC = new Date(lastBarTimestamp);
                     const lastTimeStr = lastBarTimeUTC.toLocaleTimeString('tr-TR', {
                         hour: '2-digit',
