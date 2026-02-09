@@ -1578,7 +1578,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
   // 🔴 ÖNEMLI: Fetch all open auto_signal sinyalleri - spam'ı engelle
     const { data: openAutoSignals, error: openAutoSignalsError } = await supabase
       .from("active_signals")
-      .select("user_id, symbol, status, alarm_id")
+      .select("user_id, symbol, status, alarm_id, direction")
       .eq("status", "ACTIVE")
 
   const openSignalKeys = new Set();

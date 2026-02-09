@@ -3363,16 +3363,26 @@
                 // Backtest'ten klines verisini al (varsa), yoksa normal çek
                 let klines = null;
                 if (backtest && backtest.klines) {
-                    klines = backtest.klines;
-                    
-                    // Son bar'ı current price ile güncelle (canlı görünüm için)
-                    const lastBar = klines[klines.length - 1];
+                    klines = backtest.klines.slice();
+
+                    // Append a synthetic open bar for live display; do not mutate last closed bar.
+                    const lastClosedBar = klines[klines.length - 1];
                     const currentPrice = parseFloat(priceData.price);
-                    // [timestamp, open, high, low, close, volume, ...]
-                    lastBar[2] = Math.max(parseFloat(lastBar[2]), currentPrice); // high
-                    lastBar[3] = Math.min(parseFloat(lastBar[3]), currentPrice); // low
-                    lastBar[4] = currentPrice; // close
-                    console.log('Son bar güncellendi - Close:', currentPrice);
+                    const timeframeMinutes = { '5m': 5, '15m': 15, '30m': 30, '1h': 60, '4h': 240, '1d': 1440 };
+                    const minutes = timeframeMinutes[currentTimeframe] || 60;
+                    const msPerBar = minutes * 60 * 1000;
+                    const openTime = Number(lastClosedBar?.[6] ?? lastClosedBar?.[0] ?? Date.now()) + 1;
+                    const openBar = [
+                        openTime,
+                        lastClosedBar?.[4] ?? lastClosedBar?.[1] ?? currentPrice,
+                        currentPrice,
+                        currentPrice,
+                        currentPrice,
+                        '0',
+                        openTime + msPerBar,
+                        '0', 0, 0, '0'
+                    ];
+                    klines.push(openBar);
                 } else {
                     // Eğer backtest başarısız olduysa, son 999 bar al + açık bar ekle
                     const klinesUrl = `${getBinanceApiBase()}/klines?symbol=${symbol}&interval=${currentTimeframe}&limit=999`;

@@ -1244,7 +1244,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             if (profitValue > 0) {
                 wins++;
                 totalWinProfit += profitValue;
-            } else {
+            } else if (profitValue < 0) {
                 losses++;
                 totalLossProfit += profitValue;
             }
@@ -1435,7 +1435,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             averageProfit: avgProfit.toFixed(2) + '%',
             totalProfit: totalProfit.toFixed(2) + '%',
             profitFactor: profitFactor.toFixed(2),
-            trades: allTrades.slice(0, 50), // Tarih sırasıyla en yeni en başta, max 50 işlem
+            trades: allTrades.slice(0, 500), // Tarih sırasıyla en yeni en başta, max 500 işlem
             lastTrade: lastTrade,  // Son işlem (senkronizasyon için)
             averages: {
                 LONG: {
