@@ -1167,7 +1167,7 @@ interface TechnicalIndicators {
 }
 
 async function calculateIndicators(symbol: string, marketType: "spot" | "futures", timeframe: string = "1h"): Promise<TechnicalIndicators | null> {
-  const klines = await getKlines(symbol, marketType, timeframe, 100);
+  const klines = await getKlines(symbol, marketType, timeframe, 101);
   if (!klines || klines.length < 2) return null;
 
   // ✅ Backtest ile birebir uyum için açık (son) bar'ı dahil etme
