@@ -580,15 +580,56 @@ function calculateRiskReward(entry, sr, direction) {
 }
 
 // Alarm tarafi ile uyumlu indikator hesaplari
-function calculateAlarmStochastic(highs, lows, closes, period = 14) {
-    if (closes.length < period) return { K: 0, D: 0 };
-    const recentHighs = highs.slice(-period);
-    const recentLows = lows.slice(-period);
-    const currentClose = closes[closes.length - 1];
-    const highestHigh = Math.max(...recentHighs);
-    const lowestLow = Math.min(...recentLows);
-    const k = ((currentClose - lowestLow) / (highestHigh - lowestLow)) * 100;
-    return { K: k, D: k };
+function calculateAlarmStochastic(highs, lows, closes, period = 14, smoothK = 3) {
+    if (closes.length < period) return { K: 50, D: 50 };
+
+    let lowestLow = lows[lows.length - 1];
+    let highestHigh = highs[highs.length - 1];
+
+    for (let i = Math.max(0, closes.length - period); i < closes.length; i++) {
+        if (lows[i] < lowestLow) lowestLow = lows[i];
+        if (highs[i] > highestHigh) highestHigh = highs[i];
+    }
+
+    const range = highestHigh - lowestLow;
+    const rawK = range === 0 ? 50 : ((closes[closes.length - 1] - lowestLow) / range) * 100;
+    const kValues = [];
+    for (let i = 0; i < smoothK; i++) kValues.push(rawK);
+    const K = kValues.reduce((a, b) => a + b, 0) / smoothK;
+    const D = K;
+
+    return {
+        K: Math.max(0, Math.min(100, K)),
+        D: Math.max(0, Math.min(100, D))
+    };
+}
+
+function calculateAlarmADX(highs, lows, closes, period = 14) {
+    if (closes.length < period + 1) return 25;
+
+    const trueRanges = [];
+    const plusDMs = [];
+    const minusDMs = [];
+
+    for (let i = 1; i < closes.length; i++) {
+        const tr = Math.max(
+            highs[i] - lows[i],
+            Math.abs(highs[i] - closes[i - 1]),
+            Math.abs(lows[i] - closes[i - 1])
+        );
+        trueRanges.push(tr);
+
+        const upMove = highs[i] - highs[i - 1];
+        const downMove = lows[i - 1] - lows[i];
+        plusDMs.push(upMove > downMove && upMove > 0 ? upMove : 0);
+        minusDMs.push(downMove > upMove && downMove > 0 ? downMove : 0);
+    }
+
+    const atr = trueRanges.slice(-period).reduce((a, b) => a + b, 0) / period;
+    const plusDI = ((plusDMs.slice(-period).reduce((a, b) => a + b, 0) / period) / atr) * 100;
+    const minusDI = ((minusDMs.slice(-period).reduce((a, b) => a + b, 0) / period) / atr) * 100;
+    if (!Number.isFinite(plusDI) || !Number.isFinite(minusDI) || plusDI + minusDI === 0) return 25;
+    return (Math.abs(plusDI - minusDI) / (plusDI + minusDI)) * 100;
 }
 
 function calculateAlarmMacd(closes) {
@@ -625,7 +666,7 @@ function calculateAlarmIndicators(closes, highs, lows, volumes, lastClosedTimest
     const resistance = highs20.length ? Math.max(...highs20) : lastPrice;
     const support = lows20.length ? Math.min(...lows20) : lastPrice;
     const stoch = calculateAlarmStochastic(highs, lows, closes);
-    const adx = calculateADX(highs, lows, closes) || 0;
+    const adx = calculateAlarmADX(highs, lows, closes) || 0;
     const volumeMA = volumes.length > 0 ? volumes.reduce((a, b) => a + b, 0) / volumes.length : 0;
 
     return {
@@ -843,9 +884,9 @@ function getConfidenceLevel(score) {
 }
 
 // 7. BACKTEST SİSTEMİ
-async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 70, takeProfitPercent = 5, stopLossPercent = 3, barCloseLimit = 5) {
+async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 70, takeProfitPercent = 5, stopLossPercent = 3) {
     const results = [];
-    console.log(`🔍 BACKTEST BAŞLADI: ${symbol} ${timeframe} | TP:${takeProfitPercent}% SL:${stopLossPercent}% Bar:${barCloseLimit}`);
+    console.log(`🔍 BACKTEST BAŞLADI: ${symbol} ${timeframe} | TP:${takeProfitPercent}% SL:${stopLossPercent}%`);
     
     // Timeframe'e göre gerekli kline sayısını hesapla
     const timeframeMinutes = {
@@ -968,16 +1009,6 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                         shouldClose = true;
                         closeReason = 'SL';
                     }
-                    // KURAL 3: barCloseLimit kadar bar geçti mi?
-                    else if (barsSinceEntry >= barCloseLimit) {
-                        if (barsSinceEntry === barCloseLimit) {
-                            console.log(`📊 LONG [${timeframe}] barCloseLimit: entry=${openTradeEntryBar} i=${i} bars=${barsSinceEntry}/${barCloseLimit}`);
-                        }
-                        openTrade.exit = closes[i];
-                        openTrade.exitBarIndex = i;
-                        shouldClose = true;
-                        closeReason = 'barCloseLimit';
-                    }
                 } else {
                     // SHORT işlem
                     // KURAL 1: TP'ye ulaştı mı? (BAR İÇİNDE HIT)
@@ -1001,16 +1032,6 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                         openTrade.actualSL = true;
                         shouldClose = true;
                         closeReason = 'SL';
-                    }
-                    // KURAL 3: barCloseLimit kadar bar geçti mi?
-                    else if (barsSinceEntry >= barCloseLimit) {
-                        if (barsSinceEntry === barCloseLimit) {
-                            console.log(`📊 SHORT [${timeframe}] barCloseLimit: entry=${openTradeEntryBar} i=${i} bars=${barsSinceEntry}/${barCloseLimit}`);
-                        }
-                        openTrade.exit = closes[i];
-                        openTrade.exitBarIndex = i;
-                        shouldClose = true;
-                        closeReason = 'barCloseLimit';
                     }
                 }
                 
@@ -1039,7 +1060,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                         profit: profit,  // Number olarak
                         isOpen: false,   // KESIN FALSE
                         duration: durationFormatted,  // "2s 30d" veya "45d" format
-                        closeReason: closeReason  // ✅ DEBUG: TP/SL/barCloseLimit?
+                        closeReason: closeReason  // ✅ DEBUG: TP/SL?
                     };
                     
                     // İstatistikleri güncelle
@@ -1118,7 +1139,8 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 : entryPrice * (1 - stopLossPercent / 100);
             
             // Tarih ve saat (Türkiye saati)
-            const tradeDate = new Date(klines[i][0]);
+            const tradeTimestamp = Number(klines[i][6] ?? klines[i][0]);
+            const tradeDate = new Date(tradeTimestamp);
             const tradeTime = tradeDate.toLocaleTimeString('tr-TR', {
                 hour: '2-digit',
                 minute: '2-digit',
@@ -1132,7 +1154,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             
             // Açık işlemi oluştur
             openTrade = {
-                timestamp: klines[i][0],
+                timestamp: tradeTimestamp,
                 barIndex: i,
                 exitBarIndex: i,
                 date: turkeyDate.toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' }),
@@ -1162,65 +1184,15 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         
         console.log(`📊 [${timeframe}] Backtest döngü bitti: totalTrades=${results.length}, openTrade=${openTrade ? 'var' : 'yok'}, wins=${wins}, losses=${losses}, totalProfit=${totalProfit.toFixed(2)}%`);
         
-        // Eğer hala açık işlem varsa VE barCloseLimit'i geçmişse, kapat!
+        // Eğer hala açık işlem varsa açık bırak
         let lastOpenTradeFromBacktest = null;
         if (openTrade !== null) {
-            const barsOpen = (closes.length - 1) - openTradeEntryBar;
-            
-            // barCloseLimit kontrolü: Eğer geçmişse kapat, değilse açık bırak
-            if (barsOpen >= barCloseLimit) {
-                // ✅ barCloseLimit'i geçti, işlemi kapat
-                console.log(`📊 AÇIK İŞLEM KAPATILDI [${timeframe}] barCloseLimit: bars=${barsOpen}/${barCloseLimit} (döngü sonu)`);
-                
-                let profit = 0;
-                openTrade.exit = closes[closes.length - 1];
-                openTrade.exitBarIndex = closes.length - 1;
-                
-                if (openTrade.signal === 'LONG') {
-                    profit = ((openTrade.exit - openTrade.entry) / openTrade.entry) * 100;
-                } else {
-                    profit = ((openTrade.entry - openTrade.exit) / openTrade.entry) * 100;
-                }
-                
-                const barCount = openTrade.exitBarIndex - openTrade.barIndex;
-                let durationFormatted = '';
-                if (barCount === 0) {
-                    durationFormatted = 'Aynı bar';
-                } else {
-                    durationFormatted = barCount + ' bar';
-                }
-                
-                const closedTrade = {
-                    ...openTrade,
-                    profit: profit,
-                    isOpen: false,
-                    duration: durationFormatted,
-                    closeReason: 'barCloseLimit'
-                };
-                
-                // İstatistikleri güncelle
-                if (profit > 0) {
-                    wins++;
-                    totalWinProfit += profit;
-                } else {
-                    losses++;
-                    totalLossProfit += profit;
-                }
-                totalProfit += profit;
-                
-                // Results'a ekle (kapalı işlem)
-                results.push(closedTrade);
-                openTrade = null;
-                openTradeEntryBar = -1;
-            } else {
-                // ❌ barCloseLimit'i henüz geçmedi, açık bırak
-                lastOpenTradeFromBacktest = {
-                    ...openTrade,
-                    profit: 0,  // Açık işlem için profit HER ZAMAN 0
-                    isOpen: true,  // KESIN TRUE
-                    duration: 'AKTİF'  // Açık işlem duration
-                };
-            }
+            lastOpenTradeFromBacktest = {
+                ...openTrade,
+                profit: 0,
+                isOpen: true,
+                duration: 'AKTİF'
+            };
         }
         
         // ============================================
@@ -1342,7 +1314,8 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 }
                 
                 if (canShowLastTrade) {
-                    const lastBarTimeUTC = new Date(klines[closedBarIndex][0]);
+                    const lastBarTimestamp = Number(klines[closedBarIndex][6] ?? klines[closedBarIndex][0]);
+                    const lastBarTimeUTC = new Date(lastBarTimestamp);
                     const lastTimeStr = lastBarTimeUTC.toLocaleTimeString('tr-TR', {
                         hour: '2-digit',
                         minute: '2-digit',
@@ -1350,7 +1323,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                         timeZone: 'Europe/Istanbul'
                     });
                     
-                    const lastBarDateTurkey = new Date(klines[closedBarIndex][0]);
+                    const lastBarDateTurkey = new Date(lastBarTimestamp);
                     
                     const lastEntryPrice = closes[closedBarIndex];
                     const lastTakeProfit = lastSignal.direction === 'SHORT'
@@ -1369,7 +1342,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                     }
                     
                     lastTrade = {
-                        timestamp: klines[closedBarIndex][0],
+                        timestamp: lastBarTimestamp,
                         barIndex: closedBarIndex,  // Kapalı bar'ı işaret et
                         date: lastBarDateTurkey.toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' }),
                         time: lastTimeStr,
@@ -2362,11 +2335,6 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                 // Tüm alarmları bir kez map et ve insert et (loop değil!)
                 const alarmsData = this.alarms.map(alarm => {
                     const autoTradeEnabled = alarm.autoTradeEnabled || alarm.auto_trade_enabled || false;
-                    const resolvedBarCloseLimit = autoTradeEnabled
-                        ? null
-                        : ((alarm.barCloseLimit === null || alarm.bar_close_limit === null)
-                            ? null
-                            : (alarm.barCloseLimit ?? alarm.bar_close_limit ?? 5));
                     const baseData = {
                         user_id: this.userId,
                         symbol: alarm.symbol || 'BTCUSDT',
@@ -2379,7 +2347,6 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                         confidence_score: String(alarm.confidenceScore || alarm.confidence_score || '60'),
                         tp_percent: String(alarm.takeProfitPercent || alarm.tp_percent || '5'),
                         sl_percent: String(alarm.stopLossPercent || alarm.sl_percent || '3'),
-                        bar_close_limit: resolvedBarCloseLimit,
                         auto_trade_enabled: autoTradeEnabled
                     };
                     
@@ -2444,11 +2411,6 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                 if (data && data.length > 0) {
                     this.alarms = data.map(item => {
                         const autoTradeEnabled = item.auto_trade_enabled === true;
-                        const rawBarCloseLimit = item.bar_close_limit;
-                        const barCloseLimitValue = Number.isFinite(Number(rawBarCloseLimit))
-                            ? Number(rawBarCloseLimit)
-                            : (autoTradeEnabled ? null : 5);
-                        const barCloseLimitDisplay = barCloseLimitValue === null ? 99 : barCloseLimitValue;
                         const parsedTp = Number(item.tp_percent);
                         const parsedSl = Number(item.sl_percent);
                         const baseAlarm = {
@@ -2461,7 +2423,6 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                             confidenceScore: parseInt(item.confidence_score) || 60,
                             takeProfitPercent: Number.isFinite(parsedTp) ? parsedTp : 5,
                             stopLossPercent: Number.isFinite(parsedSl) ? parsedSl : 3,
-                            barCloseLimit: barCloseLimitValue,
                             auto_trade_enabled: autoTradeEnabled,
                             autoTradeEnabled: autoTradeEnabled
                         };
@@ -2496,7 +2457,7 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                             ...baseAlarm,
                             type: 'PRICE_LEVEL',
                             name: `${item.symbol} - Alarm`,
-                            description: `Güven skoru: ${item.confidence_score}%, TP: ${item.tp_percent}%, SL: ${item.sl_percent}%, Bar: ${barCloseLimitDisplay}`
+                            description: `Güven skoru: ${item.confidence_score}%, TP: ${item.tp_percent}%, SL: ${item.sl_percent}%`
                         };
                     });
                     console.log(`📥 alarms tablosundan ${this.alarms.length} alarm yüklendi`);

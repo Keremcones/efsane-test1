@@ -157,7 +157,7 @@ AUTO_SIGNAL FIELDS:
 
 SHARED FIELDS:
   - symbol, status (ACTIVE | CLOSED), is_active
-  - tp_percent, sl_percent, bar_close_limit
+  - tp_percent, sl_percent
 
 TRACKING:
   - profit_loss, exit_price, closed_at

@@ -17,7 +17,6 @@ CREATE TABLE alarms (
   condition VARCHAR(50),
   tp_percent DECIMAL(5,2),
   sl_percent DECIMAL(5,2),
-  bar_close_limit INT,
   status VARCHAR(20) DEFAULT 'active',
   is_active BOOLEAN DEFAULT true,
   telegram_enabled BOOLEAN DEFAULT true,

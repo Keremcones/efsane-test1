@@ -170,7 +170,6 @@ async function throttledFetch(url: string, options?: any): Promise<Response> {
 // Cache klines to avoid redundant API calls
 const klinesCache: Record<string, { data: any[]; timestamp: number }> = {};
 const KLINES_CACHE_TTL = 30000; // 30 seconds - reduce API pressure
-const MAX_BAR_DELAY_MS = 60 * 1000; // Max allowed delay after bar close
 
 function normalizeMarketType(value: any): "spot" | "futures" {
   const v = String(value || "").toLowerCase();
@@ -1524,7 +1523,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
   // Fetch all open ACTIVE_TRADE alarms to prevent duplicate SIGNAL alarms
   const { data: activeTradeAlarms, error: activeTradeError } = await supabase
     .from("alarms")
-    .select("symbol, status")
+    .select("user_id, symbol, status")
     .eq("type", "ACTIVE_TRADE")
     .eq("status", "ACTIVE");
   
@@ -1537,10 +1536,14 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
   const openTradeSymbols = new Set();
   if (activeTradeAlarms && !activeTradeError) {
     activeTradeAlarms.forEach((at: any) => {
-      openTradeSymbols.add(String(at.symbol || "").toUpperCase());
+      const symbol = String(at.symbol || "").toUpperCase();
+      const userId = String(at.user_id || "");
+      if (symbol && userId) {
+        openTradeSymbols.add(`${userId}:${symbol}`);
+      }
     });
   }
-  console.log(`📌 Open ACTIVE_TRADE symbols: ${Array.from(openTradeSymbols).join(", ") || "None"}`);
+  console.log(`📌 Open ACTIVE_TRADE count: ${openTradeSymbols.size}`);
 
   // 🔴 ÖNEMLI: Fetch all open auto_signal sinyalleri - spam'ı engelle
     const { data: openAutoSignals, error: openAutoSignalsError } = await supabase
@@ -1612,22 +1615,20 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       const lastClosedIso = lastClosedMs ? new Date(lastClosedMs).toISOString() : new Date().toISOString();
       const lastSignalTs = alarm.signal_timestamp || alarm.signalTimestamp;
       const lastSignalMs = lastSignalTs ? Date.parse(String(lastSignalTs)) : NaN;
-      const nowMs = Date.now();
-      const barDelayMs = lastClosedMs ? nowMs - lastClosedMs : 0;
-      const isLateBar = Number.isFinite(barDelayMs) && barDelayMs > MAX_BAR_DELAY_MS;
 
       // STRATEGY 1: USER_ALARM (user-defined signals with TP/SL)
       if (alarm.type === "user_alarm") {
         const symbol = String(alarm.symbol || "").toUpperCase();
         const signalKey = `${alarm.user_id}:${String(alarm.id || "")}`;
         const symbolKey = `${alarm.user_id}:${symbol}`;
+        const autoTradeEnabled = alarm.auto_trade_enabled === true;
 
-        if (isLateBar) {
-          console.log(`⏹️ Skipping user_alarm for ${symbol}: bar close delay ${barDelayMs}ms exceeds limit`);
+        if (autoTradeEnabled && openTradeSymbols.has(symbolKey)) {
+          console.log(`⏹️ Skipping user_alarm for ${symbol}: ACTIVE_TRADE in progress (user: ${alarm.user_id})`);
         } else if (Number.isFinite(lastSignalMs) && lastSignalMs >= lastClosedMs) {
           console.log(`⏹️ Skipping user_alarm for ${symbol}: same bar already processed (alarm ${alarm.id})`);
-        } else if (openSignalSymbols.has(symbolKey)) {
-          console.log(`⏹️ Skipping user_alarm for ${symbol}: signal already active for this symbol (user: ${alarm.user_id})`);
+        } else if (openSignalKeys.has(signalKey)) {
+          console.log(`⏹️ Skipping user_alarm for ${symbol}: signal already active for this alarm (user: ${alarm.user_id})`);
         } else {
           const tpPercent = Number(alarm.tp_percent || 5);
           const slPercent = Number(alarm.sl_percent || 3);
@@ -1671,7 +1672,6 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
               `🎯 Hedefler:\n` +
               `   TP: $${formatPriceWithPrecision(takeProfit, alarmPricePrecision)} (+${tpGain.toFixed(2)}%)\n` +
               `   SL: $${formatPriceWithPrecision(stopLoss, alarmPricePrecision)} (${slLoss.toFixed(2)}%)\n\n` +
-              `⏱️ Bar Sınırı: ${alarm.bar_close_limit || 5}\n\n` +
               `⏰ Zaman: ${formattedDateTime}`;
             
             console.log(`✅ User alarm triggered for ${symbol}: ${signal.direction}`);
@@ -1684,13 +1684,13 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         const targetPrice = Number(alarm.target_price || alarm.targetPrice);
         const condition = String(alarm.condition || "").toLowerCase();
         const symbol = String(alarm.symbol || "").toUpperCase();
-        const symbolKey = `${alarm.user_id}:${symbol}`;
+        const signalKey = `${alarm.user_id}:${String(alarm.id || "")}`;
 
-        if (openSignalSymbols.has(symbolKey)) {
-          console.log(`⏹️ Skipping PRICE_LEVEL alarm for ${symbol}: signal already active for this symbol (user: ${alarm.user_id})`);
+        if (openSignalKeys.has(signalKey)) {
+          console.log(`⏹️ Skipping PRICE_LEVEL alarm for ${symbol}: signal already active for this alarm (user: ${alarm.user_id})`);
         }
 
-        if (Number.isFinite(targetPrice) && !openSignalSymbols.has(symbolKey)) {
+        if (Number.isFinite(targetPrice) && !openSignalKeys.has(signalKey)) {
           if (condition === "above" && indicators.price >= targetPrice) {
             shouldTrigger = true;
             triggerMessage = `🚀 Price ${formatPriceWithPrecision(targetPrice, alarmPricePrecision)}$ reached! (Current: $${formatPriceWithPrecision(indicators.price, alarmPricePrecision)})`;
@@ -1724,15 +1724,12 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         const signalKey = `${alarm.user_id}:${String(alarm.id || "")}`;
         const symbolKey = `${alarm.user_id}:${symbol}`;
 
-        if (openTradeSymbols.has(symbol)) {
-          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: ACTIVE_TRADE in progress`);
-        } else if (isLateBar) {
-          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: bar close delay ${barDelayMs}ms exceeds limit`);
+        if (openTradeSymbols.has(symbolKey)) {
+          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: ACTIVE_TRADE in progress (user: ${alarm.user_id})`);
         } else if (Number.isFinite(lastSignalMs) && lastSignalMs >= lastClosedMs) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: same bar already processed (alarm ${alarm.id})`);
-        } else if (openSignalSymbols.has(symbolKey)) {
-          // 🔴 ÖNEMLI: Aynı symbol için açık auto_signal varsa skip!
-          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: auto_signal already active for this symbol (user: ${alarm.user_id})`);
+        } else if (openSignalKeys.has(signalKey)) {
+          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: signal already active for this alarm (user: ${alarm.user_id})`);
         } else {
           const userConfidenceThreshold = Number(alarm.confidence_score || 70);
           const signal = generateSignalScore(indicators, userConfidenceThreshold);
@@ -1827,7 +1824,6 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         const timeframe = String(alarm.timeframe || "1h");
         const tpPercent = Number(alarm.tp_percent || 5);
         const slPercent = Number(alarm.sl_percent || 3);
-        const barClose = alarm.bar_close_limit === null ? null : Number(alarm.bar_close_limit || 5);
         const direction = detectedSignal?.direction || "LONG";
         const directionTR = direction === "LONG" ? "🟢 LONG" : "🔴 SHORT";
         
@@ -1909,8 +1905,6 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
   TP: <b>$${formatPriceWithPrecision(tpPrice, decimals)}</b> (<b>+${tpPercent}%</b>)
   SL: <b>$${formatPriceWithPrecision(slPrice, decimals)}</b> (<b>-${slPercent}%</b>)
 
-${barClose === null ? "" : `⏱️ Bar Sınırı: <b>${barClose}</b>\n`}
-
 ⏰ Zaman: <b>${formattedDateTime}</b>
 ${tradeNotificationText}
 
@@ -1933,7 +1927,6 @@ ${tradeNotificationText}
             stop_loss: slPrice,
             tp_percent: tpPercent,
             sl_percent: slPercent,
-            bar_close_limit: barClose,
             status: "ACTIVE",
             score: detectedSignal?.score || 50  // ✅ ADD SCORE
           };
@@ -1986,7 +1979,7 @@ type ClosedSignal = {
   id: string | number;
   symbol: string;
   direction: "LONG" | "SHORT";
-  close_reason: "TP_HIT" | "SL_HIT" | "BAR_CLOSE";
+  close_reason: "TP_HIT" | "SL_HIT";
   price: number;
   user_id: string;
   profitLoss?: number;
@@ -2050,7 +2043,7 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         const stopLoss = sl;
 
         let shouldClose = false;
-        let closeReason: "TP_HIT" | "SL_HIT" | "BAR_CLOSE" | "" = "";
+        let closeReason: "TP_HIT" | "SL_HIT" | "" = "";
 
         if (direction === "LONG") {
           if (currentPrice >= takeProfit) {
@@ -2096,26 +2089,6 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
                   closeReason = "SL_HIT";
                 }
               }
-            }
-          }
-        }
-
-        if (!shouldClose) {
-          const barCloseLimit = Number(signal.bar_close_limit);
-          const createdAt = signal.created_at ? new Date(signal.created_at) : null;
-          const timeframeMinutes = timeframeToMinutes(String(signal.timeframe || "1h"));
-          if (
-            Number.isFinite(barCloseLimit) &&
-            barCloseLimit > 0 &&
-            createdAt &&
-            Number.isFinite(timeframeMinutes) &&
-            timeframeMinutes > 0
-          ) {
-            const elapsedMinutes = (Date.now() - createdAt.getTime()) / 60000;
-            const barsElapsed = Math.floor(elapsedMinutes / timeframeMinutes);
-            if (barsElapsed >= barCloseLimit) {
-              shouldClose = true;
-              closeReason = "BAR_CLOSE";
             }
           }
         }
@@ -2202,7 +2175,6 @@ type NewSignal = {
   confidence_score: number;
   tp_percent: number;
   sl_percent: number;
-  bar_close_limit: number;
   signal_timestamp: string;
   status?: "ACTIVE";
   created_at?: string;
@@ -2247,9 +2219,6 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
     ? slPercentRaw
     : Math.abs(((entryPrice - stopLoss) / entryPrice) * 100);
 
-  const barCloseLimitRaw = Number(body.bar_close_limit ?? body.barCloseLimit ?? 30);
-  const barCloseLimit = Number.isFinite(barCloseLimitRaw) ? barCloseLimitRaw : 30;
-
   const confidenceRaw = Number(body.confidence_score ?? body.confidenceScore ?? 0);
   const confidenceScore = Number.isFinite(confidenceRaw) ? confidenceRaw : 0;
 
@@ -2268,7 +2237,6 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
     confidence_score: confidenceScore,
     tp_percent: tpPercent,
     sl_percent: slPercent,
-    bar_close_limit: barCloseLimit,
     signal_timestamp: signalTimestamp,
     status: "ACTIVE",
     created_at: new Date().toISOString(),
@@ -2363,7 +2331,6 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
     stop_loss: newSignal.stop_loss,
     tp_percent: newSignal.tp_percent,
     sl_percent: newSignal.sl_percent,
-    bar_close_limit: newSignal.bar_close_limit,
     status: "ACTIVE",
     created_at: newSignal.created_at
   };
@@ -2584,9 +2551,6 @@ serve(async (req: any) => {
       if (signal.close_reason === "TP_HIT") {
         statusMessage = "✅ KAPANDI - TP HIT!";
         emoji = "🎉";
-      } else if (signal.close_reason === "BAR_CLOSE") {
-        statusMessage = "⏱️ KAPANDI - BAR SINIRI";
-        emoji = "⏱️";
       }
 
       const precision = await getSymbolPricePrecision(

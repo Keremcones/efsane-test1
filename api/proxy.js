@@ -295,7 +295,6 @@ type NewSignal = {
   confidence_score: number;
   tp_percent: number;
   sl_percent: number;
-  bar_close_limit: number;
   signal_timestamp: string;
   status?: "ACTIVE";
   created_at?: string;
@@ -333,9 +332,6 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
     ? slPercentRaw
     : Math.abs(((entryPrice - stopLoss) / entryPrice) * 100);
 
-  const barCloseLimitRaw = Number(body.bar_close_limit ?? body.barCloseLimit ?? 30);
-  const barCloseLimit = Number.isFinite(barCloseLimitRaw) ? barCloseLimitRaw : 30;
-
   const confidenceRaw = Number(body.confidence_score ?? body.confidenceScore ?? 0);
   const confidenceScore = Number.isFinite(confidenceRaw) ? confidenceRaw : 0;
 
@@ -354,7 +350,6 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
     confidence_score: confidenceScore,
     tp_percent: tpPercent,
     sl_percent: slPercent,
-    bar_close_limit: barCloseLimit,
     signal_timestamp: signalTimestamp,
     status: "ACTIVE",
     created_at: new Date().toISOString(),

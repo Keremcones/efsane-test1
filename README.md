@@ -5,7 +5,7 @@ Binance kripto para verilerine dayalı otomatik trading stratejisi analiz ve bac
 ## 🎯 Özellikler
 
 - **Multi-Timeframe Analiz**: 5m, 15m, 30m, 1h, 4h, 1d
-- **Gerçek Zamanlı Backtest**: TP, SL, Bar Close Limit kuralları
+- **Gerçek Zamanlı Backtest**: TP, SL kuralları
 - **Gelişmiş Teknik Göstergeler**: RSI, MACD, Bollinger Bands, EMA, SMA vb.
 - **Pattern Recognition**: M-top, W-bottom, Head-Shoulders, vb.
 - **Risk Yönetimi**: TP/SL yüzdeleri, Risk Calculator
@@ -85,7 +85,6 @@ Browser'da açın: http://localhost:8000
 ### Backtest Parametreleri
 - **TP (Take Profit)**: Kar al yüzdesi (default %5)
 - **SL (Stop Loss)**: Zarar durdur yüzdesi (default %3)
-- **Bar Close Limit**: Kaç bar sonra işlem kapanacak (default 5)
 - **Güven Skoru**: Sinyal güvenilirliği (0-100)
 
 ### Sonuçlar

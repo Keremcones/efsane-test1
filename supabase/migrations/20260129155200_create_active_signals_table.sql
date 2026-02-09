@@ -12,7 +12,6 @@ CREATE TABLE public.active_signals (
   stop_loss DECIMAL(20, 8) NOT NULL,
   tp_percent DECIMAL(10, 4),
   sl_percent DECIMAL(10, 4),
-  bar_close_limit INT,
   status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'CLOSED')),
   close_reason VARCHAR(20) CHECK (close_reason IN ('TP_HIT', 'SL_HIT', 'CLOSED_BY_USER')),
   profit_loss DECIMAL(10, 4),

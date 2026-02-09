@@ -96,7 +96,6 @@ CREATE TABLE alarms (
   confidence_score DECIMAL(5,2),
   tp_percent DECIMAL(10,2),
   sl_percent DECIMAL(10,2),
-  bar_close_limit INTEGER,
   profit_loss DECIMAL(10,2),
   timeframe VARCHAR(10),
   signal_timestamp TIMESTAMP,

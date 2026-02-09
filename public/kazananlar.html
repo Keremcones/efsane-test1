@@ -910,7 +910,7 @@
         </div>
 
         <div class="card glass">
-            <div class="card-title">⚙️ TP / SL / Bar Kontrol Merkezi</div>
+            <div class="card-title">⚙️ TP / SL Kontrol Merkezi</div>
             <div class="tpsl-grid">
                 <div>
                     <label style="display: block; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">TP %</label>
@@ -924,13 +924,6 @@
                         style="width: 100%; padding: 8px; background: var(--bg-primary); border: 1px solid var(--border); 
                         border-radius: 6px; color: var(--text-primary); font-weight: 600;">
                 </div>
-            </div>
-            <div class="bar-limit-container">
-                <label style="display: block; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;">Zamana Duyarlı Kapanış (Bar)</label>
-                <input id="barInput" type="number" value="5" min="1" max="100" step="1" 
-                    style="width: 100%; padding: 8px; background: var(--bg-primary); border: 1px solid var(--border); 
-                    border-radius: 6px; color: var(--text-primary); font-weight: 600;">
-                <p id="autoTradeBarNote" style="display: none; font-size: 0.75rem; color: var(--accent); margin-top: 6px; margin-bottom: 0; line-height: 1.4; font-weight: 600;">Otomatik trade aciksa bar kapanisi 9999 olmalidir.</p>
             </div>
             <div class="bar-limit-container" style="margin-top: 12px;">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
@@ -961,7 +954,7 @@
             </div>
             <div class="timeframe-note">
                 Seçtiğiniz zaman diliminde, tüm coinler taranır ve en yüksek toplam kâr sağlayanlar listelenir.
-                TP/SL ve Bar ayarlarıyla sistemin ne kadar agresif veya dengeli çalışacağını belirleyebilirsiniz.
+                TP/SL ayarlarıyla sistemin ne kadar agresif veya dengeli çalışacağını belirleyebilirsiniz.
                 Coin’e tıklayarak aynı ayarlarla Dashboard’a geçebilirsiniz.
             </div>
         </div>
@@ -1039,44 +1032,6 @@
             });
         }
 
-        async function updateAutoTradeNotice() {
-            const barInput = document.getElementById('barInput');
-            const barNote = document.getElementById('autoTradeBarNote');
-            if (!barInput || !barNote || !currentUser || !supabaseClient) return;
-
-            let autoTradeEnabled = false;
-            try {
-                const { data: binanceSettings } = await supabaseClient
-                    .from('user_binance_keys')
-                    .select('auto_trade_enabled, futures_enabled, spot_enabled')
-                    .eq('user_id', currentUser.id)
-                    .maybeSingle();
-
-                if (binanceSettings?.auto_trade_enabled) {
-                    if (currentMarket === 'futures' && binanceSettings?.futures_enabled) {
-                        autoTradeEnabled = true;
-                    }
-                    if (currentMarket === 'spot' && binanceSettings?.spot_enabled) {
-                        autoTradeEnabled = true;
-                    }
-                }
-            } catch (e) {
-                console.warn('Auto trade notu guncellenemedi:', e);
-            }
-
-            if (autoTradeEnabled) {
-                barInput.value = '9999';
-                barInput.setAttribute('disabled', 'disabled');
-                barInput.style.opacity = '0.7';
-                barInput.style.cursor = 'not-allowed';
-                barNote.style.display = 'block';
-            } else {
-                barInput.removeAttribute('disabled');
-                barInput.style.opacity = '';
-                barInput.style.cursor = '';
-                barNote.style.display = 'none';
-            }
-        }
 
         function formatSymbol(symbol) {
             if (symbol.endsWith('USDT')) {
@@ -1242,7 +1197,7 @@
             return { totalProfit, winRate, profitFactor, totalTrades };
         }
 
-        async function runBacktestSafe(symbol, timeframe, tp, sl, bar) {
+        async function runBacktestSafe(symbol, timeframe, tp, sl) {
             try {
                 const backtest = await AdvancedIndicators.runBacktest(
                     symbol,
@@ -1250,8 +1205,7 @@
                     7,
                     confidenceThreshold,
                     tp,
-                    sl,
-                    bar
+                    sl
                 );
                 if (!backtest) return null;
 
@@ -1303,7 +1257,6 @@
             const runId = ++updateToken;
             const tp = parseFloat(document.getElementById('tpInput')?.value) || 5;
             const sl = parseFloat(document.getElementById('slInput')?.value) || 3;
-            const bar = parseInt(document.getElementById('barInput')?.value, 10) || 5;
             const startTime = Date.now();
 
             setLoading(true, 'Güncelleniyor...');
@@ -1326,7 +1279,7 @@
                 const worker = async () => {
                     while (queue.length) {
                         const symbol = queue.shift();
-                        const result = await runBacktestSafe(symbol, currentTimeframe, tp, sl, bar);
+                        const result = await runBacktestSafe(symbol, currentTimeframe, tp, sl);
                         if (runId !== updateToken) return;
                         if (result) {
                             results.push(result);
@@ -1385,7 +1338,6 @@
                     currentMarket = market;
                     localStorage.setItem('marketType', currentMarket);
                     setActiveButton(marketButtons, currentMarket, 'data-market');
-                    updateAutoTradeNotice();
                     scheduleUpdate();
                 });
             });
@@ -1401,7 +1353,7 @@
                 });
             });
 
-            ['tpInput', 'slInput', 'barInput'].forEach(id => {
+            ['tpInput', 'slInput'].forEach(id => {
                 const input = document.getElementById(id);
                 if (!input) return;
                 input.addEventListener('input', scheduleUpdate);
@@ -1543,14 +1495,12 @@
                 return;
             }
             setupControls();
-            updateAutoTradeNotice();
             loadWinners();
         });
 
         window.goToDashboard = function(symbol) {
             const tp = parseFloat(document.getElementById('tpInput')?.value) || 5;
             const sl = parseFloat(document.getElementById('slInput')?.value) || 3;
-            const bar = parseInt(document.getElementById('barInput')?.value, 10) || 5;
             const conf = Number.isFinite(confidenceThreshold) ? confidenceThreshold : 40;
             const params = new URLSearchParams({
                 symbol,
@@ -1558,7 +1508,6 @@
                 tf: currentTimeframe,
                 tp: tp.toString(),
                 sl: sl.toString(),
-                bar: bar.toString(),
                 conf: conf.toString()
             });
             window.location.href = `index.html?${params.toString()}`;

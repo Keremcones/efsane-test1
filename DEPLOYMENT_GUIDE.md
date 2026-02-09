@@ -71,7 +71,6 @@ CREATE TABLE alarms (
   confidence_score DECIMAL(5,2),
   tp_percent DECIMAL(10,2),
   sl_percent DECIMAL(10,2),
-  bar_close_limit INTEGER,
   status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'CLOSED')),
   close_reason VARCHAR(20) CHECK (close_reason IN ('TP_HIT', 'SL_HIT', 'MANUAL', 'EXPIRED')),
   is_active BOOLEAN DEFAULT true,

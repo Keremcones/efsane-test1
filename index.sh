@@ -4,7 +4,6 @@
         const timeframe = String(alarm.timeframe || "1h");
         const tpPercent = Number(alarm.tp_percent || 5);
         const slPercent = Number(alarm.sl_percent || 3);
-        const barClose = Number(alarm.bar_close_limit || 5);
         const directionTR = detectedSignal?.direction === "LONG" ? "LONG" : detectedSignal?.direction === "SHORT" ? "SHORT" : "UNKNOWN";
         const telegramMessage = `
 🔔 ALARM AKTİVE! 🔔
@@ -21,8 +20,6 @@
    • Güven: ${detectedSignal?.score || 0}%
    • TP (Kar Al): ${tpPercent}%
    • SL (Stop Loss): ${slPercent}%
-   • Bar Kapanış: ${barClose}
-
 ⏰ Zaman: ${new Date().toLocaleString("tr-TR")}
 `;
 

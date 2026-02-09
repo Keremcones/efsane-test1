@@ -2042,7 +2042,6 @@
         let confidenceThreshold = 40;  // Kullanıcı tarafından ayarlanabilir (default 40)
         let takeProfitPercent = 5;     // TP yüzdesi (default %5)
         let stopLossPercent = 3;       // SL yüzdesi (default %3)
-        let barCloseLimit = 5;         // Zamana duyarlı kapanış - kaç bar içinde işlem kapanacak (default 5)
         let autoRefreshInterval = 60;  // Auto-refresh aralığı (saniye) - default 1 dakika
         let autoRefreshEnabled = false; // Auto-refresh aktif mi?
         let autoRefreshTimer = null;   // Auto-refresh timer ID
@@ -2089,7 +2088,6 @@
                     confidenceThreshold: Number(confidenceThreshold),
                     takeProfitPercent: Number(takeProfitPercent),
                     stopLossPercent: Number(stopLossPercent),
-                    barCloseLimit: Number(barCloseLimit),
                     marketType,
                     sort: sortValue,
                     search: searchValue
@@ -2137,9 +2135,6 @@
             }
             if (Number.isFinite(Number(filters.stopLossPercent))) {
                 stopLossPercent = Number(filters.stopLossPercent);
-            }
-            if (Number.isFinite(Number(filters.barCloseLimit))) {
-                barCloseLimit = Number(filters.barCloseLimit);
             }
 
             if (filters.symbol) {
@@ -3312,7 +3307,7 @@
                 // Backtest önce çalışacak (çünkü o klines'ı çekecek 1000 limit ile)
                 let backtest = null;
                 try {
-                    const backtestPromise = AdvancedIndicators.runBacktest(symbol, currentTimeframe, 7, confidenceThreshold, takeProfitPercent, stopLossPercent, barCloseLimit);
+                    const backtestPromise = AdvancedIndicators.runBacktest(symbol, currentTimeframe, 7, confidenceThreshold, takeProfitPercent, stopLossPercent);
                     const timeoutPromise = new Promise((_, reject) => 
                         setTimeout(() => reject(new Error('Backtest timeout')), 5000)
                     );
@@ -3541,16 +3536,6 @@
                         currentSL = entryPrice * (1 + stopLossPercent / 100);
                     }
                     
-                    // Açık işlem kaç bar'da kaldığını hesapla
-                    let barsOpenedSince = 0;
-                    let barsUntilClose = barCloseLimit;
-                    if (backtest && backtest.klines && lastBacktestTrade.barIndex !== undefined) {
-                        const openBarIndex = lastBacktestTrade.barIndex;
-                        const currentBarIndex = backtest.klines.length - 1;
-                        barsOpenedSince = currentBarIndex - openBarIndex;
-                        barsUntilClose = Math.max(0, barCloseLimit - barsOpenedSince);
-                    }
-                    
                     displaySignal = {
                         ...signal,
                         direction: lastBacktestTrade.signal,
@@ -3558,9 +3543,7 @@
                         tp: currentTP,
                         stop: currentSL,
                         score: lastBacktestTrade.score,
-                        isValidSignal: true,  // Açık işlem varsa, kesinlikle göster
-                        barsOpenedSince: barsOpenedSince,  // ← Kaç bar geçti
-                        barsUntilClose: barsUntilClose  // ← Kaç bar daha kaldı
+                        isValidSignal: true  // Açık işlem varsa, kesinlikle göster
                     };
                     // Backtest'in tam timestamp'ını kullan (milisaniye olarak)
                     signalTimestamp = new Date(lastBacktestTrade.timestamp).toISOString();
@@ -3571,9 +3554,7 @@
                         entry: lastBacktestTrade.entry,
                         duration: lastBacktestTrade.duration,
                         isOpen: lastBacktestTrade.isOpen,
-                        barIndex: lastBacktestTrade.barIndex,
-                        barsOpenedSince: barsOpenedSince,
-                        barsUntilClose: barsUntilClose
+                        barIndex: lastBacktestTrade.barIndex
                     });
                 } else if (lastBacktestTrade) {
                     // Açık işlem yoksa, kapalı işlemi göster
@@ -4334,7 +4315,7 @@
                             <div id="miniChart" class="mini-chart"></div>
                         </div>
 
-                        <!-- TP/SL/Bar Limit Ayarları -->
+                        <!-- TP/SL Ayarları -->
                         <div class="tpsl-grid" style="margin-top: 16px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                             <div>
                                 <label style="display: block; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;"><i class="fa-solid fa-arrow-trend-up"></i> Take Profit %</label>
@@ -4351,16 +4332,6 @@
                                     onchange="stopLossPercent = parseFloat(this.value); saveDashboardFilters(); triggerBacktestUpdate();">
                             </div>
                         </div>
-                        <!-- Zamana Duyarlı Kapanış Ayarı -->
-                        <div class="bar-limit-container" style="margin-top: 12px; padding: 12px; background: var(--bg-secondary); border-radius: 8px;">
-                            <label style="display: block; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 4px; font-weight: 600;"><i class="fa-regular fa-clock"></i> Zamana Duyarlı Kapanış (Bar)</label>
-                            <input type="number" id="barLimitInput" value="${barCloseLimit}" min="1" max="9999" step="1" 
-                                style="width: 100%; padding: 8px; background: var(--bg-primary); border: 1px solid var(--border); 
-                                border-radius: 6px; color: var(--text-primary); font-weight: 600;"
-                                onchange="handleBarCloseLimitChange(this.value);">
-                            <p id="barLimitHelpText" style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 6px; margin-bottom: 0; line-height: 1.4;">TP/SL vurmayan işlemler kaç bar içinde kapanacağını belirler. Örnek: 5 bar = 5 bardan sonra işlem otomatik kapanır.</p>
-                            <p id="autoTradeBarNote" style="display: none; font-size: 0.75rem; color: var(--accent); margin-top: 6px; margin-bottom: 0; line-height: 1.4; font-weight: 600;">Otomatik trade işlemlerinde bar kapanışı kullanılamaz, 9999 olmalıdır.</p>
-                        </div>
 
                         ${canCreateAlarm ? `
                             <button class="btn btn-primary save-analysis-btn" onclick="createAlarmFromAnalysis()" style="margin-top: 16px;" ${!signal ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}>
@@ -4372,7 +4343,6 @@
                                 <span id="autoTradeAlarmNote" style="display: none; margin-top: 6px; color: var(--accent); font-weight: 600;">
                                     Otomatik trade yapıyorsunuz.
                                 </span>
-                                Otomatik trade ile işlem yaparken bar kapanışı kullanılamaz; bar kapanışı <strong>9999</strong> olmalıdır.
                                 Otomatik trade'i <a href="binance.html" style="color: var(--accent); font-weight: 600;">Binance Bağlantısı</a> sayfasından açabilirsiniz.
                             </div>
                         ` : `
@@ -4925,21 +4895,15 @@
                     const alarmTitleSuffix = isAutoTrade ? 'Otomatik İşlem' : (alarm.name || 'Alarm');
                     const alarmCreatedAt = formatDateTime(alarm.createdAt || alarm.created_at || alarm.signalTimestamp || alarm.signal_time);
                     
-                    // Description'dan TP/SL/Bar bilgilerini parse et
-                    const descriptionMatch = alarm.description ? alarm.description.match(/TP:\s*([\d.]+)%,\s*SL:\s*([\d.-]+)%,\s*Bar:\s*(\d+)/) : null;
+                    // Description'dan TP/SL bilgilerini parse et
+                    const descriptionMatch = alarm.description ? alarm.description.match(/TP:\s*([\d.]+)%,\s*SL:\s*([\d.-]+)%/) : null;
                     const tp = descriptionMatch ? descriptionMatch[1] : alarm.takeProfitPercent || '-';
                     const sl = descriptionMatch ? descriptionMatch[2] : alarm.stopLossPercent || '-';
-                    const barLimitValue = Number.isFinite(Number(alarm.barCloseLimit))
-                        ? Number(alarm.barCloseLimit)
-                        : (Number.isFinite(Number(alarm.bar_close_limit)) ? Number(alarm.bar_close_limit) : null);
-                    const bar = descriptionMatch
-                        ? descriptionMatch[3]
-                        : (barLimitValue === null ? (isAutoTrade ? 9999 : '-') : barLimitValue);
                     
                     if (alarm.type === 'ACTIVE_TRADE') {
-                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;">${logoHtml}<div><span style="font-weight: 600;">${coinSymbol} ${alarm.direction}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span><br><span style="font-size: 0.75rem; color: var(--text-secondary);">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></span></div></div></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;"><div><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div><i class="fa-regular fa-clock"></i> Timeframe: <strong>${alarm.timeframe || '-'}</strong></div><div><i class="fa-regular fa-calendar"></i> Tarih/Saat: <strong>${alarmCreatedAt}</strong></div><div style="margin-top: 4px;"><i class="fa-solid fa-bullseye"></i> TP: ${alarm.tpPercent}% | <i class="fa-solid fa-circle-stop"></i> SL: ${alarm.slPercent}% | <i class="fa-regular fa-clock"></i> Bar: ${bar}</div></div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
+                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;">${logoHtml}<div><span style="font-weight: 600;">${coinSymbol} ${alarm.direction}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span><br><span style="font-size: 0.75rem; color: var(--text-secondary);">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></span></div></div></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;"><div><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div><i class="fa-regular fa-clock"></i> Timeframe: <strong>${alarm.timeframe || '-'} </strong></div><div><i class="fa-regular fa-calendar"></i> Tarih/Saat: <strong>${alarmCreatedAt}</strong></div><div style="margin-top: 4px;"><i class="fa-solid fa-bullseye"></i> TP: ${alarm.tpPercent}% | <i class="fa-solid fa-circle-stop"></i> SL: ${alarm.slPercent}%</div></div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
                     } else {
-                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;"><div>${logoHtml}</div><div><span style="font-weight: 600;">${coinSymbol} - ${alarmTitleSuffix}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe || '1h'}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span></div></div><span style="font-size: 0.85rem; color: var(--text-secondary);"><i class="fa-solid fa-circle"></i> Aktif</span></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-regular fa-calendar"></i> Tarih/Saat: <strong>${alarmCreatedAt}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">Timeframe: ${alarm.timeframe || '1h'} | TP: ${tp}% | SL: ${sl}% | Bar: ${bar}</div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
+                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;"><div>${logoHtml}</div><div><span style="font-weight: 600;">${coinSymbol} - ${alarmTitleSuffix}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe || '1h'}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span></div></div><span style="font-size: 0.85rem; color: var(--text-secondary);"><i class="fa-solid fa-circle"></i> Aktif</span></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-regular fa-calendar"></i> Tarih/Saat: <strong>${alarmCreatedAt}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">Timeframe: ${alarm.timeframe || '1h'} | TP: ${tp}% | SL: ${sl}%</div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
                     }
                 });
                 activeGrid.innerHTML = activeHtml;
@@ -4948,10 +4912,9 @@
             // Alarm Sinyalleri - aktif alarmlara ait sinyaller
             if (closedContainerEl && supabaseClient && currentUser?.id) {
                 try {
-                    const activeAlarmIds = new Set(activeAlarms.map(a => Number(a.id)));
                     const { data: activeSignals, error } = await supabaseClient
                         .from('active_signals')
-                        .select('id, alarm_id, symbol, market_type, direction, entry_price, take_profit, stop_loss, tp_percent, sl_percent, bar_close_limit, score, status, created_at, profit_loss, close_reason')
+                        .select('id, alarm_id, symbol, market_type, direction, entry_price, take_profit, stop_loss, tp_percent, sl_percent, score, status, created_at, profit_loss, close_reason')
                         .eq('user_id', currentUser.id)
                         .order('created_at', { ascending: false });
 
@@ -4959,8 +4922,7 @@
                         console.error('❌ Alarm sinyalleri yüklenemedi:', error);
                         closedContainerEl.innerHTML = '<div style="text-align: center; padding: 24px; color: var(--text-secondary);">Alarm sinyalleri yüklenemedi.</div>';
                     } else {
-                        const filteredSignals = (activeSignals || [])
-                            .filter(sig => activeAlarmIds.has(Number(sig.alarm_id)));
+                        const filteredSignals = (activeSignals || []);
 
                         if (filteredSignals.length === 0) {
                             closedContainerEl.innerHTML = '<div style="text-align: center; padding: 24px; color: var(--text-secondary);">Henüz sinyal yok.</div>';
@@ -5001,10 +4963,8 @@
                                 const pnlValueAttr = pnlPercent === null ? '' : String(pnlPercent);
                                 const tpPercent = Number(sig.tp_percent);
                                 const slPercent = Number(sig.sl_percent);
-                                const barLimit = Number(sig.bar_close_limit);
                                 const tpText = Number.isFinite(tpPercent) ? `${tpPercent}%` : '-';
                                 const slText = Number.isFinite(slPercent) ? `${slPercent}%` : '-';
-                                const barText = Number.isFinite(barLimit) ? `${barLimit}` : '-';
                                 const statusText = isClosed ? 'KAPALI' : 'AKTİF';
                                 const statusClass = isClosed ? 'negative' : 'positive';
                                 return `
@@ -5025,7 +4985,6 @@
                                         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
                                             <span class="price-change positive" style="padding:3px 8px;font-size:0.75rem;">TP: ${tpText}</span>
                                             <span class="price-change negative" style="padding:3px 8px;font-size:0.75rem;">SL: ${slText}</span>
-                                            <span class="price-change" style="background:rgba(255,255,255,0.06);color:var(--text-secondary);padding:3px 8px;font-size:0.75rem;">Bar: ${barText}</span>
                                         </div>
                                         <div style="font-size:0.85rem;color:var(--text-secondary);">
                                             <div><i class="fa-regular fa-calendar"></i> Tarih/Saat: <strong>${signalCreatedAt}</strong></div>
@@ -5226,18 +5185,15 @@
                 console.warn('Auto trade ayarı okunamadı:', e);
             }
 
-            const resolvedBarCloseLimit = autoTradeEnabled ? null : barCloseLimit;
-
             const alarm = {
                 marketType: CURRENT_MARKET_TYPE,
                 symbol: currentSymbol,
                 type: 'PRICE_LEVEL',
                 name: `${currentSymbol} - Alarm Kuruldu`,
-                description: `Güven skoru: ${confidenceThreshold}%, Timeframe: ${currentTimeframe}, TP: ${takeProfitPercent}%, SL: ${stopLossPercent}%, Bar: ${resolvedBarCloseLimit ?? barCloseLimit}`,
+                description: `Güven skoru: ${confidenceThreshold}%, Timeframe: ${currentTimeframe}, TP: ${takeProfitPercent}%, SL: ${stopLossPercent}%`,
                 timeframe: currentTimeframe,
                 takeProfitPercent: takeProfitPercent,
                 stopLossPercent: stopLossPercent,
-                barCloseLimit: resolvedBarCloseLimit,
                 confidenceScore: confidenceThreshold,
                 autoTradeEnabled: autoTradeEnabled,
                 active: true,
@@ -5275,43 +5231,6 @@
 
             isAutoTradeActive = autoTradeEnabled;
             noteEl.style.display = autoTradeEnabled ? 'block' : 'none';
-
-            const barInput = document.getElementById('barLimitInput');
-            const barNote = document.getElementById('autoTradeBarNote');
-            if (autoTradeEnabled) {
-                if (barCloseLimit !== 9999) {
-                    barCloseLimit = 9999;
-                    saveDashboardFilters();
-                }
-                if (barInput) {
-                    barInput.value = '9999';
-                    barInput.setAttribute('disabled', 'disabled');
-                    barInput.style.opacity = '0.7';
-                    barInput.style.cursor = 'not-allowed';
-                }
-                if (barNote) barNote.style.display = 'block';
-            } else {
-                if (barInput) {
-                    barInput.removeAttribute('disabled');
-                    barInput.style.opacity = '';
-                    barInput.style.cursor = '';
-                }
-                if (barNote) barNote.style.display = 'none';
-            }
-        }
-
-        function handleBarCloseLimitChange(value) {
-            const barInput = document.getElementById('barLimitInput');
-            if (isAutoTradeActive) {
-                barCloseLimit = 9999;
-                if (barInput) barInput.value = '9999';
-            } else {
-                const parsed = parseInt(value, 10);
-                barCloseLimit = Number.isFinite(parsed) ? parsed : barCloseLimit;
-            }
-            saveDashboardFilters();
-            console.log('barCloseLimit değiştirildi:', barCloseLimit);
-            triggerBacktestUpdate();
         }
 
         // Aktif sinyali alarm sistemi'ne ekle
@@ -5375,7 +5294,6 @@
             const urlTimeframe = urlParams.get('tf');
             const urlTp = urlParams.get('tp');
             const urlSl = urlParams.get('sl');
-            const urlBar = urlParams.get('bar');
             const urlConf = urlParams.get('conf');
             const savedFilters = getDashboardFiltersFromStorage();
             const savedSymbol = savedFilters?.symbol;
@@ -5409,10 +5327,6 @@
 
             if (urlSl && !Number.isNaN(parseFloat(urlSl))) {
                 stopLossPercent = parseFloat(urlSl);
-            }
-
-            if (urlBar && !Number.isNaN(parseInt(urlBar, 10))) {
-                barCloseLimit = parseInt(urlBar, 10);
             }
 
             if (urlConf && !Number.isNaN(parseInt(urlConf, 10))) {
@@ -5711,8 +5625,7 @@ Detaylar:
                     7, 
                     confidenceThreshold, 
                     takeProfitPercent, 
-                    stopLossPercent, 
-                    barCloseLimit
+                    stopLossPercent
                 );
                 
                 if (!backtestResult || !backtestResult.trades) return;
@@ -6150,7 +6063,7 @@ Detaylar:
             }, 500);
         }
         
-        // TP, SL, barCloseLimit değiştiğinde
+        // TP, SL değiştiğinde
         function setupConfigListeners() {
             // TP slider
             const tpSlider = document.querySelector('input[id*="tp"], input[type="range"][value="' + takeProfitPercent + '"]');
@@ -6162,12 +6075,6 @@ Detaylar:
             const slSlider = document.querySelector('input[id*="sl"], input[id*="stop"]');
             if (slSlider) {
                 slSlider.addEventListener('change', triggerBacktestUpdate);
-            }
-            
-            // barCloseLimit slider
-            const barSlider = document.querySelector('input[id*="bar"]');
-            if (barSlider) {
-                barSlider.addEventListener('change', triggerBacktestUpdate);
             }
             
             // Confidence threshold zaten var, onu kontrol et

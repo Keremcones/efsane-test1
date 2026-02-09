@@ -808,10 +808,6 @@
                         <label style="display:block; font-size:0.75rem; color: var(--text-secondary); margin-bottom:4px;">SL</label>
                         <input id="customSl" class="input" type="number" placeholder="SL %" value="3" min="0.1" step="0.1">
                     </div>
-                    <div style="min-width: 120px;">
-                        <label style="display:block; font-size:0.75rem; color: var(--text-secondary); margin-bottom:4px;">Bar</label>
-                        <input id="customBar" class="input" type="number" placeholder="Bar" value="5" min="1" step="1">
-                    </div>
                     <button id="strategyRun" class="btn"><i class="fa-solid fa-play"></i> Karşılaştır</button>
                     <button id="strategyAdd" class="btn"><i class="fa-solid fa-plus"></i> Ekle</button>
                     <span class="status-pill" id="strategyTrades">Test edilen işlem: -</span>
@@ -829,7 +825,7 @@
                     <thead>
                         <tr>
                             <th>Strateji</th>
-                            <th>TP / SL / Bar</th>
+                            <th>TP / SL</th>
                             <th>
                                 Win Rate
                                 <label class="sort-radio"><input type="radio" name="strategySort" value="winRate"> Seç</label>
@@ -881,12 +877,12 @@
         let lastStrategyResults = [];
         let confidenceThreshold = parseInt(localStorage.getItem('strategyConfidence') || '40', 10);
         const strategyPresets = [
-            { label: 'Agresif', tp: 8, sl: 4, bar: 4 },
-            { label: 'Dengeli', tp: 5, sl: 3, bar: 5 },
-            { label: 'Koruma', tp: 3, sl: 2, bar: 7 },
-            { label: 'Scalper', tp: 2.5, sl: 1.5, bar: 3 },
-            { label: 'Trend', tp: 10, sl: 4, bar: 8 },
-            { label: 'Swing', tp: 6, sl: 3, bar: 10 }
+            { label: 'Agresif', tp: 8, sl: 4 },
+            { label: 'Dengeli', tp: 5, sl: 3 },
+            { label: 'Koruma', tp: 3, sl: 2 },
+            { label: 'Scalper', tp: 2.5, sl: 1.5 },
+            { label: 'Trend', tp: 10, sl: 4 },
+            { label: 'Swing', tp: 6, sl: 3 }
         ];
 
         function setStrategyStatus(text, active = false) {
@@ -1033,7 +1029,7 @@
             table.innerHTML = sorted.map(item => `
                 <tr>
                     <td>${item.label}</td>
-                    <td>${item.tp} / ${item.sl} / ${item.bar}</td>
+                    <td>${item.tp} / ${item.sl}</td>
                     <td>${item.winRateText}</td>
                     <td>${item.totalProfitText}</td>
                     <td>${item.profitFactorText}</td>
@@ -1076,7 +1072,6 @@
             const timeframe = document.getElementById('strategyTimeframe')?.value || '1h';
             const customTp = parseFloat(document.getElementById('customTp')?.value) || 5;
             const customSl = parseFloat(document.getElementById('customSl')?.value) || 3;
-            const customBar = parseInt(document.getElementById('customBar')?.value, 10) || 5;
             const tradesEl = document.getElementById('strategyTrades');
 
             setMarketType(market);
@@ -1085,7 +1080,7 @@
 
             const presets = [
                 ...strategyPresets,
-                { label: 'Özel', tp: customTp, sl: customSl, bar: customBar },
+                { label: 'Özel', tp: customTp, sl: customSl },
                 ...extraStrategies
             ];
 
@@ -1099,8 +1094,7 @@
                         7,
                         confidenceThreshold,
                         preset.tp,
-                        preset.sl,
-                        preset.bar
+                        preset.sl
                     );
                     const filteredTrades = Array.isArray(result?.trades)
                         ? result.trades.filter(trade => {
@@ -1118,7 +1112,6 @@
                         label: preset.label,
                         tp: preset.tp,
                         sl: preset.sl,
-                        bar: preset.bar,
                         winRate: metrics.winRate,
                         totalProfit: metrics.totalProfit,
                         profitFactor: metrics.profitFactor,
@@ -1131,7 +1124,6 @@
                         label: preset.label,
                         tp: preset.tp,
                         sl: preset.sl,
-                        bar: preset.bar,
                         winRate: 0,
                         totalProfit: 0,
                         profitFactor: 0,
@@ -1299,9 +1291,8 @@
                 addBtn.addEventListener('click', () => {
                     const tp = parseFloat(document.getElementById('customTp')?.value) || 5;
                     const sl = parseFloat(document.getElementById('customSl')?.value) || 3;
-                    const bar = parseInt(document.getElementById('customBar')?.value, 10) || 5;
                     const label = `Özel ${extraStrategies.length + 2}`;
-                    extraStrategies.push({ label, tp, sl, bar });
+                    extraStrategies.push({ label, tp, sl });
                     runStrategyComparison();
                 });
             }
