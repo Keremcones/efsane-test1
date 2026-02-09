@@ -1521,7 +1521,7 @@ function validateAlarm(alarm: any): boolean {
   }
 
   const slPercent = Number(alarm?.sl_percent ?? alarm?.stopLossPercent ?? 3);
-  if (!Number.isFinite(slPercent) || slPercent <= 0 || slPercent > 50) {
+  if (!Number.isFinite(slPercent) || slPercent <= 0 || slPercent > 99) {
     console.error("❌ Invalid SL:", alarm?.id, alarm?.sl_percent);
     return false;
   }
