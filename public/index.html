@@ -4915,9 +4915,9 @@
                 try {
                     const { data: activeSignals, error } = await supabaseClient
                         .from('active_signals')
-                        .select('id, alarm_id, symbol, market_type, direction, entry_price, take_profit, stop_loss, tp_percent, sl_percent, score, status, created_at, profit_loss, close_reason')
+                        .select('id, alarm_id, symbol, market_type, direction, entry_price, take_profit, stop_loss, tp_percent, sl_percent, score, status, created_at, signal_timestamp, profit_loss, close_reason')
                         .eq('user_id', currentUser.id)
-                        .order('created_at', { ascending: false });
+                        .order('signal_timestamp', { ascending: false });
 
                     if (error) {
                         console.error('❌ Alarm sinyalleri yüklenemedi:', error);
@@ -4940,7 +4940,7 @@
                                 if (!isClosed && !Number.isFinite(livePrice)) {
                                     ensureAlarmSignalPrice(sig.symbol, sig.market_type || 'spot');
                                 }
-                                const signalCreatedAt = formatDateTime(sig.created_at);
+                                const signalCreatedAt = formatDateTime(sig.signal_timestamp || sig.created_at);
                                 const rawPnl = !isClosed && Number.isFinite(livePrice)
                                     ? (sig.direction === 'SHORT'
                                         ? ((entryPrice - livePrice) / entryPrice) * 100
