@@ -6,6 +6,20 @@
 
 // (no helper) price formatting uses toFixed(2) where appropriate
 
+function resolveMarketType(marketType) {
+    return String(marketType || '').toLowerCase() === 'futures' ? 'futures' : 'spot';
+}
+
+function getBinanceApiBaseForMarketType(marketType) {
+    if (!marketType && typeof window.getBinanceApiBase === 'function') {
+        return window.getBinanceApiBase();
+    }
+    const normalized = resolveMarketType(marketType);
+    const spotBase = window.BINANCE_SPOT_API_BASE || 'https://api.binance.com/api/v3';
+    const futuresBase = window.BINANCE_FUTURES_API_BASE || 'https://fapi.binance.com/fapi/v1';
+    return normalized === 'futures' ? futuresBase : spotBase;
+}
+
 // 1. MULTI-TIMEFRAME ANALİZ
 async function analyzeMultiTimeframe(symbol) {
     const timeframes = ['5m', '15m', '1h', '4h', '1d'];
@@ -884,7 +898,7 @@ function getConfidenceLevel(score) {
 }
 
 // 7. BACKTEST SİSTEMİ
-async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 70, takeProfitPercent = 5, stopLossPercent = 3) {
+async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 70, takeProfitPercent = 5, stopLossPercent = 3, marketType = null) {
     const results = [];
     console.log(`🔍 BACKTEST BAŞLADI: ${symbol} ${timeframe} | TP:${takeProfitPercent}% SL:${stopLossPercent}%`);
     
@@ -894,11 +908,14 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
     };
     const minutes = timeframeMinutes[timeframe] || 60;
     const klinesPerDay = 24 * 60 / minutes;
-    const neededKlines = Math.min(Math.ceil(days * klinesPerDay), 1000);
+    const windowSize = 100;
+    const minRequired = windowSize + 2;
+    const neededKlines = Math.min(Math.max(Math.ceil(days * klinesPerDay), minRequired), 1000);
     
     try {
         // Son 999 kapanmış bar'ı al with retry & rate limiting
-        const klinesUrl = `${window.getBinanceApiBase ? window.getBinanceApiBase() : "https://api.binance.com/api/v3"}/klines?symbol=${symbol}&interval=${timeframe}&limit=999`;
+        const apiBase = getBinanceApiBaseForMarketType(marketType);
+        const klinesUrl = `${apiBase}/klines?symbol=${symbol}&interval=${timeframe}&limit=${neededKlines}`;
         const response = await fetchWithRetry(klinesUrl, {}, 3, 1000, 30000);
         const klines = await response.json();
         
@@ -955,7 +972,6 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         const volumes = klines.map(k => parseFloat(k[5]));
         
         // Sliding window ile backtest
-        const windowSize = 100;
         let wins = 0;
         let losses = 0;
         let totalProfit = 0;

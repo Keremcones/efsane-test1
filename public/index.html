@@ -3307,7 +3307,8 @@
                 // Backtest önce çalışacak (çünkü o klines'ı çekecek 1000 limit ile)
                 let backtest = null;
                 try {
-                    const backtestPromise = AdvancedIndicators.runBacktest(symbol, currentTimeframe, 7, confidenceThreshold, takeProfitPercent, stopLossPercent);
+                    const resolvedMarketType = (typeof getMarketType === 'function') ? getMarketType() : (window.CURRENT_MARKET_TYPE || 'spot');
+                    const backtestPromise = AdvancedIndicators.runBacktest(symbol, currentTimeframe, 7, confidenceThreshold, takeProfitPercent, stopLossPercent, resolvedMarketType);
                     const timeoutPromise = new Promise((_, reject) => 
                         setTimeout(() => reject(new Error('Backtest timeout')), 5000)
                     );
@@ -5619,13 +5620,15 @@ Detaylar:
             
             try {
                 // Backtest'i yeniden çalıştır
+                const resolvedMarketType = (typeof getMarketType === 'function') ? getMarketType() : (window.CURRENT_MARKET_TYPE || 'spot');
                 const backtestResult = await AdvancedIndicators.runBacktest(
                     currentSymbol, 
                     currentTimeframe, 
                     7, 
                     confidenceThreshold, 
                     takeProfitPercent, 
-                    stopLossPercent
+                    stopLossPercent,
+                    resolvedMarketType
                 );
                 
                 if (!backtestResult || !backtestResult.trades) return;
