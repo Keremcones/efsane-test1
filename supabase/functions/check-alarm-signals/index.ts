@@ -1555,18 +1555,20 @@ interface TechnicalIndicators {
 }
 
 async function calculateIndicators(symbol: string, marketType: "spot" | "futures", timeframe: string = "1h"): Promise<TechnicalIndicators | null> {
-  const klines = await getKlines(symbol, marketType, timeframe, 101);
+  const klines = await getKlines(symbol, marketType, timeframe, 1000);
   if (!klines || klines.length < 2) return null;
 
   // ✅ Backtest ile birebir uyum için açık (son) bar'ı dahil etme
   const closedKlines = klines.slice(0, -1);
-  if (closedKlines.length < 100) return null;
+  if (closedKlines.length < 2) return null;
+  const windowSize = Math.min(1000, closedKlines.length);
+  const window = closedKlines.slice(-windowSize);
 
-  const closes = closedKlines.map((k: any) => parseFloat(k[4]));
-  const volumes = closedKlines.map((k: any) => parseFloat(k[5]));
-  const highs = closedKlines.map((k: any) => parseFloat(k[2]));
-  const lows = closedKlines.map((k: any) => parseFloat(k[3]));
-  const lastClosedKline = closedKlines[closedKlines.length - 1];
+  const closes = window.map((k: any) => parseFloat(k[4]));
+  const volumes = window.map((k: any) => parseFloat(k[5]));
+  const highs = window.map((k: any) => parseFloat(k[2]));
+  const lows = window.map((k: any) => parseFloat(k[3]));
+  const lastClosedKline = window[window.length - 1];
   const lastClosedTimestamp = Number(lastClosedKline?.[6] ?? lastClosedKline?.[0] ?? Date.now());
   const lastPrice = closes[closes.length - 1];
 

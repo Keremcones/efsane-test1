@@ -28,7 +28,7 @@ async function analyzeMultiTimeframe(symbol, marketType = null) {
     const promises = timeframes.map(async (tf) => {
         try {
             const apiBase = getBinanceApiBaseForMarketType(marketType);
-            const klinesUrl = `${apiBase}/klines?symbol=${symbol}&interval=${tf}&limit=101`;
+            const klinesUrl = `${apiBase}/klines?symbol=${symbol}&interval=${tf}&limit=1000`;
             const response = await fetch(klinesUrl);
             const klines = await response.json();
             const closedKlines = Array.isArray(klines) ? klines.slice(0, -1) : [];
@@ -41,10 +41,11 @@ async function analyzeMultiTimeframe(symbol, marketType = null) {
                 };
             }
             
-            const closes = closedKlines.map(k => parseFloat(k[4]));
-            const highs = closedKlines.map(k => parseFloat(k[2]));
-            const lows = closedKlines.map(k => parseFloat(k[3]));
-            const volumes = closedKlines.map(k => parseFloat(k[5]));
+            const window = closedKlines.slice(-1000);
+            const closes = window.map(k => parseFloat(k[4]));
+            const highs = window.map(k => parseFloat(k[2]));
+            const lows = window.map(k => parseFloat(k[3]));
+            const volumes = window.map(k => parseFloat(k[5]));
             
             const indicators = calculateAlarmIndicators(closes, highs, lows, volumes);
             const signal = indicators
@@ -946,10 +947,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         '5m': 5, '15m': 15, '30m': 30, '1h': 60, '4h': 240, '1d': 1440
     };
     const minutes = timeframeMinutes[timeframe] || 60;
-    const klinesPerDay = 24 * 60 / minutes;
-    const windowSize = 100;
-    const minRequired = windowSize + 2;
-    const neededKlines = Math.min(Math.max(Math.ceil(days * klinesPerDay), minRequired), 1000);
+    const neededKlines = 1000;
     
     try {
         // Son 999 kapanmış bar'ı al with retry & rate limiting
@@ -957,6 +955,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         const klinesUrl = `${apiBase}/klines?symbol=${symbol}&interval=${timeframe}&limit=${neededKlines}`;
         const response = await fetchWithRetry(klinesUrl, {}, 3, 1000, 30000);
         const klines = await response.json();
+        const trimmedKlines = Array.isArray(klines) ? klines.slice(-1000) : [];
         
         // Şu anki açık bar'ı ekle (manuel olarak) - TÜRKİYE SAATİNE GÖRE
         // ⚠️ AÇIK BAR'NIN HIGH/LOW VERİSİ EKSIK OLDUĞU İÇİN BACKTESTE KATMIYORUZ
@@ -1005,10 +1004,12 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         klines.push(openBar);
         */
         
-        const closes = klines.map(k => parseFloat(k[4]));
-        const highs = klines.map(k => parseFloat(k[2]));
-        const lows = klines.map(k => parseFloat(k[3]));
-        const volumes = klines.map(k => parseFloat(k[5]));
+        const closes = trimmedKlines.map(k => parseFloat(k[4]));
+        const highs = trimmedKlines.map(k => parseFloat(k[2]));
+        const lows = trimmedKlines.map(k => parseFloat(k[3]));
+        const volumes = trimmedKlines.map(k => parseFloat(k[5]));
+        let windowSize = Math.min(1000, closes.length - 1);
+        if (windowSize < 100) windowSize = Math.min(100, closes.length - 1);
         
         // Sliding window ile backtest
         let wins = 0;
