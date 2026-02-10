@@ -910,14 +910,44 @@
         async function loadStrategyCoins() {
             const market = document.getElementById('strategyMarket')?.value || 'spot';
             const base = market === 'futures' ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
-            const res = await fetch(`${base}/exchangeInfo`);
+            const res = await fetch(`${base}/ticker/24hr`);
             if (!res.ok) throw new Error('Coin listesi alınamadı');
             const data = await res.json();
-            strategyCoins = (data.symbols || [])
-                .filter(item => item.status === 'TRADING')
-                .filter(item => item.quoteAsset === 'USDT')
-                .filter(item => market === 'futures' ? item.contractType === 'PERPETUAL' : true)
-                .map(item => item.symbol)
+            const now = Date.now();
+            strategyCoins = (Array.isArray(data) ? data : [])
+                .filter(coin => {
+                    if (coin.status && coin.status !== 'TRADING') return false;
+
+                    const closeTime = Number(coin.closeTime || coin.close_time || 0);
+                    const tradeCount = Number(coin.count || 0);
+                    const isFresh = !closeTime || (now - closeTime) < 2 * 60 * 60 * 1000;
+                    if (!isFresh || tradeCount <= 0) {
+                        return false;
+                    }
+
+                    const quoteVolume = parseFloat(coin.quoteVolume || 0);
+                    const priceChange = parseFloat(coin.priceChangePercent || 0);
+                    const high = parseFloat(coin.highPrice || 0);
+                    const low = parseFloat(coin.lowPrice || 0);
+                    const lastPrice = parseFloat(coin.lastPrice || 0);
+
+                    const hasVolume = quoteVolume >= 100;
+                    const hasPriceChange = Math.abs(priceChange) > 0.01;
+                    const hasPriceRange = Math.abs(high - low) > 0;
+                    if (!hasVolume && !hasPriceChange && !hasPriceRange) {
+                        return false;
+                    }
+
+                    if (!Number.isFinite(lastPrice) || lastPrice <= 0) {
+                        return false;
+                    }
+
+                    if (market === 'futures') {
+                        return coin.symbol.endsWith('USDT') && !coin.symbol.includes('_');
+                    }
+                    return coin.symbol.endsWith('USDT') && !coin.symbol.includes('DOWN') && !coin.symbol.includes('UP') && !coin.symbol.includes('BEAR') && !coin.symbol.includes('BULL');
+                })
+                .map(coin => coin.symbol)
                 .sort();
 
             filteredStrategyCoins = [...strategyCoins];
