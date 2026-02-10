@@ -1021,7 +1021,7 @@
             return baseList.map(base => `${base}${path}`);
         }
 
-        async function fetchWithTimeout(url, options, timeoutMs = 10000) {
+        async function baseFetchWithTimeout(url, options, timeoutMs = 10000) {
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), timeoutMs);
             try {
@@ -1031,11 +1031,11 @@
             }
         }
 
-        async function fetchWithRetry(url, options, retries = 3, timeoutMs = 10000) {
+        async function baseFetchWithRetry(url, options, retries = 3, timeoutMs = 10000) {
             let lastError = null;
             for (let attempt = 0; attempt < retries; attempt++) {
                 try {
-                    const res = await fetchWithTimeout(url, options, timeoutMs);
+                    const res = await baseFetchWithTimeout(url, options, timeoutMs);
                     if (res.ok) return res;
                     lastError = new Error(`HTTP ${res.status}`);
                 } catch (error) {
@@ -1055,7 +1055,7 @@
 
             for (const candidate of fallbackUrls) {
                 try {
-                    const res = await fetchWithRetry(candidate, options, 3, 10000);
+                    const res = await baseFetchWithRetry(candidate, options, 3, 10000);
                     if (res.ok) return res;
                     lastError = new Error(`HTTP ${res.status}`);
                 } catch (error) {
@@ -1065,6 +1065,30 @@
 
             throw lastError || new Error('Request failed');
         };
+
+        async function fetchWithTimeout(url, options, timeoutMs = 10000) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                return await window.fetch(url, { ...options, signal: controller.signal });
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
+        async function fetchWithRetry(url, options, retries = 3, timeoutMs = 10000) {
+            let lastError = null;
+            for (let attempt = 0; attempt < retries; attempt++) {
+                try {
+                    const res = await fetchWithTimeout(url, options, timeoutMs);
+                    if (res.ok) return res;
+                    lastError = new Error(`HTTP ${res.status}`);
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+            throw lastError || new Error('Request failed');
+        }
 
         let supabaseClient = null;
         let currentUser = null;
