@@ -22,8 +22,8 @@ const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const telegramBotToken = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const cronSecret = Deno.env.get("CRON_SECRET") ?? ""; // set this to protect endpoint
 
-// Single supabase client for whole function (more efficient)
-const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
+// Supabase client (init lazily to avoid boot errors when env is missing)
+let supabase: ReturnType<typeof createClient> | null = null;
 
 // =====================
 // Binance API bases & price cache
@@ -2879,6 +2879,10 @@ serve(async (req: any) => {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
+  }
+
+  if (!supabase) {
+    supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
   }
 
   if (req.method !== "POST") {
