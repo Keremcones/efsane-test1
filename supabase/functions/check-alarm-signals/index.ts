@@ -590,12 +590,13 @@ async function placeTakeProfitStopLoss(
   const tickSize = 1 / Math.pow(10, pricePrecision);
   const currentPrice = await getCurrentPrice(symbol, "futures");
   if (Number.isFinite(currentPrice)) {
+    const minOffset = Math.max(currentPrice * 0.001, tickSize * 2);
     if (direction === "LONG") {
-      if (tpValue <= currentPrice) tpValue = currentPrice + tickSize;
-      if (slValue >= currentPrice) slValue = Math.max(currentPrice - tickSize, tickSize);
+      if (tpValue <= currentPrice + minOffset) tpValue = currentPrice + minOffset;
+      if (slValue >= currentPrice - minOffset) slValue = Math.max(currentPrice - minOffset, tickSize);
     } else {
-      if (tpValue >= currentPrice) tpValue = Math.max(currentPrice - tickSize, tickSize);
-      if (slValue <= currentPrice) slValue = currentPrice + tickSize;
+      if (tpValue >= currentPrice - minOffset) tpValue = Math.max(currentPrice - minOffset, tickSize);
+      if (slValue <= currentPrice + minOffset) slValue = currentPrice + minOffset;
     }
   }
 
@@ -729,8 +730,9 @@ async function placeSpotOco(
   const tickSize = 1 / Math.pow(10, pricePrecision);
   const currentPrice = await getCurrentPrice(symbol, "spot");
   if (Number.isFinite(currentPrice)) {
-    if (tpValue <= currentPrice) tpValue = currentPrice + tickSize;
-    if (slValue >= currentPrice) slValue = Math.max(currentPrice - tickSize, tickSize);
+    const minOffset = Math.max(currentPrice * 0.001, tickSize * 2);
+    if (tpValue <= currentPrice + minOffset) tpValue = currentPrice + minOffset;
+    if (slValue >= currentPrice - minOffset) slValue = Math.max(currentPrice - minOffset, tickSize);
   }
 
   const tpPrice = tpValue.toFixed(pricePrecision);
@@ -815,6 +817,11 @@ async function executeAutoTrade(
       .eq("auto_trade_enabled", true)
       .maybeSingle();
 
+    if (keysError || !userKeys) {
+      console.error("❌ Binance keys missing or not enabled:", keysError || "no record");
+      return { success: false, message: "Binance anahtarları bulunamadı veya otomatik işlem kapalı." };
+    }
+
     if (marketType === "futures" && !userKeys.futures_enabled) {
       return { success: false, message: "Futures auto-trade not enabled" };
     }
@@ -851,6 +858,8 @@ async function executeAutoTrade(
         }
       }
     } catch (e) {
+      const errText = e instanceof Error ? e.message : "Unknown error";
+      console.error("❌ Open position check failed:", errText);
       return { success: false, message: "Açık pozisyon kontrolü başarısız. İşlem açılmadı." };
     }
 
