@@ -1750,25 +1750,6 @@ class AlarmSystem {
                         .eq('alarm_id', numId);
                     console.log('🧹 Active signals temizlendi:', deleteSignalsResult);
                 }
-
-                if (alarm) {
-                    // Fallback: alarm_id eşleşmezse ilgili sembol/timeframe sinyallerini temizle
-                    let fallbackSignalDelete = this.supabase
-                        .from('active_signals')
-                        .delete()
-                        .eq('user_id', this.userId)
-                        .eq('symbol', alarm.symbol || 'BTCUSDT');
-
-                    if (alarm.timeframe) {
-                        fallbackSignalDelete = fallbackSignalDelete.eq('timeframe', alarm.timeframe);
-                    }
-                    if (alarm.marketType) {
-                        fallbackSignalDelete = fallbackSignalDelete.eq('market_type', alarm.marketType);
-                    }
-
-                    const fallbackSignalsResult = await fallbackSignalDelete;
-                    console.log('🧹 Active signals fallback temizlendi:', fallbackSignalsResult);
-                }
                 await this.loadAlarms();
             } catch (error) {
                 console.error('❌ Supabase silme hatası:', error);
