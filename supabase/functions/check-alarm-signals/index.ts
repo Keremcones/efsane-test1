@@ -1911,6 +1911,20 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       }
 
       if (shouldTrigger && triggerMessage) {
+        const sendNowMs = Date.now();
+        if (sendNowMs < lastClosedMs || (sendNowMs - lastClosedMs) > maxDelayMs) {
+          console.log(`⏹️ Skipping signal send for ${alarm.symbol}: outside close window (${Math.round((sendNowMs - lastClosedMs) / 1000)}s)`);
+          return;
+        }
+        try {
+          await supabase
+            .from("alarms")
+            .update({ signal_timestamp: lastClosedIso })
+            .eq("id", alarm.id);
+        } catch (e) {
+          console.warn(`⚠️ Failed to pre-update alarm signal_timestamp for ${alarm.symbol}:`, e);
+        }
+
         const symbol = String(alarm.symbol || "").toUpperCase();
         const marketType = String(alarm.market_type || "spot").toLowerCase() === "futures" ? "Futures" : "Spot";
         const timeframe = String(alarm.timeframe || "1h");
