@@ -992,30 +992,78 @@
     <script src="indicators.js"></script>
     <script src="advanced-indicators.js?v=20260129"></script>
     <script>
-        // CORS Proxy wrapper - Binance API isteklerini proxy üzerinden yap
         const originalFetch = window.fetch;
-        window.fetch = async function(url, options) {
-            const hasProxy = typeof CORS_PROXY === 'string' && CORS_PROXY.trim().length > 0;
-            const isStringUrl = typeof url === 'string';
-            const isBinance = isStringUrl && (url.includes('api.binance.com') || url.includes('fapi.binance.com'));
-            const isProxied = isStringUrl && hasProxy && url.startsWith(CORS_PROXY);
-            const useProxy = USE_CORS_PROXY && hasProxy && isBinance && !isProxied;
 
-            const fetchDirect = () => originalFetch(url, options);
-            const fetchViaProxy = () => originalFetch(CORS_PROXY + encodeURIComponent(url), options);
+        function buildBinanceFallbackUrls(inputUrl) {
+            const urlObj = new URL(inputUrl);
+            const host = urlObj.hostname;
+            const isFutures = host.includes('fapi.binance.com');
+            const isSpot = host.includes('api.binance.com');
+            if (!isFutures && !isSpot) return [inputUrl];
 
-            if (useProxy) {
-                return fetchViaProxy();
-            }
+            const path = urlObj.pathname + urlObj.search;
+            const baseList = isFutures
+                ? [
+                    'https://fapi.binance.com',
+                    'https://api1.binance.com',
+                    'https://api2.binance.com',
+                    'https://api3.binance.com',
+                    'https://data-api.binance.vision'
+                ]
+                : [
+                    'https://api.binance.com',
+                    'https://api1.binance.com',
+                    'https://api2.binance.com',
+                    'https://api3.binance.com',
+                    'https://data-api.binance.vision'
+                ];
 
+            return baseList.map(base => `${base}${path}`);
+        }
+
+        async function fetchWithTimeout(url, options, timeoutMs = 10000) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
             try {
-                return await fetchDirect();
-            } catch (error) {
-                if (hasProxy && isBinance && !isProxied) {
-                    return fetchViaProxy();
-                }
-                throw error;
+                return await originalFetch(url, { ...options, signal: controller.signal });
+            } finally {
+                clearTimeout(timer);
             }
+        }
+
+        async function fetchWithRetry(url, options, retries = 3, timeoutMs = 10000) {
+            let lastError = null;
+            for (let attempt = 0; attempt < retries; attempt++) {
+                try {
+                    const res = await fetchWithTimeout(url, options, timeoutMs);
+                    if (res.ok) return res;
+                    lastError = new Error(`HTTP ${res.status}`);
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+            throw lastError || new Error('Request failed');
+        }
+
+        window.fetch = async function(url, options) {
+            if (typeof url !== 'string') {
+                return originalFetch(url, options);
+            }
+
+            const fallbackUrls = buildBinanceFallbackUrls(url);
+            let lastError = null;
+
+            for (const candidate of fallbackUrls) {
+                try {
+                    const res = await fetchWithRetry(candidate, options, 3, 10000);
+                    if (res.ok) return res;
+                    lastError = new Error(`HTTP ${res.status}`);
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+
+            throw lastError || new Error('Request failed');
         };
 
         let supabaseClient = null;

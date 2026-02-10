@@ -91,7 +91,15 @@ async function analyzeMultiTimeframe(symbol, marketType = null) {
             const klinesUrl = `${apiBase}/klines?symbol=${symbol}&interval=${tf}&limit=1000`;
             const response = await fetch(klinesUrl);
             const klines = await response.json();
-            const closedKlines = Array.isArray(klines) ? klines.slice(0, -1) : [];
+            if (!Array.isArray(klines)) {
+                return {
+                    timeframe: tf,
+                    signal: 'N/A',
+                    confidence: 0,
+                    price: 0
+                };
+            }
+            const closedKlines = klines.slice(0, -1);
             if (closedKlines.length < 2) {
                 return {
                     timeframe: tf,
