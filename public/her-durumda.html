@@ -909,43 +909,10 @@
         const BINANCE_SPOT_BASE_KEY = 'binanceSpotBase';
         const BINANCE_FUTURES_BASE_KEY = 'binanceFuturesBase';
 
-        const connectionStatus = {
-            el: null,
-            timer: null
-        };
-
-        function ensureConnectionStatus() {
-            if (connectionStatus.el) return connectionStatus.el;
-            const el = document.createElement('div');
-            el.id = 'connectionStatus';
-            el.style.cssText = 'position:fixed;top:12px;right:12px;z-index:9999;padding:8px 12px;border-radius:10px;font-size:12px;color:#fff;background:rgba(20,20,20,0.85);display:none;';
-            document.body.appendChild(el);
-            connectionStatus.el = el;
-            return el;
-        }
-
         function setConnectionStatus(text, level) {
-            const el = ensureConnectionStatus();
-            el.textContent = text;
-            const colors = {
-                pending: 'rgba(255, 176, 0, 0.92)',
-                ok: 'rgba(0, 160, 110, 0.92)',
-                proxy: 'rgba(0, 120, 200, 0.92)',
-                fail: 'rgba(180, 60, 60, 0.92)'
-            };
-            el.style.background = colors[level] || 'rgba(20,20,20,0.85)';
-            el.style.display = 'block';
-
-            if (connectionStatus.timer) {
-                clearTimeout(connectionStatus.timer);
-                connectionStatus.timer = null;
-            }
-
-            if (level === 'ok' || level === 'proxy') {
-                connectionStatus.timer = setTimeout(() => {
-                    el.style.display = 'none';
-                }, 4000);
-            }
+            // Connection banner disabled to avoid visible labels.
+            void text;
+            void level;
         }
 
         function getCachedBase(storageKey) {
