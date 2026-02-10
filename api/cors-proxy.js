@@ -26,7 +26,15 @@ export default async function handler(req, res) {
     return;
   }
 
-  const allowedHosts = new Set(['api.binance.com', 'fapi.binance.com']);
+  const allowedHosts = new Set([
+    'api.binance.com',
+    'fapi.binance.com',
+    'api1.binance.com',
+    'api2.binance.com',
+    'api3.binance.com',
+    'api4.binance.com',
+    'data-api.binance.vision'
+  ]);
   if (!allowedHosts.has(targetUrl.hostname)) {
     res.status(400).json({ error: 'Host not allowed' });
     return;

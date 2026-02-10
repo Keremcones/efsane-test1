@@ -20,6 +20,171 @@ function getBinanceApiBaseForMarketType(marketType) {
     return normalized === 'futures' ? futuresBase : spotBase;
 }
 
+const BINANCE_SPOT_BASES = [
+    'https://api1.binance.com',
+    'https://api2.binance.com',
+    'https://api3.binance.com',
+    'https://api4.binance.com',
+    'https://data-api.binance.vision'
+];
+const BINANCE_FUTURES_BASES = [
+    'https://fapi.binance.com',
+    'https://api1.binance.com',
+    'https://api2.binance.com',
+    'https://api3.binance.com',
+    'https://api4.binance.com',
+    'https://data-api.binance.vision'
+];
+const BINANCE_PROXY_BASES = [
+    '/api/cors-proxy?url='
+];
+const BINANCE_SPOT_BASE_KEY = 'binanceSpotBase';
+const BINANCE_FUTURES_BASE_KEY = 'binanceFuturesBase';
+
+function getCachedBase(storageKey) {
+    try {
+        return localStorage.getItem(storageKey);
+    } catch (error) {
+        return null;
+    }
+}
+
+function setCachedBase(storageKey, base) {
+    try {
+        localStorage.setItem(storageKey, base);
+    } catch (error) {
+        // Ignore storage errors.
+    }
+}
+
+function reorderWithCached(baseList, storageKey) {
+    const cached = getCachedBase(storageKey);
+    if (cached && baseList.includes(cached)) {
+        return [cached, ...baseList.filter(base => base !== cached)];
+    }
+    return baseList;
+}
+
+function getBinanceMeta(urlObj) {
+    const host = urlObj.hostname;
+    const path = urlObj.pathname || '';
+    const isFutures = host.includes('fapi') || path.includes('/fapi/');
+    const isSpot = host.includes('api') || path.includes('/api/');
+    if (!isFutures && !isSpot) return null;
+    const baseList = isFutures ? BINANCE_FUTURES_BASES : BINANCE_SPOT_BASES;
+    const storageKey = isFutures ? BINANCE_FUTURES_BASE_KEY : BINANCE_SPOT_BASE_KEY;
+    return { baseList, storageKey };
+}
+
+function buildBinanceCandidates(inputUrl) {
+    const urlObj = new URL(inputUrl);
+    const meta = getBinanceMeta(urlObj);
+    if (!meta) {
+        return { candidates: [inputUrl], isBinance: false };
+    }
+    const path = urlObj.pathname + urlObj.search;
+    const orderedBases = reorderWithCached(meta.baseList, meta.storageKey);
+    const candidates = orderedBases.map(base => `${base}${path}`);
+    return {
+        candidates,
+        storageKey: meta.storageKey,
+        isBinance: true
+    };
+}
+
+function buildProxyUrl(proxyBase, targetUrl) {
+    const encoded = encodeURIComponent(targetUrl);
+    return `${proxyBase}${encoded}`;
+}
+
+function buildProxyCandidates(candidateUrls) {
+    return BINANCE_PROXY_BASES.flatMap(proxyBase =>
+        candidateUrls.map(url => buildProxyUrl(proxyBase, url))
+    );
+}
+
+function shouldExpectJson(url) {
+    return /\/exchangeInfo|\/klines|\/ticker|\/depth|\/trades|\/aggTrades|ticker\/price/i.test(url);
+}
+
+function isJsonResponse(res) {
+    const contentType = res.headers.get('content-type') || '';
+    return contentType.includes('application/json') || contentType.includes('text/plain');
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function baseFetchWithTimeout(url, options, timeoutMs = 10000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function fetchWithRetryFallback(url, options, retries = 3, delayMs = 0, timeoutMs = 10000) {
+    const inputUrl = typeof url === 'string' ? url : (url && url.url ? url.url : String(url));
+    const info = buildBinanceCandidates(inputUrl);
+    const candidates = info.candidates || [inputUrl];
+    let lastError = null;
+
+    for (const candidate of candidates) {
+        for (let attempt = 0; attempt < retries; attempt++) {
+            try {
+                const res = await baseFetchWithTimeout(candidate, options, timeoutMs);
+                if (res.ok && info.isBinance && shouldExpectJson(candidate) && !isJsonResponse(res)) {
+                    lastError = new Error('Non-JSON response');
+                    continue;
+                }
+                if (res.ok) {
+                    if (info.isBinance) {
+                        try {
+                            setCachedBase(info.storageKey, new URL(candidate).origin);
+                        } catch (error) {
+                            // Ignore URL parsing errors.
+                        }
+                    }
+                    return res;
+                }
+                lastError = new Error(`HTTP ${res.status}`);
+            } catch (error) {
+                lastError = error;
+            }
+            if (delayMs > 0 && attempt < retries - 1) {
+                await sleep(delayMs);
+            }
+        }
+    }
+
+    if (info.isBinance) {
+        const proxyCandidates = buildProxyCandidates(candidates);
+        for (const candidate of proxyCandidates) {
+            for (let attempt = 0; attempt < retries; attempt++) {
+                try {
+                    const res = await baseFetchWithTimeout(candidate, options, timeoutMs);
+                    if (res.ok && shouldExpectJson(candidate) && !isJsonResponse(res)) {
+                        lastError = new Error('Non-JSON response');
+                        continue;
+                    }
+                    if (res.ok) return res;
+                    lastError = new Error(`HTTP ${res.status}`);
+                } catch (error) {
+                    lastError = error;
+                }
+                if (delayMs > 0 && attempt < retries - 1) {
+                    await sleep(delayMs);
+                }
+            }
+        }
+    }
+
+    throw lastError || new Error('Request failed');
+}
+
 const exchangeInfoCache = {};
 const EXCHANGE_INFO_TTL = 10 * 60 * 1000;
 
@@ -42,7 +207,7 @@ async function getSymbolTickSize(symbol, marketType) {
     try {
         const base = getBinanceApiBaseForMarketType(normalized);
         const url = `${base}/exchangeInfo`;
-        const res = await fetch(url);
+        const res = await fetchWithRetryFallback(url, {}, 2, 200, 15000);
         if (!res.ok) return null;
         const data = await res.json();
         const symbols = (data && data.symbols ? data.symbols : []).reduce((acc, item) => {
@@ -89,7 +254,7 @@ async function analyzeMultiTimeframe(symbol, marketType = null) {
         try {
             const apiBase = getBinanceApiBaseForMarketType(marketType);
             const klinesUrl = `${apiBase}/klines?symbol=${symbol}&interval=${tf}&limit=1000`;
-            const response = await fetch(klinesUrl);
+            const response = await fetchWithRetryFallback(klinesUrl, {}, 2, 200, 15000);
             const klines = await response.json();
             if (!Array.isArray(klines)) {
                 return {
@@ -140,6 +305,34 @@ async function analyzeMultiTimeframe(symbol, marketType = null) {
     // Tüm promise'leri paralel çalıştır
     const results = await Promise.all(promises);
     return results;
+}
+
+function ensureFormLabels() {
+    const fields = document.querySelectorAll('input, select, textarea');
+    fields.forEach(field => {
+        if (!field || field.type === 'hidden') return;
+        const hasAria = field.getAttribute('aria-label') || field.getAttribute('aria-labelledby');
+        if (hasAria) return;
+        const id = field.getAttribute('id');
+        if (id) {
+            const label = document.querySelector(`label[for="${CSS.escape(id)}"]`);
+            if (label) return;
+        }
+        if (field.closest('label')) return;
+
+        const placeholder = field.getAttribute('placeholder');
+        const name = field.getAttribute('name');
+        const fallback = placeholder || name || field.getAttribute('id') || field.type || 'form-field';
+        field.setAttribute('aria-label', fallback);
+    });
+}
+
+if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', ensureFormLabels);
+    } else {
+        ensureFormLabels();
+    }
 }
 
 // 2. FİBONACCİ SEVİYELERİ
@@ -1031,7 +1224,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         // Son 999 kapanmış bar'ı al with retry & rate limiting
         const apiBase = getBinanceApiBaseForMarketType(marketType);
         const klinesUrl = `${apiBase}/klines?symbol=${symbol}&interval=${timeframe}&limit=${neededKlines}`;
-        const response = await fetchWithRetry(klinesUrl, {}, 3, 1000, 30000);
+        const response = await fetchWithRetryFallback(klinesUrl, {}, 3, 1000, 30000);
         const klines = await response.json();
         const trimmedKlines = Array.isArray(klines) ? klines.slice(-1000) : [];
         if (trimmedKlines.length < MIN_BACKTEST_WINDOW + 1) {
