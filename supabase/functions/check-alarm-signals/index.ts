@@ -297,7 +297,7 @@ async function getBinanceBalance(apiKey: string, apiSecret: string, marketType: 
   return parseFloat(usdtBalance?.free || "0");
 }
 
-async function getSymbolInfo(symbol: string, marketType: "spot" | "futures"): Promise<{ quantityPrecision: number; minQty: number; pricePrecision: number } | null> {
+async function getSymbolInfo(symbol: string, marketType: "spot" | "futures"): Promise<{ quantityPrecision: number; minQty: number; pricePrecision: number; tickSize: number; stepSize: number } | null> {
   const baseUrl = marketType === "futures"
     ? "https://fapi.binance.com/fapi/v1/exchangeInfo"
     : "https://api.binance.com/api/v3/exchangeInfo";
@@ -324,7 +324,13 @@ async function getSymbolInfo(symbol: string, marketType: "spot" | "futures"): Pr
     ? tickSize.split(".")[1].replace(/0+$/, "").length
     : 0;
 
-  return { quantityPrecision, minQty, pricePrecision };
+  return {
+    quantityPrecision,
+    minQty,
+    pricePrecision,
+    tickSize: Number(tickSize),
+    stepSize: Number(stepSize)
+  };
 }
 
 async function setLeverage(apiKey: string, apiSecret: string, symbol: string, leverage: number): Promise<boolean> {
@@ -390,6 +396,12 @@ function normalizeLimitTimeoutSeconds(value: any): number {
 function roundQuantity(value: number, precision: number): number {
   const factor = Math.pow(10, precision);
   return Math.floor(value * factor) / factor;
+}
+
+function roundToStep(value: number, step: number): number {
+  if (!Number.isFinite(step) || step <= 0) return value;
+  const scaled = Math.floor((value / step) + 1e-8) * step;
+  return Number.isFinite(scaled) ? scaled : value;
 }
 
 function delay(ms: number): Promise<void> {
@@ -581,27 +593,28 @@ async function placeTakeProfitStopLoss(
   stopLoss: number,
   pricePrecision: number,
   quantity: number,
-  quantityPrecision: number
+  quantityPrecision: number,
+  tickSize: number
 ): Promise<{ tpOrderId?: string; slOrderId?: string; tpError?: string; slError?: string }> {
   const closeSide = direction === "LONG" ? "SELL" : "BUY";
 
   let tpValue = Number(takeProfit);
   let slValue = Number(stopLoss);
-  const tickSize = 1 / Math.pow(10, pricePrecision);
+  const safeTick = Number.isFinite(tickSize) && tickSize > 0 ? tickSize : 1 / Math.pow(10, pricePrecision);
   const currentPrice = await getCurrentPrice(symbol, "futures");
   if (Number.isFinite(currentPrice)) {
-    const minOffset = Math.max(currentPrice * 0.001, tickSize * 2);
+    const minOffset = Math.max(currentPrice * 0.001, safeTick * 2);
     if (direction === "LONG") {
       if (tpValue <= currentPrice + minOffset) tpValue = currentPrice + minOffset;
-      if (slValue >= currentPrice - minOffset) slValue = Math.max(currentPrice - minOffset, tickSize);
+      if (slValue >= currentPrice - minOffset) slValue = Math.max(currentPrice - minOffset, safeTick);
     } else {
-      if (tpValue >= currentPrice - minOffset) tpValue = Math.max(currentPrice - minOffset, tickSize);
+      if (tpValue >= currentPrice - minOffset) tpValue = Math.max(currentPrice - minOffset, safeTick);
       if (slValue <= currentPrice + minOffset) slValue = currentPrice + minOffset;
     }
   }
 
-  const tpPrice = tpValue.toFixed(pricePrecision);
-  const slPrice = slValue.toFixed(pricePrecision);
+  const tpPrice = roundToStep(tpValue, safeTick).toFixed(pricePrecision);
+  const slPrice = roundToStep(slValue, safeTick).toFixed(pricePrecision);
 
   let tpOrderId: string | undefined;
   let slOrderId: string | undefined;
@@ -722,24 +735,25 @@ async function placeSpotOco(
   quantity: number,
   takeProfit: number,
   stopLoss: number,
-  pricePrecision: number
+  pricePrecision: number,
+  tickSize: number
 ): Promise<{ success: boolean; error?: string }> {
   const timestamp = Date.now();
   let tpValue = Number(takeProfit);
   let slValue = Number(stopLoss);
-  const tickSize = 1 / Math.pow(10, pricePrecision);
+  const safeTick = Number.isFinite(tickSize) && tickSize > 0 ? tickSize : 1 / Math.pow(10, pricePrecision);
   const currentPrice = await getCurrentPrice(symbol, "spot");
   if (Number.isFinite(currentPrice)) {
-    const minOffset = Math.max(currentPrice * 0.001, tickSize * 2);
+    const minOffset = Math.max(currentPrice * 0.001, safeTick * 2);
     if (tpValue <= currentPrice + minOffset) tpValue = currentPrice + minOffset;
-    if (slValue >= currentPrice - minOffset) slValue = Math.max(currentPrice - minOffset, tickSize);
+    if (slValue >= currentPrice - minOffset) slValue = Math.max(currentPrice - minOffset, safeTick);
   }
 
-  const tpPrice = tpValue.toFixed(pricePrecision);
-  const slPrice = slValue.toFixed(pricePrecision);
-  const offset = Math.max(slValue * 0.001, 1 / Math.pow(10, pricePrecision));
+  const tpPrice = roundToStep(tpValue, safeTick).toFixed(pricePrecision);
+  const slPrice = roundToStep(slValue, safeTick).toFixed(pricePrecision);
+  const offset = Math.max(slValue * 0.001, safeTick);
   const stopLimitValue = Math.max(0, slValue - offset);
-  const stopLimitPrice = stopLimitValue.toFixed(pricePrecision);
+  const stopLimitPrice = roundToStep(stopLimitValue, safeTick).toFixed(pricePrecision);
 
   const queryString = `symbol=${symbol}&side=SELL&type=OCO&quantity=${quantity}`
     + `&price=${tpPrice}&stopPrice=${slPrice}&stopLimitPrice=${stopLimitPrice}`
@@ -890,7 +904,7 @@ async function executeAutoTrade(
       quantity = (tradeAmount * leverage) / entryPrice;
     }
 
-    quantity = Math.floor(quantity * Math.pow(10, symbolInfo.quantityPrecision)) / Math.pow(10, symbolInfo.quantityPrecision);
+    quantity = roundToStep(quantity, symbolInfo.stepSize);
 
     if (quantity < symbolInfo.minQty) {
       return { success: false, message: `Quantity too small: ${quantity} < ${symbolInfo.minQty}` };
@@ -906,7 +920,8 @@ async function executeAutoTrade(
       const directionFactor = direction === "LONG" ? -1 : 1;
       const limitPriceValue = entryPrice * (1 + directionFactor * deviationPercent / 100);
       if (limitPriceValue > 0) {
-        limitPrice = limitPriceValue.toFixed(symbolInfo.pricePrecision);
+        const roundedLimit = roundToStep(limitPriceValue, symbolInfo.tickSize);
+        limitPrice = roundedLimit.toFixed(symbolInfo.pricePrecision);
       }
     }
 
@@ -950,7 +965,8 @@ async function executeAutoTrade(
         stopLoss,
         symbolInfo.pricePrecision,
         quantity,
-        symbolInfo.quantityPrecision
+        symbolInfo.quantityPrecision,
+        symbolInfo.tickSize
       );
       let warningText = "";
       if (!tpSlResult.tpOrderId && tpSlResult.tpError) {
@@ -967,7 +983,16 @@ async function executeAutoTrade(
         };
       }
     } else {
-      const ocoResult = await placeSpotOco(api_key, api_secret, symbol, quantity, takeProfit, stopLoss, symbolInfo.pricePrecision);
+      const ocoResult = await placeSpotOco(
+        api_key,
+        api_secret,
+        symbol,
+        quantity,
+        takeProfit,
+        stopLoss,
+        symbolInfo.pricePrecision,
+        symbolInfo.tickSize
+      );
       if (!ocoResult.success) {
         return { success: false, message: `Spot TP/SL OCO failed: ${ocoResult.error || "unknown"}` };
       }

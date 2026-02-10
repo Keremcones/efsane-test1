@@ -21,20 +21,30 @@ function getBinanceApiBaseForMarketType(marketType) {
 }
 
 // 1. MULTI-TIMEFRAME ANALİZ
-async function analyzeMultiTimeframe(symbol) {
+async function analyzeMultiTimeframe(symbol, marketType = null) {
     const timeframes = ['5m', '15m', '1h', '4h', '1d'];
     
     // Tüm API çağrılarını paralel yap (sequential yerine)
     const promises = timeframes.map(async (tf) => {
         try {
-            const klinesUrl = `${window.getBinanceApiBase ? window.getBinanceApiBase() : "https://api.binance.com/api/v3"}/klines?symbol=${symbol}&interval=${tf}&limit=100`;
+            const apiBase = getBinanceApiBaseForMarketType(marketType);
+            const klinesUrl = `${apiBase}/klines?symbol=${symbol}&interval=${tf}&limit=101`;
             const response = await fetch(klinesUrl);
             const klines = await response.json();
+            const closedKlines = Array.isArray(klines) ? klines.slice(0, -1) : [];
+            if (closedKlines.length < 2) {
+                return {
+                    timeframe: tf,
+                    signal: 'N/A',
+                    confidence: 0,
+                    price: 0
+                };
+            }
             
-            const closes = klines.map(k => parseFloat(k[4]));
-            const highs = klines.map(k => parseFloat(k[2]));
-            const lows = klines.map(k => parseFloat(k[3]));
-            const volumes = klines.map(k => parseFloat(k[5]));
+            const closes = closedKlines.map(k => parseFloat(k[4]));
+            const highs = closedKlines.map(k => parseFloat(k[2]));
+            const lows = closedKlines.map(k => parseFloat(k[3]));
+            const volumes = closedKlines.map(k => parseFloat(k[5]));
             
             const indicators = calculateAlarmIndicators(closes, highs, lows, volumes);
             const signal = indicators
@@ -45,7 +55,7 @@ async function analyzeMultiTimeframe(symbol) {
                 timeframe: tf,
                 signal: signal.direction,
                 confidence: signal.score,
-                price: closes[closes.length-1]
+                price: closes[closes.length - 1]
             };
         } catch (error) {
             console.error(`MTF error for ${tf}:`, error);
