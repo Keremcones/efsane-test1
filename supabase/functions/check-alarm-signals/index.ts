@@ -1667,7 +1667,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       const nowMs = Date.now();
       const timeframeMinutes = timeframeToMinutes(String(alarm.timeframe || "1h"));
       const timeframeMs = timeframeMinutes * 60 * 1000;
-      const maxDelayMs = Math.min(2 * 60 * 1000, Math.max(15000, Math.floor(timeframeMs * 0.1)));
+      const maxDelayMs = Math.min(2 * 60 * 1000, Math.max(60000, Math.floor(timeframeMs * 0.3)));
       const isWithinCloseWindow = nowMs >= lastClosedMs && (nowMs - lastClosedMs) <= maxDelayMs;
       const lastSignalTs = alarm.signal_timestamp || alarm.signalTimestamp;
       const lastSignalMs = lastSignalTs ? Date.parse(String(lastSignalTs)) : NaN;
