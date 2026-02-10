@@ -76,13 +76,45 @@ async function getSymbolPricePrecision(symbol: string, marketType: "spot" | "fut
     const resolvedPrecision = resolvedPrecisionCandidates.length
       ? Math.max(...resolvedPrecisionCandidates)
       : null;
-    acc[String(item.symbol)] = { pricePrecision: resolvedPrecision };
+    acc[String(item.symbol)] = { pricePrecision: resolvedPrecision, tickSize: tickSize ? Number(tickSize) : null };
     return acc;
   }, {});
 
   exchangeInfoCache[cacheKey] = { timestamp: now, symbols };
   const info = symbols?.[symbol];
   return info ? info.pricePrecision ?? null : null;
+}
+
+async function getSymbolTickSize(symbol: string, marketType: "spot" | "futures"): Promise<number | null> {
+  const cacheKey = marketType;
+  const now = Date.now();
+  const cached = exchangeInfoCache[cacheKey];
+  if (cached && (now - cached.timestamp) < EXCHANGE_INFO_TTL) {
+    const info = cached.symbols?.[symbol];
+    if (info && Number.isFinite(info.tickSize)) return Number(info.tickSize);
+  }
+
+  const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
+  const url = `${base}/exchangeInfo`;
+  const res = await throttledFetch(url);
+  if (!res.ok) return null;
+  const data = await res.json();
+  const symbols = (data?.symbols || []).reduce((acc: Record<string, any>, item: any) => {
+    const priceFilter = (item.filters || []).find((f: any) => f.filterType === "PRICE_FILTER");
+    const tickSize = priceFilter?.tickSize;
+    const tickDecimals = tickSize ? getTickSizeDecimals(String(tickSize)) : null;
+    const pricePrecision = typeof item.pricePrecision === "number" ? item.pricePrecision : null;
+    const resolvedPrecisionCandidates = [pricePrecision, tickDecimals].filter((value) => Number.isFinite(value)) as number[];
+    const resolvedPrecision = resolvedPrecisionCandidates.length
+      ? Math.max(...resolvedPrecisionCandidates)
+      : null;
+    acc[String(item.symbol)] = { pricePrecision: resolvedPrecision, tickSize: tickSize ? Number(tickSize) : null };
+    return acc;
+  }, {});
+
+  exchangeInfoCache[cacheKey] = { timestamp: now, symbols };
+  const info = symbols?.[symbol];
+  return info && Number.isFinite(info.tickSize) ? Number(info.tickSize) : null;
 }
 
 function formatPriceWithPrecision(value: number, precision: number | null): string {
@@ -398,9 +430,15 @@ function roundQuantity(value: number, precision: number): number {
   return Math.floor(value * factor) / factor;
 }
 
-function roundToStep(value: number, step: number): number {
+function roundToStepDown(value: number, step: number): number {
   if (!Number.isFinite(step) || step <= 0) return value;
   const scaled = Math.floor((value / step) + 1e-8) * step;
+  return Number.isFinite(scaled) ? scaled : value;
+}
+
+function roundToTick(value: number, tick: number): number {
+  if (!Number.isFinite(tick) || tick <= 0) return value;
+  const scaled = Math.round(value / tick) * tick;
   return Number.isFinite(scaled) ? scaled : value;
 }
 
@@ -613,8 +651,8 @@ async function placeTakeProfitStopLoss(
     }
   }
 
-  const tpPrice = roundToStep(tpValue, safeTick).toFixed(pricePrecision);
-  const slPrice = roundToStep(slValue, safeTick).toFixed(pricePrecision);
+  const tpPrice = roundToTick(tpValue, safeTick).toFixed(pricePrecision);
+  const slPrice = roundToTick(slValue, safeTick).toFixed(pricePrecision);
 
   let tpOrderId: string | undefined;
   let slOrderId: string | undefined;
@@ -749,11 +787,11 @@ async function placeSpotOco(
     if (slValue >= currentPrice - minOffset) slValue = Math.max(currentPrice - minOffset, safeTick);
   }
 
-  const tpPrice = roundToStep(tpValue, safeTick).toFixed(pricePrecision);
-  const slPrice = roundToStep(slValue, safeTick).toFixed(pricePrecision);
+  const tpPrice = roundToTick(tpValue, safeTick).toFixed(pricePrecision);
+  const slPrice = roundToTick(slValue, safeTick).toFixed(pricePrecision);
   const offset = Math.max(slValue * 0.001, safeTick);
   const stopLimitValue = Math.max(0, slValue - offset);
-  const stopLimitPrice = roundToStep(stopLimitValue, safeTick).toFixed(pricePrecision);
+  const stopLimitPrice = roundToTick(stopLimitValue, safeTick).toFixed(pricePrecision);
 
   const queryString = `symbol=${symbol}&side=SELL&type=OCO&quantity=${quantity}`
     + `&price=${tpPrice}&stopPrice=${slPrice}&stopLimitPrice=${stopLimitPrice}`
@@ -904,7 +942,7 @@ async function executeAutoTrade(
       quantity = (tradeAmount * leverage) / entryPrice;
     }
 
-    quantity = roundToStep(quantity, symbolInfo.stepSize);
+    quantity = roundToStepDown(quantity, symbolInfo.stepSize);
 
     if (quantity < symbolInfo.minQty) {
       return { success: false, message: `Quantity too small: ${quantity} < ${symbolInfo.minQty}` };
@@ -920,7 +958,7 @@ async function executeAutoTrade(
       const directionFactor = direction === "LONG" ? -1 : 1;
       const limitPriceValue = entryPrice * (1 + directionFactor * deviationPercent / 100);
       if (limitPriceValue > 0) {
-        const roundedLimit = roundToStep(limitPriceValue, symbolInfo.tickSize);
+        const roundedLimit = roundToTick(limitPriceValue, symbolInfo.tickSize);
         limitPrice = roundedLimit.toFixed(symbolInfo.pricePrecision);
       }
     }
@@ -1979,6 +2017,9 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       const alarmPricePrecision = alarmSymbol
         ? await getSymbolPricePrecision(alarmSymbol, alarmMarketType)
         : null;
+      const alarmTickSize = alarmSymbol
+        ? await getSymbolTickSize(alarmSymbol, alarmMarketType)
+        : null;
 
       const indicators = await calculateIndicators(
         alarmSymbol,
@@ -2053,12 +2094,20 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
               return;
             }
             shouldTrigger = true;
-            const takeProfit = signal.direction === "SHORT"
+            const rawTakeProfit = signal.direction === "SHORT"
               ? entryPrice * (1 - tpPercent / 100)
               : entryPrice * (1 + tpPercent / 100);
-            const stopLoss = signal.direction === "SHORT"
+            const rawStopLoss = signal.direction === "SHORT"
               ? entryPrice * (1 + slPercent / 100)
               : entryPrice * (1 - slPercent / 100);
+            const fallbackTick = Number.isFinite(alarmPricePrecision)
+              ? 1 / Math.pow(10, Number(alarmPricePrecision))
+              : 0.01;
+            const tick = Number.isFinite(alarmTickSize) && Number(alarmTickSize) > 0
+              ? Number(alarmTickSize)
+              : fallbackTick;
+            const takeProfit = roundToTick(rawTakeProfit, tick);
+            const stopLoss = roundToTick(rawStopLoss, tick);
             const tpGain = tpPercent;
             const slLoss = -slPercent;
 
@@ -2289,8 +2338,14 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         const rawSlPrice = direction === "SHORT"
           ? entryPrice * (1 + slPercent / 100)
           : entryPrice * (1 - slPercent / 100);
-        const tpPrice = rawTpPrice;
-        const slPrice = rawSlPrice;
+        const fallbackTick = Number.isFinite(decimals)
+          ? 1 / Math.pow(10, Number(decimals))
+          : 0.01;
+        const tick = Number.isFinite(alarmTickSize) && Number(alarmTickSize) > 0
+          ? Number(alarmTickSize)
+          : fallbackTick;
+        const tpPrice = roundToTick(rawTpPrice, tick);
+        const slPrice = roundToTick(rawSlPrice, tick);
 
         // 🚀 AUTO TRADE EXECUTION
         let tradeResult = { success: false, message: "Auto-trade not triggered" } as { success: boolean; message: string; orderId?: string; blockedByOpenPosition?: boolean };
@@ -2817,16 +2872,17 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
 // =====================
 serve(async (req: any) => {
   // CORS headers
+  const origin = req.headers.get("origin") || "*";
   const corsHeaders = {
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "*",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-requested-with",
     "Access-Control-Max-Age": "86400",
   };
 
   // Handle preflight OPTIONS request
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders });
+    return new Response("ok", { status: 200, headers: corsHeaders });
   }
 
   if (req.method !== "POST") {
