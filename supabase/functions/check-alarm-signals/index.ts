@@ -1095,6 +1095,21 @@ function calculateAlarmADX(highs: number[], lows: number[], closes: number[], pe
   return (Math.abs(plusDI - minusDI) / (plusDI + minusDI)) * 100;
 }
 
+function calculateAlarmATR(highs: number[], lows: number[], closes: number[], period: number = 14): number {
+  if (closes.length < period + 1) return 0;
+  const trueRanges: number[] = [];
+  for (let i = 1; i < closes.length; i++) {
+    const tr = Math.max(
+      highs[i] - lows[i],
+      Math.abs(highs[i] - closes[i - 1]),
+      Math.abs(lows[i] - closes[i - 1])
+    );
+    trueRanges.push(tr);
+  }
+  const atr = trueRanges.slice(-period).reduce((a, b) => a + b, 0) / period;
+  return Number.isFinite(atr) ? atr : 0;
+}
+
 function calculateAlarmMacd(closes: number[]): { macdLine: number; signalLine: number; histogram: number } {
   const ema12 = calculateEMA(closes, 12);
   const ema26 = calculateEMA(closes, 26);
@@ -1135,6 +1150,7 @@ function calculateAlarmIndicators(
   const support = lows20.length ? Math.min(...lows20) : lastPrice;
   const stoch = calculateAlarmStochastic(highs, lows, closes);
   const adx = calculateAlarmADX(highs, lows, closes) || 0;
+  const atr = calculateAlarmATR(highs, lows, closes);
   const volumeMA = volumes.length > 0 ? volumes.reduce((a, b) => a + b, 0) / volumes.length : 0;
 
   return {
@@ -1157,6 +1173,7 @@ function calculateAlarmIndicators(
     support,
     stoch,
     adx,
+    atr,
     volumeMA,
   };
 }
@@ -1175,8 +1192,9 @@ function generateSignalScoreAligned(indicators: TechnicalIndicators, userConfide
     trendDetails.emaAlignment = -30;
   }
 
-  if (indicators.adx > 25) {
-    const adxBonus = Math.min((indicators.adx - 25) * 0.8, 20);
+  const isTrendAlignedForAdx = trendDetails.emaAlignment !== 0;
+  if (indicators.adx > 20 && isTrendAlignedForAdx) {
+    const adxBonus = Math.min((indicators.adx - 20) * 0.6, 12);
     trendScore += adxBonus;
     trendDetails.adxBonus = adxBonus;
   }
@@ -1186,7 +1204,7 @@ function generateSignalScoreAligned(indicators: TechnicalIndicators, userConfide
     weight: "40%",
     details: {
       "EMA12/EMA26 & SMA20/SMA50": `${trendDetails.emaAlignment > 0 ? "LONG" : trendDetails.emaAlignment < 0 ? "SHORT" : "-"} (${trendDetails.emaAlignment})`,
-      "ADX > 25 Bonus": `${trendDetails.adxBonus > 0 ? "+" : ""}${trendDetails.adxBonus.toFixed(2)}`,
+      "ADX > 20 Bonus (Aligned)": `${trendDetails.adxBonus > 0 ? "+" : ""}${trendDetails.adxBonus.toFixed(2)}`,
       "ADX Value": Number(indicators.adx || 0).toFixed(2),
       "EMA12": Number(indicators.ema12 || 0).toFixed(8),
       "EMA26": Number(indicators.ema26 || 0).toFixed(8),
@@ -1277,12 +1295,14 @@ function generateSignalScoreAligned(indicators: TechnicalIndicators, userConfide
   if (indicators.resistance > 0 && indicators.support > 0 && indicators.price > 0) {
     const distanceToSupport = (indicators.price - indicators.support) / indicators.price;
     const distanceToResistance = (indicators.resistance - indicators.price) / indicators.price;
+    const atrPct = indicators.atr > 0 ? indicators.atr / indicators.price : 0;
+    const srThreshold = Math.min(0.04, Math.max(0.01, atrPct * 1.5));
 
-    if (distanceToSupport < 0.02) {
+    if (distanceToSupport < srThreshold) {
       srScore += 15;
       srDetails.supportProximity = 15;
     }
-    if (distanceToResistance < 0.02) {
+    if (distanceToResistance < srThreshold) {
       srScore -= 15;
       srDetails.resistanceProximity = -15;
     }
@@ -1293,6 +1313,7 @@ function generateSignalScoreAligned(indicators: TechnicalIndicators, userConfide
       details: {
         "Support Proximity": `${(distanceToSupport * 100).toFixed(2)}% → ${srDetails.supportProximity > 0 ? "+" : ""}${srDetails.supportProximity}`,
         "Resistance Proximity": `${(distanceToResistance * 100).toFixed(2)}% → ${srDetails.resistanceProximity}`,
+        "SR Threshold": `${(srThreshold * 100).toFixed(2)}%`,
         "Support Level": Number(indicators.support || 0).toFixed(8),
         "Resistance Level": Number(indicators.resistance || 0).toFixed(8),
         "Current Price": Number(indicators.price || 0).toFixed(8),
@@ -1311,8 +1332,10 @@ function generateSignalScoreAligned(indicators: TechnicalIndicators, userConfide
 
   const isDowntrend = indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50;
   const isUptrend = indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50;
+  const isAlignedTrend = isUptrend || isDowntrend;
   const trendBlocks = (direction === "LONG" && isDowntrend) || (direction === "SHORT" && isUptrend);
-  const triggered = confidence >= userConfidenceThreshold && !trendBlocks;
+  const hasTrendOk = isAlignedTrend || indicators.adx >= 25;
+  const triggered = confidence >= userConfidenceThreshold && hasTrendOk && !trendBlocks;
 
   breakdown.normalizedScore = {
     trend: normalizedTrendScore.toFixed(2),
@@ -1475,6 +1498,7 @@ interface TechnicalIndicators {
   support: number;
   stoch: { K: number; D: number };
   adx: number;
+  atr: number;
   volumeMA: number;
 }
 
@@ -1524,6 +1548,7 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
   // Calculate Stochastic and ADX
   const stoch = calculateStochastic(closes, highs, lows);
   const adx = calculateADX(highs, lows, closes);
+  const atr = calculateAlarmATR(highs, lows, closes);
   
   // Calculate Volume Moving Average
   const volumeMA = volumes.length > 0 ? volumes.reduce((a, b) => a + b, 0) / volumes.length : 0;
@@ -1548,6 +1573,7 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
     support: support,
     stoch: stoch,
     adx: adx,
+    atr,
     volumeMA: volumeMA,
   };
 }
@@ -1993,7 +2019,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
           const directionFilter = String(alarm.direction_filter || "BOTH").toUpperCase();
           if (directionFilter !== "BOTH" && directionFilter !== signal.direction) {
             console.log(`⏹️ Skipping user_alarm for ${symbol}: direction_filter=${directionFilter}, signal=${signal.direction}`);
-            return;
+            continue;
           }
           if (signal.triggered) {
             const directionKey = `${alarm.user_id}:${symbol}:${signal.direction}`;
@@ -2112,7 +2138,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
           const directionFilter = String(alarm.direction_filter || "BOTH").toUpperCase();
           if (directionFilter !== "BOTH" && directionFilter !== signal.direction) {
             console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: direction_filter=${directionFilter}, signal=${signal.direction}`);
-            return;
+            continue;
           }
 
           console.log(
