@@ -907,12 +907,75 @@
             status.style.color = active ? 'var(--accent)' : 'var(--text-secondary)';
         }
 
+        async function fetchWithTimeout(url, options, timeoutMs = 10000) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                return await originalFetch(url, { ...options, signal: controller.signal });
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
+        async function fetchWithRetry(url, options, retries = 3, timeoutMs = 10000) {
+            let lastError = null;
+            for (let attempt = 0; attempt < retries; attempt++) {
+                try {
+                    const res = await fetchWithTimeout(url, options, timeoutMs);
+                    if (res.ok) return res;
+                    lastError = new Error(`HTTP ${res.status}`);
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+            throw lastError || new Error('Request failed');
+        }
+
+        async function fetchExchangeInfo(market) {
+            const baseList = market === 'futures'
+                ? [
+                    'https://fapi.binance.com/fapi/v1',
+                    'https://api1.binance.com/fapi/v1',
+                    'https://api2.binance.com/fapi/v1',
+                    'https://api3.binance.com/fapi/v1'
+                ]
+                : [
+                    'https://api.binance.com/api/v3',
+                    'https://api1.binance.com/api/v3',
+                    'https://api2.binance.com/api/v3',
+                    'https://api3.binance.com/api/v3'
+                ];
+
+            let lastError = null;
+            for (const base of baseList) {
+                try {
+                    const res = await fetchWithRetry(`${base}/exchangeInfo`, {}, 3, 10000);
+                    if (!res.ok) {
+                        lastError = new Error(`HTTP ${res.status}`);
+                        continue;
+                    }
+                    return await res.json();
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+
+            throw lastError || new Error('Coin listesi alınamadı');
+        }
+
         async function loadStrategyCoins() {
             const market = document.getElementById('strategyMarket')?.value || 'spot';
-            const base = market === 'futures' ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
-            const res = await fetch(`${base}/exchangeInfo`);
-            if (!res.ok) throw new Error('Coin listesi alınamadı');
-            const data = await res.json();
+            setStrategyStatus('Coin listesi alınıyor...', true);
+
+            let data = null;
+            try {
+                data = await fetchExchangeInfo(market);
+            } catch (error) {
+                console.error('Coin listesi yüklenemedi:', error);
+                setStrategyStatus('Coin listesi alınamadı. Lütfen daha sonra tekrar deneyin.', false);
+                throw error;
+            }
+
             strategyCoins = (data.symbols || [])
                 .filter(item => item.status === 'TRADING')
                 .filter(item => item.quoteAsset === 'USDT')
@@ -926,6 +989,7 @@
             }
             renderStrategyCoinList();
             updateSelectedStrategyCoin();
+            setStrategyStatus('Hazır', false);
         }
 
         function getLogoUrls(symbol) {
