@@ -2074,7 +2074,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
           const directionFilter = String(alarm.direction_filter || "BOTH").toUpperCase();
           if (directionFilter !== "BOTH" && directionFilter !== signal.direction) {
             console.log(`⏹️ Skipping user_alarm for ${symbol}: direction_filter=${directionFilter}, signal=${signal.direction}`);
-            continue;
+            return;
           }
           if (signal.triggered) {
             const directionKey = `${alarm.user_id}:${symbol}:${signal.direction}`;
@@ -2201,7 +2201,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
           const directionFilter = String(alarm.direction_filter || "BOTH").toUpperCase();
           if (directionFilter !== "BOTH" && directionFilter !== signal.direction) {
             console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: direction_filter=${directionFilter}, signal=${signal.direction}`);
-            continue;
+            return;
           }
 
           console.log(
