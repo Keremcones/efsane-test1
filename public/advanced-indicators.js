@@ -20,6 +20,66 @@ function getBinanceApiBaseForMarketType(marketType) {
     return normalized === 'futures' ? futuresBase : spotBase;
 }
 
+const exchangeInfoCache = {};
+const EXCHANGE_INFO_TTL = 10 * 60 * 1000;
+
+function getTickSizeDecimals(tickSize) {
+    if (!tickSize || !String(tickSize).includes('.')) return 0;
+    const fraction = String(tickSize).split('.')[1] || '';
+    return fraction.replace(/0+$/, '').length;
+}
+
+async function getSymbolTickSize(symbol, marketType) {
+    const normalized = resolveMarketType(marketType);
+    const cacheKey = normalized;
+    const now = Date.now();
+    const cached = exchangeInfoCache[cacheKey];
+    if (cached && (now - cached.timestamp) < EXCHANGE_INFO_TTL) {
+        const info = cached.symbols && cached.symbols[symbol];
+        if (info && Number.isFinite(info.tickSize)) return Number(info.tickSize);
+    }
+
+    try {
+        const base = getBinanceApiBaseForMarketType(normalized);
+        const url = `${base}/exchangeInfo`;
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const data = await res.json();
+        const symbols = (data && data.symbols ? data.symbols : []).reduce((acc, item) => {
+            const priceFilter = (item.filters || []).find(f => f.filterType === 'PRICE_FILTER');
+            const tickSize = priceFilter && priceFilter.tickSize ? Number(priceFilter.tickSize) : null;
+            const tickDecimals = tickSize ? getTickSizeDecimals(tickSize) : null;
+            const pricePrecision = Number.isFinite(item.pricePrecision) ? item.pricePrecision : null;
+            const resolvedPrecisionCandidates = [pricePrecision, tickDecimals].filter(v => Number.isFinite(v));
+            const resolvedPrecision = resolvedPrecisionCandidates.length
+                ? Math.max(...resolvedPrecisionCandidates)
+                : null;
+            acc[String(item.symbol)] = { tickSize, pricePrecision: resolvedPrecision };
+            return acc;
+        }, {});
+
+        exchangeInfoCache[cacheKey] = { timestamp: now, symbols };
+        const info = symbols && symbols[symbol];
+        return info && Number.isFinite(info.tickSize) ? Number(info.tickSize) : null;
+    } catch (error) {
+        console.warn('exchangeInfo fetch error:', error);
+        return null;
+    }
+}
+
+function roundToTick(value, tick) {
+    if (!Number.isFinite(tick) || tick <= 0) return value;
+    const scaled = Math.round(value / tick) * tick;
+    return Number.isFinite(scaled) ? scaled : value;
+}
+
+function applySlippage(price, side, slippageBps) {
+    const bps = Number(slippageBps) || 0;
+    if (!Number.isFinite(bps) || bps <= 0) return price;
+    const pct = bps / 10000;
+    return side === 'BUY' ? price * (1 + pct) : price * (1 - pct);
+}
+
 // 1. MULTI-TIMEFRAME ANALİZ
 async function analyzeMultiTimeframe(symbol, marketType = null) {
     const timeframes = ['5m', '15m', '1h', '4h', '1d'];
@@ -938,15 +998,25 @@ function resolveKlineCloseTimeMs(kline) {
 }
 
 // 7. BACKTEST SİSTEMİ
-async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 70, takeProfitPercent = 5, stopLossPercent = 3, marketType = null) {
+async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 70, takeProfitPercent = 5, stopLossPercent = 3, marketType = null, directionFilter = 'BOTH', slippageBps = null, feeBps = null) {
     const results = [];
     console.log(`🔍 BACKTEST BAŞLADI: ${symbol} ${timeframe} | TP:${takeProfitPercent}% SL:${stopLossPercent}%`);
+    const MIN_BACKTEST_WINDOW = 100;
     
     // Timeframe'e göre gerekli kline sayısını hesapla
     const timeframeMinutes = {
         '5m': 5, '15m': 15, '30m': 30, '1h': 60, '4h': 240, '1d': 1440
     };
     const minutes = timeframeMinutes[timeframe] || 60;
+    const normalizedDirectionFilter = String(directionFilter || 'BOTH').toUpperCase();
+    const resolvedSlippageBps = Number.isFinite(Number(slippageBps))
+        ? Number(slippageBps)
+        : Number(window.APP_CONFIG && window.APP_CONFIG.backtestSlippageBps);
+    const resolvedFeeBps = Number.isFinite(Number(feeBps))
+        ? Number(feeBps)
+        : Number(window.APP_CONFIG && window.APP_CONFIG.backtestFeeBps);
+    const slippageBpsValue = Number.isFinite(resolvedSlippageBps) ? resolvedSlippageBps : 0;
+    const feeBpsValue = Number.isFinite(resolvedFeeBps) ? resolvedFeeBps : 0;
     const neededKlines = 1000;
     
     try {
@@ -956,6 +1026,13 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         const response = await fetchWithRetry(klinesUrl, {}, 3, 1000, 30000);
         const klines = await response.json();
         const trimmedKlines = Array.isArray(klines) ? klines.slice(-1000) : [];
+        if (trimmedKlines.length < MIN_BACKTEST_WINDOW + 1) {
+            console.warn(`⚠️ Backtest için yetersiz kline: ${trimmedKlines.length}`);
+            return results;
+        }
+
+        const tickSize = await getSymbolTickSize(String(symbol || '').toUpperCase(), marketType);
+        const safeTick = Number.isFinite(tickSize) && Number(tickSize) > 0 ? Number(tickSize) : 0.01;
         
         // Şu anki açık bar'ı ekle (manuel olarak) - TÜRKİYE SAATİNE GÖRE
         // ⚠️ AÇIK BAR'NIN HIGH/LOW VERİSİ EKSIK OLDUĞU İÇİN BACKTESTE KATMIYORUZ
@@ -1009,7 +1086,10 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         const lows = trimmedKlines.map(k => parseFloat(k[3]));
         const volumes = trimmedKlines.map(k => parseFloat(k[5]));
         let windowSize = Math.min(1000, closes.length - 1);
-        if (windowSize < 100) windowSize = Math.min(100, closes.length - 1);
+        if (windowSize < MIN_BACKTEST_WINDOW) {
+            console.warn(`⚠️ Backtest window çok küçük: ${windowSize}`);
+            return results;
+        }
         
         // Sliding window ile backtest
         let wins = 0;
@@ -1021,6 +1101,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         // AÇIK İŞLEM TRACKING
         let openTrade = null;  // Şu anda açık olan işlem
         let openTradeEntryBar = -1;  // Açık işlemin giriş bar'ı
+        const activeSignalDirections = new Set();
         
         // Her bar kontrol edilsin (SON AÇIK BAR HARIÇ - incomplete data)
         for (let i = windowSize; i < closes.length - 1; i++) {
@@ -1048,7 +1129,8 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                         if (barsSinceEntry >= 4 && barsSinceEntry <= 6) {
                             console.log(`🎯 LONG [${timeframe}] SL HIT bar${barsSinceEntry}: LOW=${currentLow.toFixed(4)} <= SL=${openTrade.stopLoss.toFixed(4)}`);
                         }
-                        openTrade.exit = openTrade.stopLoss;  // ✅ SL fiyatında hemen çık
+                        const exitRaw = applySlippage(openTrade.stopLoss, 'SELL', slippageBpsValue);
+                        openTrade.exit = roundToTick(exitRaw, safeTick);
                         openTrade.exitBarIndex = i;
                         openTrade.actualSL = true;
                         shouldClose = true;
@@ -1059,7 +1141,8 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                         if (barsSinceEntry >= 4 && barsSinceEntry <= 6) {
                             console.log(`🎯 LONG [${timeframe}] TP HIT bar${barsSinceEntry}: HIGH=${currentHigh.toFixed(4)} >= TP=${openTrade.takeProfit.toFixed(4)}`);
                         }
-                        openTrade.exit = openTrade.takeProfit;  // ✅ TP fiyatında hemen çık
+                        const exitRaw = applySlippage(openTrade.takeProfit, 'SELL', slippageBpsValue);
+                        openTrade.exit = roundToTick(exitRaw, safeTick);
                         openTrade.exitBarIndex = i;
                         openTrade.actualTP = true;
                         shouldClose = true;
@@ -1072,7 +1155,8 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                         if (barsSinceEntry >= 4 && barsSinceEntry <= 6) {
                             console.log(`🎯 SHORT [${timeframe}] SL HIT bar${barsSinceEntry}: HIGH=${currentHigh.toFixed(4)} >= SL=${openTrade.stopLoss.toFixed(4)}`);
                         }
-                        openTrade.exit = openTrade.stopLoss;  // ✅ SL fiyatında hemen çık
+                        const exitRaw = applySlippage(openTrade.stopLoss, 'BUY', slippageBpsValue);
+                        openTrade.exit = roundToTick(exitRaw, safeTick);
                         openTrade.exitBarIndex = i;
                         openTrade.actualSL = true;
                         shouldClose = true;
@@ -1083,7 +1167,8 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                         if (barsSinceEntry >= 4 && barsSinceEntry <= 6) {
                             console.log(`🎯 SHORT [${timeframe}] TP HIT bar${barsSinceEntry}: LOW=${currentLow.toFixed(4)} <= TP=${openTrade.takeProfit.toFixed(4)}`);
                         }
-                        openTrade.exit = openTrade.takeProfit;  // ✅ TP fiyatında hemen çık
+                        const exitRaw = applySlippage(openTrade.takeProfit, 'BUY', slippageBpsValue);
+                        openTrade.exit = roundToTick(exitRaw, safeTick);
                         openTrade.exitBarIndex = i;
                         openTrade.actualTP = true;
                         shouldClose = true;
@@ -1100,6 +1185,8 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                     } else {
                         profit = ((openTrade.entry - openTrade.exit) / openTrade.entry) * 100;
                     }
+                    const feePct = (feeBpsValue * 2) / 100;
+                    profit -= feePct;
                     
                     // KAPALANMIŞ İŞLEM - Yeni object oluştur (reference problemi önle)
                     const barCount = openTrade.exitBarIndex - openTrade.barIndex;
@@ -1133,6 +1220,9 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                     
                     // Results'a ekle (kapalı işlem)
                     results.push(closedTrade);
+                    if (openTrade && openTrade.signal) {
+                        activeSignalDirections.delete(`${symbol.toUpperCase()}:${openTrade.signal}`);
+                    }
                     openTrade = null;
                     openTradeEntryBar = -1;
                     
@@ -1161,6 +1251,23 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             }
 
             const signal = generateSignalScoreAligned(indicators, confidenceThreshold);
+            if (normalizedDirectionFilter !== 'BOTH' && normalizedDirectionFilter !== signal.direction) {
+                continue;
+            }
+
+            const lastClosedMs = resolveKlineCloseTimeMs(klines[i]);
+            const nowMs = lastClosedMs + 1;
+            const timeframeMs = minutes * 60 * 1000;
+            const maxDelayMs = Math.min(2 * 60 * 1000, Math.max(60000, Math.floor(timeframeMs * 0.3)));
+            const isWithinCloseWindow = nowMs >= lastClosedMs && (nowMs - lastClosedMs) <= maxDelayMs;
+            if (!isWithinCloseWindow) {
+                continue;
+            }
+            const directionKey = `${symbol.toUpperCase()}:${signal.direction}`;
+            if (activeSignalDirections.has(directionKey)) {
+                continue;
+            }
+
             const shouldOpenTrade = signal && signal.triggered;
             
             // DEBUG: Log ekle
@@ -1186,13 +1293,17 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             // ADIM 3: YENİ İŞLEM AÇ
             // ============================================
             
-            const entryPrice = closes[i];
-            const takeProfit = signal.direction === 'SHORT'
+            const entrySide = signal.direction === 'SHORT' ? 'SELL' : 'BUY';
+            const entryRaw = applySlippage(closes[i], entrySide, slippageBpsValue);
+            const entryPrice = roundToTick(entryRaw, safeTick);
+            const rawTakeProfit = signal.direction === 'SHORT'
                 ? entryPrice * (1 - takeProfitPercent / 100)
                 : entryPrice * (1 + takeProfitPercent / 100);
-            const stopLoss = signal.direction === 'SHORT'
+            const rawStopLoss = signal.direction === 'SHORT'
                 ? entryPrice * (1 + stopLossPercent / 100)
                 : entryPrice * (1 - stopLossPercent / 100);
+            const takeProfit = roundToTick(rawTakeProfit, safeTick);
+            const stopLoss = roundToTick(rawStopLoss, safeTick);
             
             // Tarih ve saat (Türkiye saati)
             const tradeTimestamp = resolveKlineCloseTimeMs(klines[i]);
@@ -1229,6 +1340,8 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 slPercent: parseFloat(slPercent.toFixed(2)),
                 isOpen: true
             };
+
+            activeSignalDirections.add(directionKey);
             
             openTradeEntryBar = i;
             console.log(`✅ YENİ İŞLEM AÇILDI [${timeframe}] bar=${i} ${signal.direction} entry=${entryPrice.toFixed(4)} TP=${takeProfit.toFixed(4)} SL=${stopLoss.toFixed(4)}`);
@@ -1339,9 +1452,15 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             }
 
             const lastSignal = generateSignalScoreAligned(lastIndicators, confidenceThreshold);
+            const lastDirectionOk = normalizedDirectionFilter === 'BOTH' || normalizedDirectionFilter === lastSignal.direction;
+            const lastClosedMs = resolveKlineCloseTimeMs(klines[closedBarIndex]);
+            const lastNowMs = lastClosedMs + 1;
+            const lastTimeframeMs = minutes * 60 * 1000;
+            const lastMaxDelayMs = Math.min(2 * 60 * 1000, Math.max(60000, Math.floor(lastTimeframeMs * 0.3)));
+            const lastWithinCloseWindow = lastNowMs >= lastClosedMs && (lastNowMs - lastClosedMs) <= lastMaxDelayMs;
             
             // SADECE triggered true olan sinyalleri göster (confidence threshold gecenler)
-            if (lastSignal && lastSignal.triggered) {
+            if (lastSignal && lastSignal.triggered && lastDirectionOk && lastWithinCloseWindow) {
                 // ÖNEMLİ: Son kapalı işlem ile lastTrade arasında çakışma var mı kontrol et
                 // Eğer son işlem belirsiz durumdaysa (0% profit, actualTP=false, actualSL=false), 
                 // yeni sinyal gösterme
@@ -1381,21 +1500,30 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                     
                     const lastBarDateTurkey = new Date(lastBarTimestamp);
                     
-                    const lastEntryPrice = closes[closedBarIndex];
-                    const lastTakeProfit = lastSignal.direction === 'SHORT'
+                    const lastEntrySide = lastSignal.direction === 'SHORT' ? 'SELL' : 'BUY';
+                    const lastEntryRaw = applySlippage(closes[closedBarIndex], lastEntrySide, slippageBpsValue);
+                    const lastEntryPrice = roundToTick(lastEntryRaw, safeTick);
+                    const lastTakeProfitRaw = lastSignal.direction === 'SHORT'
                         ? lastEntryPrice * (1 - takeProfitPercent / 100)
                         : lastEntryPrice * (1 + takeProfitPercent / 100);
-                    const lastStopLoss = lastSignal.direction === 'SHORT'
+                    const lastStopLossRaw = lastSignal.direction === 'SHORT'
                         ? lastEntryPrice * (1 + stopLossPercent / 100)
                         : lastEntryPrice * (1 - stopLossPercent / 100);
+                    const lastTakeProfit = roundToTick(lastTakeProfitRaw, safeTick);
+                    const lastStopLoss = roundToTick(lastStopLossRaw, safeTick);
 
                     // Kar/Zarar hesapla
                     let lastTradeProfit = 0;
+                    const lastExitSide = lastSignal.direction === 'SHORT' ? 'BUY' : 'SELL';
+                    const lastExitRaw = applySlippage(closes[lastBarIndex], lastExitSide, slippageBpsValue);
+                    const lastExitPrice = roundToTick(lastExitRaw, safeTick);
                     if (lastSignal.direction === 'LONG') {
-                        lastTradeProfit = ((closes[lastBarIndex] - lastEntryPrice) / lastEntryPrice) * 100;
+                        lastTradeProfit = ((lastExitPrice - lastEntryPrice) / lastEntryPrice) * 100;
                     } else {
-                        lastTradeProfit = ((lastEntryPrice - closes[lastBarIndex]) / lastEntryPrice) * 100;
+                        lastTradeProfit = ((lastEntryPrice - lastExitPrice) / lastEntryPrice) * 100;
                     }
+                    const lastFeePct = (feeBpsValue * 2) / 100;
+                    lastTradeProfit -= lastFeePct;
                     
                     lastTrade = {
                         timestamp: lastBarTimestamp,

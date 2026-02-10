@@ -1555,12 +1555,13 @@ interface TechnicalIndicators {
 }
 
 async function calculateIndicators(symbol: string, marketType: "spot" | "futures", timeframe: string = "1h"): Promise<TechnicalIndicators | null> {
+  const MIN_INDICATOR_WINDOW = 100;
   const klines = await getKlines(symbol, marketType, timeframe, 1000);
   if (!klines || klines.length < 2) return null;
 
   // ✅ Backtest ile birebir uyum için açık (son) bar'ı dahil etme
   const closedKlines = klines.slice(0, -1);
-  if (closedKlines.length < 2) return null;
+  if (closedKlines.length < MIN_INDICATOR_WINDOW) return null;
   const windowSize = Math.min(1000, closedKlines.length);
   const window = closedKlines.slice(-windowSize);
 
@@ -1570,66 +1571,8 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
   const lows = window.map((k: any) => parseFloat(k[3]));
   const lastClosedKline = window[window.length - 1];
   const lastClosedTimestamp = Number(lastClosedKline?.[6] ?? lastClosedKline?.[0] ?? Date.now());
-  const lastPrice = closes[closes.length - 1];
 
-  // Calculate MACD
-  const ema12 = calculateEMA(closes, 12);
-  const ema26 = calculateEMA(closes, 26);
-  const macdLine = ema12 - ema26;
-  const signalLine = calculateEMA(closes.map((_, i) => {
-    const c = closes.slice(0, i + 1);
-    return c.length >= 26 ? calculateEMA(c, 12) - calculateEMA(c, 26) : 0;
-  }), 9);
-  const histogram = macdLine - signalLine;
-
-  // Calculate OBV
-  let obv = 0;
-  let obvTrend = "neutral";
-  for (let i = 0; i < closes.length; i++) {
-    if (i === 0) obv = volumes[i];
-    else if (closes[i] > closes[i - 1]) obv += volumes[i];
-    else if (closes[i] < closes[i - 1]) obv -= volumes[i];
-  }
-  if (closes[closes.length - 1] > closes[closes.length - 2]) obvTrend = "rising";
-  else if (closes[closes.length - 1] < closes[closes.length - 2]) obvTrend = "falling";
-
-  // Support/Resistance
-  const highs20 = highs.slice(-20);
-  const lows20 = lows.slice(-20);
-  const resistance = Math.max(...highs20);
-  const support = Math.min(...lows20);
-
-  // Calculate Stochastic and ADX
-  const stoch = calculateStochastic(closes, highs, lows);
-  const adx = calculateADX(highs, lows, closes);
-  const atr = calculateAlarmATR(highs, lows, closes);
-  
-  // Calculate Volume Moving Average
-  const volumeMA = volumes.length > 0 ? volumes.reduce((a, b) => a + b, 0) / volumes.length : 0;
-
-  return {
-    rsi: calculateRSI(closes, 14),
-    sma20: calculateSMA(closes, 20),
-    sma50: calculateSMA(closes, 50),
-    ema12: ema12,
-    ema26: ema26,
-    price: lastPrice,
-    lastClosedTimestamp: lastClosedTimestamp,
-    closes: closes,
-    volumes: volumes,
-    highs: highs,
-    lows: lows,
-    macd: macdLine,
-    histogram: histogram,
-    obv: obv,
-    obvTrend: obvTrend,
-    resistance: resistance,
-    support: support,
-    stoch: stoch,
-    adx: adx,
-    atr,
-    volumeMA: volumeMA,
-  };
+  return calculateAlarmIndicators(closes, highs, lows, volumes, lastClosedTimestamp);
 }
 
 // =====================
@@ -2023,13 +1966,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         return;
       }
 
-      const alarmIndicators = calculateAlarmIndicators(
-        indicators.closes,
-        indicators.highs,
-        indicators.lows,
-        indicators.volumes,
-        indicators.lastClosedTimestamp
-      );
+      const alarmIndicators = indicators;
 
       if (!alarmIndicators) {
         console.log(`⚠️ Alarm indicators unavailable for ${alarm.symbol}`);
