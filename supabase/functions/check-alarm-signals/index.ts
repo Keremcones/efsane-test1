@@ -585,8 +585,22 @@ async function placeTakeProfitStopLoss(
 ): Promise<{ tpOrderId?: string; slOrderId?: string; tpError?: string; slError?: string }> {
   const closeSide = direction === "LONG" ? "SELL" : "BUY";
 
-  const tpPrice = takeProfit.toFixed(pricePrecision);
-  const slPrice = stopLoss.toFixed(pricePrecision);
+  let tpValue = Number(takeProfit);
+  let slValue = Number(stopLoss);
+  const tickSize = 1 / Math.pow(10, pricePrecision);
+  const currentPrice = await getCurrentPrice(symbol, "futures");
+  if (Number.isFinite(currentPrice)) {
+    if (direction === "LONG") {
+      if (tpValue <= currentPrice) tpValue = currentPrice + tickSize;
+      if (slValue >= currentPrice) slValue = Math.max(currentPrice - tickSize, tickSize);
+    } else {
+      if (tpValue >= currentPrice) tpValue = Math.max(currentPrice - tickSize, tickSize);
+      if (slValue <= currentPrice) slValue = currentPrice + tickSize;
+    }
+  }
+
+  const tpPrice = tpValue.toFixed(pricePrecision);
+  const slPrice = slValue.toFixed(pricePrecision);
 
   let tpOrderId: string | undefined;
   let slOrderId: string | undefined;
@@ -710,9 +724,17 @@ async function placeSpotOco(
   pricePrecision: number
 ): Promise<{ success: boolean; error?: string }> {
   const timestamp = Date.now();
-  const tpPrice = takeProfit.toFixed(pricePrecision);
-  const slPrice = stopLoss.toFixed(pricePrecision);
-  const slValue = Number(stopLoss);
+  let tpValue = Number(takeProfit);
+  let slValue = Number(stopLoss);
+  const tickSize = 1 / Math.pow(10, pricePrecision);
+  const currentPrice = await getCurrentPrice(symbol, "spot");
+  if (Number.isFinite(currentPrice)) {
+    if (tpValue <= currentPrice) tpValue = currentPrice + tickSize;
+    if (slValue >= currentPrice) slValue = Math.max(currentPrice - tickSize, tickSize);
+  }
+
+  const tpPrice = tpValue.toFixed(pricePrecision);
+  const slPrice = slValue.toFixed(pricePrecision);
   const offset = Math.max(slValue * 0.001, 1 / Math.pow(10, pricePrecision));
   const stopLimitValue = Math.max(0, slValue - offset);
   const stopLimitPrice = stopLimitValue.toFixed(pricePrecision);
