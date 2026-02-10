@@ -137,7 +137,7 @@ var APP_CONFIG = window.APP_CONFIG || {
     defaultRiskPerTrade: 2, // %2
     minRiskRewardRatio: 1.5,
     maxPositionSizePercentage: 10, // %10
-    backtestDays: 30,
+    backtestDays: 120,
     backtestSlippageBps: 0, // 0.00% each side (edge ile birebir)
     backtestFeeBps: 0, // 0.00% each side (edge ile birebir)
     alarmCheckInterval: 2000, // 2 saniye (TP/SL kontrol için)

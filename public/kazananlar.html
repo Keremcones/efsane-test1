@@ -1214,10 +1214,11 @@
 
         async function runBacktestSafe(symbol, timeframe, tp, sl) {
             try {
+                const backtestDays = Number(window.APP_CONFIG && window.APP_CONFIG.backtestDays) || 30;
                 const backtest = await AdvancedIndicators.runBacktest(
                     symbol,
                     timeframe,
-                    7,
+                    backtestDays,
                     confidenceThreshold,
                     tp,
                     sl,

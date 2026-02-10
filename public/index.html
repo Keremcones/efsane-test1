@@ -3324,7 +3324,8 @@
                 let backtest = null;
                 try {
                     const resolvedMarketType = (typeof getMarketType === 'function') ? getMarketType() : (window.CURRENT_MARKET_TYPE || 'spot');
-                    const backtestPromise = AdvancedIndicators.runBacktest(symbol, currentTimeframe, 7, confidenceThreshold, takeProfitPercent, stopLossPercent, resolvedMarketType);
+                    const backtestDays = Number(window.APP_CONFIG && window.APP_CONFIG.backtestDays) || 30;
+                    const backtestPromise = AdvancedIndicators.runBacktest(symbol, currentTimeframe, backtestDays, confidenceThreshold, takeProfitPercent, stopLossPercent, resolvedMarketType);
                     const timeoutPromise = new Promise((_, reject) => 
                         setTimeout(() => reject(new Error('Backtest timeout')), 5000)
                     );
