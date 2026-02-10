@@ -8,6 +8,9 @@ ADD CONSTRAINT alarms_type_check
 CHECK (type IN ('user_alarm', 'auto_signal', 'PRICE_LEVEL', 'ACTIVE_TRADE', 'SIGNAL'));
 
 ALTER TABLE public.alarms
+ADD COLUMN IF NOT EXISTS close_reason VARCHAR(20);
+
+ALTER TABLE public.alarms
 DROP CONSTRAINT IF EXISTS alarms_close_reason_check;
 
 ALTER TABLE public.alarms
