@@ -2490,17 +2490,17 @@ serve(async (req: any) => {
     });
   }
 
-  // ✅ Auth guard (optional - currently disabled for cron compatibility)
-  // if (cronSecret) {
-  //   const auth = req.headers.get("authorization") || "";
-  //   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  //   if (token !== cronSecret) {
-  //     return new Response(JSON.stringify({ error: "Unauthorized" }), {
-  //       status: 401,
-  //       headers: { ...corsHeaders, "Content-Type": "application/json" },
-  //     });
-  //   }
-  // }
+  // ✅ Auth guard (optional - enforced only if CRON_SECRET is set)
+  if (cronSecret) {
+    const auth = req.headers.get("authorization") || "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+    if (token !== cronSecret) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  }
 
   try {
     console.log("🚀 [CRON] Starting alarm signals check");

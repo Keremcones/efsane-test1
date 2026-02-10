@@ -1600,6 +1600,7 @@ class AlarmSystem {
         if (typeof symbolOrAlarm === 'object') {
             alarm = {
                 id: Date.now() + Math.random(),
+                status: symbolOrAlarm.status || 'ACTIVE',
                 ...symbolOrAlarm
             };
         } else {
@@ -1613,6 +1614,7 @@ class AlarmSystem {
                 type: type === 'price' ? 'PRICE_LEVEL' : type, // 'price' -> 'PRICE_LEVEL'
                 marketType: resolvedMarketType,
                 active: true,
+                status: 'ACTIVE',
                 createdAt: new Date(),
                 triggered: false,
                 triggeredAt: null
@@ -1763,7 +1765,7 @@ class AlarmSystem {
         });
         
         alarm.active = false;
-        alarm.status = 'KAPATILDI';
+        alarm.status = 'CLOSED';
         await this.saveAlarms();
         
         console.log('📱 [DEACTIVATE] Telegram bildirimi gönderiliyor...');
@@ -1803,7 +1805,11 @@ class AlarmSystem {
             }
             
             // ACTIVE_TRADE (işlem alarmları) - TP/SL kontrol
-            if (alarm.type === 'ACTIVE_TRADE' && alarm.status === 'AKTIF') {
+            if (alarm.type === 'ACTIVE_TRADE') {
+                const status = String(alarm.status || '').toUpperCase();
+                if (status !== 'ACTIVE' && status !== 'AKTIF') {
+                    continue;
+                }
                 if (alarm.direction === 'LONG') {
                     if (currentPrice >= alarm.takeProfit) {
                         shouldTrigger = true;
@@ -1827,7 +1833,7 @@ class AlarmSystem {
                 alarm.triggered = true;
                 alarm.triggeredAt = now;
                 if (alarm.type === 'ACTIVE_TRADE') {
-                    alarm.status = 'KAPATILDI';
+                    alarm.status = 'CLOSED';
                 }
                 // Telegram gönderimi için gerekli bilgileri kaydet
                 alarm.currentPrice = currentPrice;
@@ -2441,6 +2447,7 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                             timeframe: item.timeframe,
                             marketType: item.market_type || 'spot',
                             active: item.is_active,
+                            status: item.status || 'ACTIVE',
                             createdAt: item.created_at,
                             confidenceScore: parseInt(item.confidence_score) || 60,
                             takeProfitPercent: Number.isFinite(parsedTp) ? parsedTp : 5,

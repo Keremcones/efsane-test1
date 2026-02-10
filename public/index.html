@@ -3135,9 +3135,10 @@
         
         // Aktif işlemlerin TP/SL seviyelerini kontrol et
         function checkActiveTradeLevels(symbol, currentPrice) {
-            const activeTradeAlarm = alarmSystem.alarms.find(a => 
-                a.type === 'ACTIVE_TRADE' && a.symbol === symbol && a.status === 'AKTIF'
-            );
+            const activeTradeAlarm = alarmSystem.alarms.find(a => {
+                const status = String(a.status || '').toUpperCase();
+                return a.type === 'ACTIVE_TRADE' && a.symbol === symbol && (status === 'ACTIVE' || status === 'AKTIF');
+            });
             
             if (!activeTradeAlarm) return;
             
@@ -3656,7 +3657,10 @@
                 // Backtest sonuçlarında TP/SL kapanışlarını Telegram'a gönder
                 // SADECE takip edilen (alarm kurulu) işlemler kapatıldığında
                 if (backtest && backtest.trades && backtest.trades.length > 0) {
-                    const activeAlarms = (alarmSystem.alarms || []).filter(a => a.status === 'AKTIF');
+                    const activeAlarms = (alarmSystem.alarms || []).filter(a => {
+                        const status = String(a.status || '').toUpperCase();
+                        return status === 'ACTIVE' || status === 'AKTIF';
+                    });
                     console.log('[BACKTEST RESULTS] Trades kontrol ediliyor:', {
                         trades_count: backtest.trades.length,
                         active_alarms_count: activeAlarms.length,
@@ -3675,7 +3679,9 @@
                             profit: t.profit
                         }))
                     });
-                    sendBacktestResultsToTelegram(symbol, backtest.trades);
+                    if (window.ENABLE_BACKTEST_TELEGRAM === true) {
+                        sendBacktestResultsToTelegram(symbol, backtest.trades);
+                    }
                 } else {
                     console.log('[BACKTEST RESULTS] Backtest yok veya trades boş:', {
                         backtest_exists: !!backtest,
@@ -5439,6 +5445,9 @@
             stopLiveUpdates();
         });
 
+        const ENABLE_BACKTEST_TELEGRAM = false;
+        window.ENABLE_BACKTEST_TELEGRAM = ENABLE_BACKTEST_TELEGRAM;
+
         // Backtest sonuçlarını Telegram'a gönder
         // SADECE takip edilen işlemler (alarm kurulu) kapatıldığında mesaj gönder
         async function sendBacktestResultsToTelegram(symbol, trades) {
@@ -5457,7 +5466,10 @@
                 }
 
                 // Aktif alarmların entry timestamp'lerini al (milisaniye cinsinden number'a çevir)
-                const activeAlarms = (alarmSystem.alarms || []).filter(a => a.status === 'AKTIF');
+                const activeAlarms = (alarmSystem.alarms || []).filter(a => {
+                    const status = String(a.status || '').toUpperCase();
+                    return status === 'ACTIVE' || status === 'AKTIF';
+                });
                 const trackedTimestamps = new Set(
                     activeAlarms.map(a => {
                         const ts = new Date(a.signalTimestamp).getTime();
