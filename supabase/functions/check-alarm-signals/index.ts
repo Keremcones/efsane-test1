@@ -1655,6 +1655,11 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       let detectedSignal = null;
       const lastClosedMs = Number(indicators.lastClosedTimestamp || 0);
       const lastClosedIso = lastClosedMs ? new Date(lastClosedMs).toISOString() : new Date().toISOString();
+      const nowMs = Date.now();
+      const timeframeMinutes = timeframeToMinutes(String(alarm.timeframe || "1h"));
+      const timeframeMs = timeframeMinutes * 60 * 1000;
+      const maxDelayMs = Math.min(2 * 60 * 1000, Math.max(15000, Math.floor(timeframeMs * 0.1)));
+      const isWithinCloseWindow = nowMs >= lastClosedMs && (nowMs - lastClosedMs) <= maxDelayMs;
       const lastSignalTs = alarm.signal_timestamp || alarm.signalTimestamp;
       const lastSignalMs = lastSignalTs ? Date.parse(String(lastSignalTs)) : NaN;
 
@@ -1667,6 +1672,8 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
 
         if (autoTradeEnabled && openTradeSymbols.has(symbolKey)) {
           console.log(`⏹️ Skipping user_alarm for ${symbol}: ACTIVE_TRADE in progress (user: ${alarm.user_id})`);
+        } else if (!isWithinCloseWindow) {
+          console.log(`⏹️ Skipping user_alarm for ${symbol}: outside close window (${Math.round((nowMs - lastClosedMs) / 1000)}s)`);
         } else if (Number.isFinite(lastSignalMs) && lastSignalMs >= lastClosedMs) {
           console.log(`⏹️ Skipping user_alarm for ${symbol}: same bar already processed (alarm ${alarm.id})`);
         } else if (openSignalKeys.has(signalKey)) {
@@ -1790,6 +1797,8 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
 
         if (openTradeSymbols.has(symbolKey)) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: ACTIVE_TRADE in progress (user: ${alarm.user_id})`);
+        } else if (!isWithinCloseWindow) {
+          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: outside close window (${Math.round((nowMs - lastClosedMs) / 1000)}s)`);
         } else if (Number.isFinite(lastSignalMs) && lastSignalMs >= lastClosedMs) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: same bar already processed (alarm ${alarm.id})`);
         } else if (openSignalKeys.has(signalKey)) {
