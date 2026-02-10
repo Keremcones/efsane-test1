@@ -22,17 +22,6 @@ const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const telegramBotToken = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const cronSecret = Deno.env.get("CRON_SECRET") ?? ""; // set this to protect endpoint
 
-// CRITICAL: Fail fast if env vars missing
-if (!supabaseUrl) {
-  throw new Error("❌ FATAL: SUPABASE_URL not set in Edge Function environment variables");
-}
-if (!supabaseServiceRoleKey) {
-  throw new Error("❌ FATAL: SUPABASE_SERVICE_ROLE_KEY not set in Edge Function environment variables");
-}
-if (!telegramBotToken) {
-  throw new Error("❌ FATAL: TELEGRAM_BOT_TOKEN not set in Edge Function environment variables");
-}
-
 // Single supabase client for whole function (more efficient)
 const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
@@ -2885,6 +2874,13 @@ serve(async (req: any) => {
     return new Response("ok", { status: 200, headers: corsHeaders });
   }
 
+  if (!supabaseUrl || !supabaseServiceRoleKey) {
+    return new Response(JSON.stringify({ error: "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
+  }
+
   if (req.method !== "POST") {
     return new Response("Method not allowed", {
       status: 405,
@@ -2937,6 +2933,12 @@ serve(async (req: any) => {
 
     // ✅ Test notification request
     if (body?.action === "test_notification") {
+      if (!telegramBotToken) {
+        return new Response(JSON.stringify({ ok: false, error: "Missing TELEGRAM_BOT_TOKEN" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
       const chatId = String(body?.telegramUsername || body?.telegram_chat_id || body?.chatId || "").trim();
       if (!chatId) {
         return new Response(JSON.stringify({ ok: false, error: "Missing telegram chat id" }), {
