@@ -859,6 +859,34 @@
     <script src="advanced-indicators.js?v=20260129"></script>
     <script>
         const originalFetch = window.fetch;
+        const BINANCE_HOST_COOLDOWN_MS = 10 * 60 * 1000;
+        const binanceHostCooldowns = new Map();
+
+        function isHostAvailable(host) {
+            const downUntil = binanceHostCooldowns.get(host);
+            return !downUntil || downUntil <= Date.now();
+        }
+
+        function markHostDown(host) {
+            binanceHostCooldowns.set(host, Date.now() + BINANCE_HOST_COOLDOWN_MS);
+        }
+
+        function isNetworkError(error) {
+            if (!error || error.name === 'AbortError') return false;
+            const message = String(error.message || error);
+            return error instanceof TypeError
+                || /ERR_NAME_NOT_RESOLVED|Failed to fetch|NetworkError|ERR_CONNECTION/i.test(message);
+        }
+
+        function filterAvailableBases(baseList) {
+            return baseList.filter(base => {
+                try {
+                    return isHostAvailable(new URL(base).hostname);
+                } catch (error) {
+                    return true;
+                }
+            });
+        }
 
         function buildBinanceFallbackUrls(inputUrl) {
             const urlObj = new URL(inputUrl);
@@ -878,36 +906,15 @@
                     'https://data-api.binance.vision'
                 ]
                 : [
-                    'https://api.binance.com',
+                    'https://data-api.binance.vision',
                     'https://api1.binance.com',
                     'https://api2.binance.com',
                     'https://api3.binance.com',
-                    'https://data-api.binance.vision'
+                    'https://api.binance.com'
                 ];
 
-            return baseList.map(base => `${base}${path}`);
+            return filterAvailableBases(baseList).map(base => `${base}${path}`);
         }
-
-        window.fetch = async function(url, options) {
-            if (typeof url !== 'string') {
-                return originalFetch(url, options);
-            }
-
-            const fallbackUrls = buildBinanceFallbackUrls(url);
-            let lastError = null;
-
-            for (const candidate of fallbackUrls) {
-                try {
-                    const res = await fetchWithRetry(candidate, options, 3, 10000);
-                    if (res.ok) return res;
-                    lastError = new Error(`HTTP ${res.status}`);
-                } catch (error) {
-                    lastError = error;
-                }
-            }
-
-            throw lastError || new Error('Request failed');
-        };
 
         let supabaseClient = null;
         let currentUser = null;
@@ -933,11 +940,65 @@
             status.style.color = active ? 'var(--accent)' : 'var(--text-secondary)';
         }
 
-        async function fetchWithTimeout(url, options, timeoutMs = 10000) {
+        async function baseFetchWithTimeout(url, options, timeoutMs = 10000) {
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), timeoutMs);
             try {
                 return await originalFetch(url, { ...options, signal: controller.signal });
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
+        async function baseFetchWithRetry(url, options, retries = 3, timeoutMs = 10000) {
+            let lastError = null;
+            for (let attempt = 0; attempt < retries; attempt++) {
+                try {
+                    const res = await baseFetchWithTimeout(url, options, timeoutMs);
+                    if (res.ok) return res;
+                    lastError = new Error(`HTTP ${res.status}`);
+                } catch (error) {
+                    lastError = error;
+                    if (isNetworkError(error)) {
+                        try {
+                            markHostDown(new URL(url).hostname);
+                        } catch (err) {
+                            // Ignore URL parsing errors.
+                        }
+                        break;
+                    }
+                }
+            }
+            throw lastError || new Error('Request failed');
+        }
+
+        window.fetch = async function(url, options) {
+            if (typeof url !== 'string') {
+                return originalFetch(url, options);
+            }
+
+            const fallbackUrls = buildBinanceFallbackUrls(url);
+            const candidates = fallbackUrls.length ? fallbackUrls : [url];
+            let lastError = null;
+
+            for (const candidate of candidates) {
+                try {
+                    const res = await baseFetchWithRetry(candidate, options, 3, 10000);
+                    if (res.ok) return res;
+                    lastError = new Error(`HTTP ${res.status}`);
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+
+            throw lastError || new Error('Request failed');
+        };
+
+        async function fetchWithTimeout(url, options, timeoutMs = 10000) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                return await window.fetch(url, { ...options, signal: controller.signal });
             } finally {
                 clearTimeout(timer);
             }
@@ -967,15 +1028,17 @@
                     'https://data-api.binance.vision/fapi/v1'
                 ]
                 : [
-                    'https://api.binance.com/api/v3',
+                    'https://data-api.binance.vision/api/v3',
                     'https://api1.binance.com/api/v3',
                     'https://api2.binance.com/api/v3',
                     'https://api3.binance.com/api/v3',
-                    'https://data-api.binance.vision/api/v3'
+                    'https://api.binance.com/api/v3'
                 ];
 
+            const candidates = filterAvailableBases(baseList);
+
             let lastError = null;
-            for (const base of baseList) {
+            for (const base of candidates) {
                 try {
                     const res = await fetchWithRetry(`${base}/exchangeInfo`, {}, 3, 10000);
                     if (!res.ok) {

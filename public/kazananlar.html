@@ -993,6 +993,34 @@
     <script src="advanced-indicators.js?v=20260129"></script>
     <script>
         const originalFetch = window.fetch;
+        const BINANCE_HOST_COOLDOWN_MS = 10 * 60 * 1000;
+        const binanceHostCooldowns = new Map();
+
+        function isHostAvailable(host) {
+            const downUntil = binanceHostCooldowns.get(host);
+            return !downUntil || downUntil <= Date.now();
+        }
+
+        function markHostDown(host) {
+            binanceHostCooldowns.set(host, Date.now() + BINANCE_HOST_COOLDOWN_MS);
+        }
+
+        function isNetworkError(error) {
+            if (!error || error.name === 'AbortError') return false;
+            const message = String(error.message || error);
+            return error instanceof TypeError
+                || /ERR_NAME_NOT_RESOLVED|Failed to fetch|NetworkError|ERR_CONNECTION/i.test(message);
+        }
+
+        function filterAvailableBases(baseList) {
+            return baseList.filter(base => {
+                try {
+                    return isHostAvailable(new URL(base).hostname);
+                } catch (error) {
+                    return true;
+                }
+            });
+        }
 
         function buildBinanceFallbackUrls(inputUrl) {
             const urlObj = new URL(inputUrl);
@@ -1011,14 +1039,14 @@
                     'https://data-api.binance.vision'
                 ]
                 : [
-                    'https://api.binance.com',
+                    'https://data-api.binance.vision',
                     'https://api1.binance.com',
                     'https://api2.binance.com',
                     'https://api3.binance.com',
-                    'https://data-api.binance.vision'
+                    'https://api.binance.com'
                 ];
 
-            return baseList.map(base => `${base}${path}`);
+            return filterAvailableBases(baseList).map(base => `${base}${path}`);
         }
 
         async function baseFetchWithTimeout(url, options, timeoutMs = 10000) {
@@ -1040,6 +1068,14 @@
                     lastError = new Error(`HTTP ${res.status}`);
                 } catch (error) {
                     lastError = error;
+                    if (isNetworkError(error)) {
+                        try {
+                            markHostDown(new URL(url).hostname);
+                        } catch (err) {
+                            // Ignore URL parsing errors.
+                        }
+                        break;
+                    }
                 }
             }
             throw lastError || new Error('Request failed');
@@ -1051,9 +1087,10 @@
             }
 
             const fallbackUrls = buildBinanceFallbackUrls(url);
+            const candidates = fallbackUrls.length ? fallbackUrls : [url];
             let lastError = null;
 
-            for (const candidate of fallbackUrls) {
+            for (const candidate of candidates) {
                 try {
                     const res = await baseFetchWithRetry(candidate, options, 3, 10000);
                     if (res.ok) return res;
