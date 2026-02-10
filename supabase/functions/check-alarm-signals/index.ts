@@ -1049,6 +1049,287 @@ function calculateStochastic(closes: number[], highs: number[], lows: number[], 
   return { K: Math.max(0, Math.min(100, K)), D: Math.max(0, Math.min(100, D)) };
 }
 
+function calculateAlarmStochastic(highs: number[], lows: number[], closes: number[], period: number = 14, smoothK: number = 3): { K: number; D: number } {
+  if (closes.length < period) return { K: 50, D: 50 };
+  let lowestLow = lows[lows.length - 1];
+  let highestHigh = highs[highs.length - 1];
+
+  for (let i = Math.max(0, closes.length - period); i < closes.length; i++) {
+    if (lows[i] < lowestLow) lowestLow = lows[i];
+    if (highs[i] > highestHigh) highestHigh = highs[i];
+  }
+
+  const range = highestHigh - lowestLow;
+  const rawK = range === 0 ? 50 : ((closes[closes.length - 1] - lowestLow) / range) * 100;
+  const kValues: number[] = [];
+  for (let i = 0; i < smoothK; i++) kValues.push(rawK);
+  const K = kValues.reduce((a, b) => a + b, 0) / smoothK;
+  const D = K;
+  return { K: Math.max(0, Math.min(100, K)), D: Math.max(0, Math.min(100, D)) };
+}
+
+function calculateAlarmADX(highs: number[], lows: number[], closes: number[], period: number = 14): number {
+  if (closes.length < period + 1) return 25;
+  const trueRanges: number[] = [];
+  const plusDMs: number[] = [];
+  const minusDMs: number[] = [];
+
+  for (let i = 1; i < closes.length; i++) {
+    const tr = Math.max(
+      highs[i] - lows[i],
+      Math.abs(highs[i] - closes[i - 1]),
+      Math.abs(lows[i] - closes[i - 1])
+    );
+    trueRanges.push(tr);
+
+    const upMove = highs[i] - highs[i - 1];
+    const downMove = lows[i - 1] - lows[i];
+    plusDMs.push(upMove > downMove && upMove > 0 ? upMove : 0);
+    minusDMs.push(downMove > upMove && downMove > 0 ? downMove : 0);
+  }
+
+  const atr = trueRanges.slice(-period).reduce((a, b) => a + b, 0) / period;
+  const plusDI = ((plusDMs.slice(-period).reduce((a, b) => a + b, 0) / period) / atr) * 100;
+  const minusDI = ((minusDMs.slice(-period).reduce((a, b) => a + b, 0) / period) / atr) * 100;
+  if (!Number.isFinite(plusDI) || !Number.isFinite(minusDI) || plusDI + minusDI === 0) return 25;
+  return (Math.abs(plusDI - minusDI) / (plusDI + minusDI)) * 100;
+}
+
+function calculateAlarmMacd(closes: number[]): { macdLine: number; signalLine: number; histogram: number } {
+  const ema12 = calculateEMA(closes, 12);
+  const ema26 = calculateEMA(closes, 26);
+  if (!ema12 || !ema26) return { macdLine: 0, signalLine: 0, histogram: 0 };
+  const macdLine = ema12 - ema26;
+  const signalLine = calculateEMA(closes.map((_, i) => {
+    const window = closes.slice(0, i + 1);
+    return window.length >= 26 ? calculateEMA(window, 12) - calculateEMA(window, 26) : 0;
+  }), 9);
+  const histogram = macdLine - (signalLine || 0);
+  return { macdLine, signalLine: signalLine || 0, histogram };
+}
+
+function calculateAlarmIndicators(
+  closes: number[],
+  highs: number[],
+  lows: number[],
+  volumes: number[],
+  lastClosedTimestamp?: number
+): TechnicalIndicators | null {
+  if (!closes || closes.length < 2) return null;
+  const lastPrice = closes[closes.length - 1];
+  const macdData = calculateAlarmMacd(closes);
+
+  let obv = 0;
+  let obvTrend: "rising" | "falling" | "neutral" = "neutral";
+  for (let i = 0; i < closes.length; i++) {
+    if (i === 0) obv = volumes[i];
+    else if (closes[i] > closes[i - 1]) obv += volumes[i];
+    else if (closes[i] < closes[i - 1]) obv -= volumes[i];
+  }
+  if (closes[closes.length - 1] > closes[closes.length - 2]) obvTrend = "rising";
+  else if (closes[closes.length - 1] < closes[closes.length - 2]) obvTrend = "falling";
+
+  const highs20 = highs.slice(-20);
+  const lows20 = lows.slice(-20);
+  const resistance = highs20.length ? Math.max(...highs20) : lastPrice;
+  const support = lows20.length ? Math.min(...lows20) : lastPrice;
+  const stoch = calculateAlarmStochastic(highs, lows, closes);
+  const adx = calculateAlarmADX(highs, lows, closes) || 0;
+  const volumeMA = volumes.length > 0 ? volumes.reduce((a, b) => a + b, 0) / volumes.length : 0;
+
+  return {
+    rsi: calculateRSI(closes, 14) || 0,
+    sma20: calculateSMA(closes, 20) || 0,
+    sma50: calculateSMA(closes, 50) || 0,
+    ema12: calculateEMA(closes, 12) || 0,
+    ema26: calculateEMA(closes, 26) || 0,
+    price: lastPrice,
+    lastClosedTimestamp: Number.isFinite(lastClosedTimestamp) ? Number(lastClosedTimestamp) : Date.now(),
+    closes,
+    volumes,
+    highs,
+    lows,
+    macd: macdData.macdLine,
+    histogram: macdData.histogram,
+    obv,
+    obvTrend,
+    resistance,
+    support,
+    stoch,
+    adx,
+    volumeMA,
+  };
+}
+
+function generateSignalScoreAligned(indicators: TechnicalIndicators, userConfidenceThreshold: number = 70): { direction: "LONG" | "SHORT"; score: number; triggered: boolean; breakdown: any } {
+  const breakdown: any = {};
+
+  let trendScore = 0;
+  const trendDetails = { emaAlignment: 0, adxBonus: 0 };
+
+  if (indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50) {
+    trendScore += 30;
+    trendDetails.emaAlignment = 30;
+  } else if (indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50) {
+    trendScore -= 30;
+    trendDetails.emaAlignment = -30;
+  }
+
+  if (indicators.adx > 25) {
+    const adxBonus = Math.min((indicators.adx - 25) * 0.8, 20);
+    trendScore += adxBonus;
+    trendDetails.adxBonus = adxBonus;
+  }
+
+  breakdown.TREND_ANALIZI = {
+    score: trendScore,
+    weight: "40%",
+    details: {
+      "EMA12/EMA26 & SMA20/SMA50": `${trendDetails.emaAlignment > 0 ? "LONG" : trendDetails.emaAlignment < 0 ? "SHORT" : "-"} (${trendDetails.emaAlignment})`,
+      "ADX > 25 Bonus": `${trendDetails.adxBonus > 0 ? "+" : ""}${trendDetails.adxBonus.toFixed(2)}`,
+      "ADX Value": Number(indicators.adx || 0).toFixed(2),
+      "EMA12": Number(indicators.ema12 || 0).toFixed(8),
+      "EMA26": Number(indicators.ema26 || 0).toFixed(8),
+      "SMA20": Number(indicators.sma20 || 0).toFixed(8),
+      "SMA50": Number(indicators.sma50 || 0).toFixed(8),
+    },
+  };
+
+  let momentumScore = 0;
+  const momentumDetails = { rsiScore: 0, macdScore: 0, stochScore: 0 };
+
+  if (indicators.rsi < 30) {
+    momentumScore += 25;
+    momentumDetails.rsiScore = 25;
+  } else if (indicators.rsi < 40) {
+    momentumScore += 15;
+    momentumDetails.rsiScore = 15;
+  } else if (indicators.rsi > 70) {
+    momentumScore -= 25;
+    momentumDetails.rsiScore = -25;
+  } else if (indicators.rsi > 60) {
+    momentumScore -= 15;
+    momentumDetails.rsiScore = -15;
+  }
+
+  const macdScore = indicators.macd > 0 ? 10 : -10;
+  momentumScore += macdScore;
+  momentumDetails.macdScore = macdScore;
+
+  if (indicators.stoch.K < 20) {
+    momentumScore += 10;
+    momentumDetails.stochScore = 10;
+  } else if (indicators.stoch.K > 80) {
+    momentumScore -= 10;
+    momentumDetails.stochScore = -10;
+  }
+
+  breakdown.MOMENTUM_ANALIZI = {
+    score: momentumScore,
+    weight: "30%",
+    details: {
+      "RSI": `${Number(indicators.rsi || 0).toFixed(2)} → ${momentumDetails.rsiScore > 0 ? "+" : ""}${momentumDetails.rsiScore}`,
+      "MACD": `${indicators.macd > 0 ? "Positive" : "Negative"} → ${momentumDetails.macdScore > 0 ? "+" : ""}${momentumDetails.macdScore}`,
+      "Stochastic K": `${Number(indicators.stoch.K || 0).toFixed(2)} → ${momentumDetails.stochScore > 0 ? "+" : ""}${momentumDetails.stochScore}`,
+      "MACD Value": Number(indicators.macd || 0).toFixed(8),
+      "Stochastic D": Number(indicators.stoch.D || 0).toFixed(2),
+    },
+  };
+
+  let volumeScore = 0;
+  const volumeDetails = { obvScore: 0, volumeMAScore: 0 };
+
+  if (indicators.obvTrend === "rising") {
+    volumeScore += 10;
+    volumeDetails.obvScore = 10;
+  } else if (indicators.obvTrend === "falling") {
+    volumeScore -= 10;
+    volumeDetails.obvScore = -10;
+  }
+
+  const volumes = indicators.volumes || [];
+  if (volumes.length >= 2) {
+    const lastVolume = volumes[volumes.length - 1];
+    const recent = volumes.slice(-10);
+    const avgVolume = recent.reduce((a, b) => a + b, 0) / (recent.length || 1);
+    if (lastVolume > avgVolume) {
+      volumeScore += 15;
+      volumeDetails.volumeMAScore = 15;
+    } else {
+      volumeScore -= 10;
+      volumeDetails.volumeMAScore = -10;
+    }
+  }
+
+  breakdown.VOLUME_ANALIZI = {
+    score: volumeScore,
+    weight: "15%",
+    details: {
+      "OBV Trend": `${indicators.obvTrend} → ${volumeDetails.obvScore > 0 ? "+" : ""}${volumeDetails.obvScore}`,
+      "Volume vs Avg": `${volumeDetails.volumeMAScore > 0 ? "Above Avg" : "Below Avg"} → ${volumeDetails.volumeMAScore > 0 ? "+" : ""}${volumeDetails.volumeMAScore}`,
+      "OBV Value": Number(indicators.obv || 0).toFixed(2),
+    },
+  };
+
+  let srScore = 0;
+  const srDetails = { supportProximity: 0, resistanceProximity: 0 };
+
+  if (indicators.resistance > 0 && indicators.support > 0 && indicators.price > 0) {
+    const distanceToSupport = (indicators.price - indicators.support) / indicators.price;
+    const distanceToResistance = (indicators.resistance - indicators.price) / indicators.price;
+
+    if (distanceToSupport < 0.02) {
+      srScore += 15;
+      srDetails.supportProximity = 15;
+    }
+    if (distanceToResistance < 0.02) {
+      srScore -= 15;
+      srDetails.resistanceProximity = -15;
+    }
+
+    breakdown.SUPPORT_RESISTANCE_ANALIZI = {
+      score: srScore,
+      weight: "15%",
+      details: {
+        "Support Proximity": `${(distanceToSupport * 100).toFixed(2)}% → ${srDetails.supportProximity > 0 ? "+" : ""}${srDetails.supportProximity}`,
+        "Resistance Proximity": `${(distanceToResistance * 100).toFixed(2)}% → ${srDetails.resistanceProximity}`,
+        "Support Level": Number(indicators.support || 0).toFixed(8),
+        "Resistance Level": Number(indicators.resistance || 0).toFixed(8),
+        "Current Price": Number(indicators.price || 0).toFixed(8),
+      },
+    };
+  }
+
+  const normalizedTrendScore = (trendScore / 50) * 40;
+  const normalizedMomentumScore = (momentumScore / 50) * 30;
+  const normalizedVolumeScore = (volumeScore / 25) * 15;
+  const normalizedSRScore = (srScore / 30) * 15;
+
+  const score = normalizedTrendScore + normalizedMomentumScore + normalizedVolumeScore + normalizedSRScore;
+  const direction: "LONG" | "SHORT" = score > 0 ? "LONG" : "SHORT";
+  const confidence = Math.min(Math.max(Math.abs(score), 0), 100);
+
+  const isDowntrend = indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50;
+  const isUptrend = indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50;
+  const trendBlocks = (direction === "LONG" && isDowntrend) || (direction === "SHORT" && isUptrend);
+  const triggered = confidence >= userConfidenceThreshold && !trendBlocks;
+
+  breakdown.normalizedScore = {
+    trend: normalizedTrendScore.toFixed(2),
+    momentum: normalizedMomentumScore.toFixed(2),
+    volume: normalizedVolumeScore.toFixed(2),
+    sr: normalizedSRScore.toFixed(2),
+    total: score.toFixed(2),
+  };
+
+  return {
+    direction,
+    score: Math.round(confidence),
+    triggered,
+    breakdown,
+  };
+}
+
 function calculateADX(highs: number[], lows: number[], closes: number[], period: number = 14): number {
   if (closes.length < period + 1) return 25;
   
@@ -1659,6 +1940,19 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         return;
       }
 
+      const alarmIndicators = calculateAlarmIndicators(
+        indicators.closes,
+        indicators.highs,
+        indicators.lows,
+        indicators.volumes,
+        indicators.lastClosedTimestamp
+      );
+
+      if (!alarmIndicators) {
+        console.log(`⚠️ Alarm indicators unavailable for ${alarm.symbol}`);
+        return;
+      }
+
       let shouldTrigger = false;
       let triggerMessage = "";
       let detectedSignal = null;
@@ -1695,7 +1989,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
           console.log(`📊 User alarm check: ${symbol}, TP=${tpPercent}%, SL=${slPercent}%`);
           
           // Check if any signal is detected
-          const signal = generateSignalScore(indicators, Number(alarm.confidence_score || 70));
+          const signal = generateSignalScoreAligned(alarmIndicators, Number(alarm.confidence_score || 70));
           const directionFilter = String(alarm.direction_filter || "BOTH").toUpperCase();
           if (directionFilter !== "BOTH" && directionFilter !== signal.direction) {
             console.log(`⏹️ Skipping user_alarm for ${symbol}: direction_filter=${directionFilter}, signal=${signal.direction}`);
@@ -1814,7 +2108,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: signal already active for this alarm (user: ${alarm.user_id})`);
         } else {
           const userConfidenceThreshold = Number(alarm.confidence_score || 70);
-          const signal = generateSignalScore(indicators, userConfidenceThreshold);
+          const signal = generateSignalScoreAligned(alarmIndicators, userConfidenceThreshold);
           const directionFilter = String(alarm.direction_filter || "BOTH").toUpperCase();
           if (directionFilter !== "BOTH" && directionFilter !== signal.direction) {
             console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: direction_filter=${directionFilter}, signal=${signal.direction}`);
@@ -1995,7 +2289,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
 
         // Get signal analysis score for market strength
         const userConfidenceThreshold = Number(alarm.confidence_score || 70);
-        const signalAnalysis = generateSignalScore(indicators, userConfidenceThreshold);
+        const signalAnalysis = generateSignalScoreAligned(alarmIndicators, userConfidenceThreshold);
 
         let telegramMessage = `
 🔔 <b>ALARM AKTİVE!</b> 🔔
