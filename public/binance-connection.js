@@ -17,10 +17,10 @@
     ];
     const SPOT_PATH = '/api/v3';
     const FUTURES_PATH = '/fapi/v1';
-    const PROXY_BASES = [];
+    const PROXY_BASES = ['/api/cors-proxy?url='];
     const SPOT_BASE_KEY = 'binanceSpotBase';
     const FUTURES_BASE_KEY = 'binanceFuturesBase';
-    const FORCE_PROXY_ALWAYS = false;
+    const FORCE_PROXY_ALWAYS = true;
 
     const statusState = {
         mode: 'offline',
