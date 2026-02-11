@@ -1952,6 +1952,32 @@
         <div class="header">
             <h1><i class="fa-solid fa-rocket"></i> Gelişmiş Teknik Analiz Dashboard</h1>
             <p style="color: var(--text-secondary);">Multi-Timeframe | Pattern Recognition | AI Tahmin | Risk Yönetimi</p>
+
+            <div class="admin-announcement-panel" id="adminAnnouncementPanel" style="display: none;">
+                <h3><i class="fa-solid fa-bullhorn"></i> Admin Duyuru Paylaş</h3>
+                <div class="field-row">
+                    <div class="field">
+                        <label for="adminAnnouncementTitle">Başlık</label>
+                        <input type="text" id="adminAnnouncementTitle" placeholder="Duyuru başlığı" />
+                    </div>
+                    <div class="field">
+                        <label for="adminAnnouncementMessage">Mesaj</label>
+                        <textarea id="adminAnnouncementMessage" placeholder="Duyuru mesajı"></textarea>
+                    </div>
+                </div>
+                <div class="admin-announcement-actions">
+                    <div class="toggle-section" style="margin: 0; flex: 1;">
+                        <label>Yayında</label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="adminAnnouncementActive" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <button class="btn-primary" id="adminAnnouncementSave" onclick="saveAdminAnnouncement()">
+                        <i class="fa-solid fa-paper-plane"></i> Kaydet
+                    </button>
+                </div>
+            </div>
             
             <div style="display: flex; gap: 16px; margin-top: 24px; flex-wrap: wrap;">
                 <div style="position: relative; flex: 1; min-width: 300px;">
@@ -1979,6 +2005,10 @@
                                 <option value="spot">Binance Spot</option>
                                 <option value="futures">Binance Futures</option>
                             </select>
+                        </div>
+                        <div class="announcement-banner" id="announcementBanner" style="display: none;">
+                            <div class="announcement-title" id="announcementTitle"></div>
+                            <div class="announcement-message" id="announcementMessage"></div>
                         </div>
                                                 <div style="max-height: 400px; overflow-y: auto;" id="coinList">
                             <div style="text-align: center; padding: 40px; color: var(--text-secondary);">
@@ -2905,6 +2935,100 @@
                 }
             } catch (error) {
                 console.error('[SETTINGS] Yükleme hatası:', error);
+            }
+
+            await loadAdminAnnouncement();
+            updateAdminAnnouncementPanel();
+        }
+
+        async function loadAdminAnnouncement() {
+            try {
+                const { data, error } = await supabaseClient
+                    .from('admin_announcements')
+                    .select('title, message, is_active')
+                    .eq('key', 'dashboard')
+                    .maybeSingle();
+
+                if (error) {
+                    console.warn('Duyuru yukleme hatasi:', error.message);
+                    renderAnnouncement(null);
+                    return;
+                }
+
+                renderAnnouncement(data);
+                fillAdminAnnouncementForm(data);
+            } catch (error) {
+                console.warn('Duyuru yukleme hatasi:', error);
+                renderAnnouncement(null);
+            }
+        }
+
+        function renderAnnouncement(data) {
+            const bannerEl = document.getElementById('announcementBanner');
+            const titleEl = document.getElementById('announcementTitle');
+            const messageEl = document.getElementById('announcementMessage');
+            if (!bannerEl || !titleEl || !messageEl) return;
+
+            if (!data || !data.is_active || (!data.title && !data.message)) {
+                bannerEl.style.display = 'none';
+                titleEl.textContent = '';
+                messageEl.textContent = '';
+                return;
+            }
+
+            titleEl.textContent = data.title || 'Duyuru';
+            messageEl.textContent = data.message || '';
+            bannerEl.style.display = 'block';
+        }
+
+        function fillAdminAnnouncementForm(data) {
+            if (!currentIsAdmin) return;
+            const titleInput = document.getElementById('adminAnnouncementTitle');
+            const messageInput = document.getElementById('adminAnnouncementMessage');
+            const activeToggle = document.getElementById('adminAnnouncementActive');
+            if (!titleInput || !messageInput || !activeToggle) return;
+
+            titleInput.value = data?.title || '';
+            messageInput.value = data?.message || '';
+            activeToggle.checked = !!data?.is_active;
+        }
+
+        function updateAdminAnnouncementPanel() {
+            const panelEl = document.getElementById('adminAnnouncementPanel');
+            if (!panelEl) return;
+            panelEl.style.display = currentIsAdmin ? 'block' : 'none';
+        }
+
+        async function saveAdminAnnouncement() {
+            if (!currentIsAdmin) {
+                showUpdateToast('Bu islem yalnizca adminler icin.', 'error');
+                return;
+            }
+
+            const titleInput = document.getElementById('adminAnnouncementTitle');
+            const messageInput = document.getElementById('adminAnnouncementMessage');
+            const activeToggle = document.getElementById('adminAnnouncementActive');
+
+            const payload = {
+                key: 'dashboard',
+                title: titleInput?.value?.trim() || null,
+                message: messageInput?.value?.trim() || null,
+                is_active: !!activeToggle?.checked,
+                created_by: currentUser?.id || null,
+                updated_at: new Date().toISOString()
+            };
+
+            try {
+                const { error } = await supabaseClient
+                    .from('admin_announcements')
+                    .upsert(payload, { onConflict: 'key' });
+
+                if (error) throw error;
+                showUpdateToast('Duyuru guncellendi.', 'success');
+                await loadAdminAnnouncement();
+            } catch (error) {
+                console.error('Duyuru kaydetme hatasi:', error);
+                showUpdateToast('Duyuru kaydedilemedi.', 'error');
             }
         }
 
