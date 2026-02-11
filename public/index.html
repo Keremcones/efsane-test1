@@ -3610,12 +3610,17 @@
                 
                 // Son kapali bar'in fiyati
                 const lastBarPrice = parseFloat(klines[lastClosedBarIndex][4]);
+                const lastOpenBar = klines[klines.length - 1];
+                const openBarPrice = Number.isFinite(parseFloat(lastOpenBar?.[1]))
+                    ? parseFloat(lastOpenBar[1])
+                    : lastBarPrice;
+                const openBarTimestamp = Number(lastOpenBar?.[0] ?? lastClosedTimestamp);
                 
                 // Alarm ile uyumlu sinyal - son kapali bar verisiyle
                 const signalBase = lastBarIndicators
                     ? AdvancedIndicators.generateSignalScoreAligned(lastBarIndicators, confidenceThreshold)
                     : { direction: 'LONG', score: 0, triggered: false, breakdown: {} };
-                const signalEntry = lastBarPrice;
+                const signalEntry = openBarPrice;
                 const signalTp = signalBase.direction === 'SHORT'
                     ? signalEntry * (1 - takeProfitPercent / 100)
                     : signalEntry * (1 + takeProfitPercent / 100);
@@ -3632,7 +3637,7 @@
                 
                 // SENKRONIZASYON: Backtest'in son bar sinyalini sinyal göster tarafından kullan
                 let displaySignal = signal;
-                let signalTimestamp = new Date(lastClosedTimestamp).toISOString();
+                let signalTimestamp = new Date(openBarTimestamp).toISOString();
                 
                 // ÖNEMLI: Eğer backtest'te AÇIK işlem varsa, onu göster (yeni sinyal üretme!)
                 // Açık işlem = duration: 'AÇIK' veya isOpen: true
