@@ -2590,16 +2590,7 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
         // Supabase'e de kaydet (eğer client varsa)
         if (this.supabase && this.userId) {
             try {
-                console.log('🗑️ Eski alarmları siliyorum...');
-                // Önce eski verileri sil
-                await this.supabase
-                    .from('alarms')
-                    .delete()
-                    .eq('user_id', this.userId)
-                    .eq('type', 'user_alarm');
-                
-                // Tüm alarmları bir kez map et ve insert et (loop değil!)
-                const alarmsData = this.alarms.map(alarm => {
+                for (const alarm of this.alarms) {
                     const autoTradeEnabled = alarm.autoTradeEnabled || alarm.auto_trade_enabled || false;
                     const baseData = {
                         user_id: this.userId,
@@ -2615,44 +2606,64 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                         sl_percent: String(alarm.stopLossPercent || alarm.sl_percent || '3'),
                         auto_trade_enabled: autoTradeEnabled
                     };
-                    
-                    // Alarm türüne göre ek alanlar
+
+                    let payload = baseData;
                     if (alarm.type === 'price' || alarm.type === 'PRICE_LEVEL') {
-                        return {
+                        payload = {
                             ...baseData,
                             target_price: alarm.targetPrice || alarm.target_price,
                             condition: alarm.condition || 'above'
                         };
                     } else if (alarm.type === 'trade' || alarm.type === 'ACTIVE_TRADE') {
-                        return {
+                        payload = {
                             ...baseData,
                             direction: alarm.direction || 'LONG',
                             entry_price: alarm.entryPrice || alarm.entry_price,
                             take_profit: alarm.takeProfit || alarm.take_profit,
                             stop_loss: alarm.stopLoss || alarm.stop_loss
                         };
+                    } else {
+                        payload = {
+                            ...baseData,
+                            target_price: alarm.targetPrice || alarm.target_price,
+                            condition: alarm.condition || 'above'
+                        };
                     }
-                    
-                    // Default olarak price alarm
-                    return {
-                        ...baseData,
-                        target_price: alarm.targetPrice || alarm.target_price,
-                        condition: alarm.condition || 'above'
-                    };
-                });
-                
-                // Eğer boş değilse insert et
-                if (alarmsData.length > 0) {
-                    console.log('📤 Insert data:', alarmsData.length, 'alarms');
-                    const insertResult = await this.supabase
-                        .from('alarms')
-                        .insert(alarmsData);
-                    
-                    console.log('✅ Insert result:', insertResult);
+
+                    const alarmIdNum = Number(alarm.id);
+                    if (Number.isFinite(alarmIdNum)) {
+                        const { data: updated, error: updateError } = await this.supabase
+                            .from('alarms')
+                            .update(payload)
+                            .eq('user_id', this.userId)
+                            .eq('id', alarmIdNum)
+                            .eq('type', 'user_alarm')
+                            .select('id')
+                            .maybeSingle();
+
+                        if (updateError || !updated?.id) {
+                            const { data: inserted, error: insertError } = await this.supabase
+                                .from('alarms')
+                                .insert(payload)
+                                .select('id')
+                                .maybeSingle();
+                            if (!insertError && inserted?.id) {
+                                alarm.id = String(inserted.id);
+                            }
+                        }
+                    } else {
+                        const { data: inserted, error: insertError } = await this.supabase
+                            .from('alarms')
+                            .insert(payload)
+                            .select('id')
+                            .maybeSingle();
+                        if (!insertError && inserted?.id) {
+                            alarm.id = String(inserted.id);
+                        }
+                    }
                 }
-                
+
                 console.log('💾 Alarmlar alarms tablosuna kaydedildi');
-                // Supabase id'lerini local'e senkronize et
                 await this.loadAlarms();
             } catch (error) {
                 console.error('❌ Supabase kayıt hatası:', error);
