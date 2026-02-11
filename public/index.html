@@ -3306,13 +3306,16 @@
             };
             
             try {
+                const resolvedMarketType = (typeof getMarketType === 'function')
+                    ? getMarketType()
+                    : (window.CURRENT_MARKET_TYPE || 'spot');
+
                 // Multi-Timeframe analizi
-                const mtfResults = await AdvancedIndicators.analyzeMultiTimeframe(symbol);
+                const mtfResults = await AdvancedIndicators.analyzeMultiTimeframe(symbol, resolvedMarketType);
                 
                 // Backtest önce çalışacak (çünkü o klines'ı çekecek 1000 limit ile)
                 let backtest = null;
                 try {
-                    const resolvedMarketType = (typeof getMarketType === 'function') ? getMarketType() : (window.CURRENT_MARKET_TYPE || 'spot');
                     const backtestDays = Number(window.APP_CONFIG && window.APP_CONFIG.backtestDays) || 30;
                     const backtestPromise = AdvancedIndicators.runBacktest(symbol, currentTimeframe, backtestDays, confidenceThreshold, takeProfitPercent, stopLossPercent, resolvedMarketType);
                     const timeoutPromise = new Promise((_, reject) => 
