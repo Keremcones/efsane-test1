@@ -20,8 +20,7 @@
     const PROXY_BASES = ['/api/cors-proxy?url='];
     const SPOT_BASE_KEY = 'binanceSpotBase';
     const FUTURES_BASE_KEY = 'binanceFuturesBase';
-    const FORCE_PROXY_KEY = 'binanceForceProxyUntil';
-    const FORCE_PROXY_DURATION_MS = 10 * 60 * 1000;
+    const FORCE_PROXY_ALWAYS = true;
 
     const statusState = {
         mode: 'offline',
@@ -47,34 +46,8 @@
         }
     }
 
-    function getForceProxyUntil() {
-        try {
-            const value = localStorage.getItem(FORCE_PROXY_KEY);
-            return value ? Number(value) : 0;
-        } catch (error) {
-            return 0;
-        }
-    }
-
     function shouldForceProxy() {
-        const until = getForceProxyUntil();
-        return Number.isFinite(until) && until > Date.now();
-    }
-
-    function setForceProxy() {
-        try {
-            localStorage.setItem(FORCE_PROXY_KEY, String(Date.now() + FORCE_PROXY_DURATION_MS));
-        } catch (error) {
-            // Ignore storage errors.
-        }
-    }
-
-    function clearForceProxy() {
-        try {
-            localStorage.removeItem(FORCE_PROXY_KEY);
-        } catch (error) {
-            // Ignore storage errors.
-        }
+        return FORCE_PROXY_ALWAYS;
     }
 
     function getCachedBase(storageKey) {
@@ -223,10 +196,10 @@
         if (shouldForceProxy()) {
             try {
                 const res = await tryUrls(proxyUrls, options, retries, timeoutMs);
-                setStatus('proxy');
                 return res;
             } catch (error) {
-                clearForceProxy();
+                setStatus('offline');
+                throw error;
             }
         }
 
@@ -240,17 +213,12 @@
             } else {
                 window.BINANCE_SPOT_API_BASE = `${selectedBase}${SPOT_PATH}`;
             }
-            clearForceProxy();
-            setStatus('connected');
             return res;
         } catch (error) {
             try {
                 const res = await tryUrls(proxyUrls, options, retries, timeoutMs, false);
-                setForceProxy();
-                setStatus('proxy');
                 return res;
             } catch (proxyError) {
-                setStatus('offline');
                 throw proxyError;
             }
         }
