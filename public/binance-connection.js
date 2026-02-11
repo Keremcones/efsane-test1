@@ -20,9 +20,12 @@
     const PROXY_BASES = ['/api/cors-proxy?url='];
     const SPOT_BASE_KEY = 'binanceSpotBase';
     const FUTURES_BASE_KEY = 'binanceFuturesBase';
+    const FORCE_PROXY_KEY = 'binanceForceProxyUntil';
+    const FORCE_PROXY_DURATION_MS = 10 * 60 * 1000;
 
     const statusState = {
-        mode: 'offline'
+        mode: 'offline',
+        hideTimer: null
     };
 
     function ensureStatusEl() {
@@ -48,6 +51,44 @@
         } else {
             el.textContent = '❌ Baglanti yok';
             el.style.background = 'rgba(180, 60, 60, 0.92)';
+        }
+
+        if (statusState.hideTimer) {
+            clearTimeout(statusState.hideTimer);
+        }
+        statusState.hideTimer = setTimeout(() => {
+            el.style.display = 'none';
+        }, 2000);
+        el.style.display = 'block';
+    }
+
+    function getForceProxyUntil() {
+        try {
+            const value = localStorage.getItem(FORCE_PROXY_KEY);
+            return value ? Number(value) : 0;
+        } catch (error) {
+            return 0;
+        }
+    }
+
+    function shouldForceProxy() {
+        const until = getForceProxyUntil();
+        return Number.isFinite(until) && until > Date.now();
+    }
+
+    function setForceProxy() {
+        try {
+            localStorage.setItem(FORCE_PROXY_KEY, String(Date.now() + FORCE_PROXY_DURATION_MS));
+        } catch (error) {
+            // Ignore storage errors.
+        }
+    }
+
+    function clearForceProxy() {
+        try {
+            localStorage.removeItem(FORCE_PROXY_KEY);
+        } catch (error) {
+            // Ignore storage errors.
         }
     }
 
@@ -119,7 +160,11 @@
         }
     }
 
-    async function tryUrls(urls, options, retries, timeoutMs) {
+    function shouldForceProxyStatus(status) {
+        return status === 418 || status === 429 || status === 451 || status === 403;
+    }
+
+    async function tryUrls(urls, options, retries, timeoutMs, allowForceProxy) {
         let lastError = null;
         for (const url of urls) {
             for (let attempt = 0; attempt < retries; attempt++) {
@@ -130,8 +175,16 @@
                         continue;
                     }
                     if (res.ok) return res;
+                    if (allowForceProxy && shouldForceProxyStatus(res.status)) {
+                        const error = new Error('force_proxy');
+                        error.forceProxy = true;
+                        throw error;
+                    }
                     lastError = new Error(`HTTP ${res.status}`);
                 } catch (error) {
+                    if (error && error.forceProxy) {
+                        throw error;
+                    }
                     lastError = error;
                 }
             }
@@ -167,9 +220,22 @@
         const baseList = type === 'futures' ? getFuturesBaseList() : getSpotBaseList();
         const prefix = type === 'futures' ? FUTURES_PATH : SPOT_PATH;
         const urls = baseList.map(base => buildUrl(base, path, prefix));
+        const proxyUrls = PROXY_BASES.flatMap(proxyBase =>
+            urls.map(url => buildProxyUrl(proxyBase, url))
+        );
+
+        if (shouldForceProxy()) {
+            try {
+                const res = await tryUrls(proxyUrls, options, retries, timeoutMs);
+                setStatus('proxy');
+                return res;
+            } catch (error) {
+                clearForceProxy();
+            }
+        }
 
         try {
-            const res = await tryUrls(urls, options, retries, timeoutMs);
+            const res = await tryUrls(urls, options, retries, timeoutMs, true);
             const selectedBase = new URL(res.url).origin;
             const storageKey = type === 'futures' ? FUTURES_BASE_KEY : SPOT_BASE_KEY;
             setCachedBase(storageKey, selectedBase);
@@ -178,14 +244,13 @@
             } else {
                 window.BINANCE_SPOT_API_BASE = `${selectedBase}${SPOT_PATH}`;
             }
+            clearForceProxy();
             setStatus('connected');
             return res;
         } catch (error) {
-            const proxyUrls = PROXY_BASES.flatMap(proxyBase =>
-                urls.map(url => buildProxyUrl(proxyBase, url))
-            );
             try {
-                const res = await tryUrls(proxyUrls, options, retries, timeoutMs);
+                const res = await tryUrls(proxyUrls, options, retries, timeoutMs, false);
+                setForceProxy();
                 setStatus('proxy');
                 return res;
             } catch (proxyError) {
@@ -196,7 +261,7 @@
     }
 
     async function detectBase(type) {
-        const path = type === 'futures' ? '/ping' : '/ping';
+        const path = '/time';
         try {
             await requestWithFallback(type, path, {}, { retries: 1, timeoutMs: 4000 });
         } catch (error) {
