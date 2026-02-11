@@ -2064,6 +2064,105 @@
         let isApplyingDashboardFilters = false;
         let isAutoTradeActive = false;
         const DASHBOARD_FILTERS_KEY = 'dashboard_filters_v1';
+        let binanceCalcSettings = { useMarkPrice: false, useTickRounding: false };
+        let binanceCalcSettingsUserId = null;
+        let binanceCalcSettingsPromise = null;
+        const markPriceCache = { symbol: null, price: null, timestamp: 0 };
+        const MARK_PRICE_TTL_MS = 1500;
+
+        async function loadBinanceCalcSettings(force = false) {
+            if (!currentUser) {
+                binanceCalcSettings = { useMarkPrice: false, useTickRounding: false };
+                binanceCalcSettingsUserId = null;
+                return binanceCalcSettings;
+            }
+
+            if (!force && binanceCalcSettingsUserId === currentUser.id) {
+                return binanceCalcSettings;
+            }
+
+            if (!force && binanceCalcSettingsPromise) {
+                return binanceCalcSettingsPromise;
+            }
+
+            binanceCalcSettingsPromise = (async () => {
+                try {
+                    const { data } = await supabaseClient
+                        .from('user_binance_keys')
+                        .select('use_mark_price, use_tick_rounding')
+                        .eq('user_id', currentUser.id)
+                        .maybeSingle();
+
+                    binanceCalcSettings = {
+                        useMarkPrice: !!data?.use_mark_price,
+                        useTickRounding: !!data?.use_tick_rounding
+                    };
+                    binanceCalcSettingsUserId = currentUser.id;
+                } catch (error) {
+                    console.warn('Binance hesaplama ayarlari okunamadi:', error);
+                }
+                return binanceCalcSettings;
+            })();
+
+            const result = await binanceCalcSettingsPromise;
+            binanceCalcSettingsPromise = null;
+            return result;
+        }
+
+        async function fetchMarkPrice(symbol) {
+            try {
+                const path = `/premiumIndex?symbol=${symbol}`;
+                let response;
+                if (window.BinanceAPI && typeof window.BinanceAPI.futuresFetch === 'function') {
+                    response = await window.BinanceAPI.futuresFetch(path, {}, { retries: 1, timeoutMs: 10000 });
+                } else {
+                    const base = window.BINANCE_FUTURES_API_BASE || 'https://fapi.binance.com/fapi/v1';
+                    response = await fetchWithTimeout(`${base}${path}`, {}, 10000);
+                }
+                if (!response || !response.ok) return null;
+                const data = await response.json();
+                const price = Number(data?.markPrice);
+                return Number.isFinite(price) ? price : null;
+            } catch (error) {
+                console.warn('Mark price fetch error:', error);
+                return null;
+            }
+        }
+
+        async function getMarkPriceCached(symbol) {
+            const now = Date.now();
+            if (markPriceCache.symbol === symbol && (now - markPriceCache.timestamp) < MARK_PRICE_TTL_MS) {
+                return Number.isFinite(markPriceCache.price) ? markPriceCache.price : null;
+            }
+            const price = await fetchMarkPrice(symbol);
+            if (Number.isFinite(price)) {
+                markPriceCache.symbol = symbol;
+                markPriceCache.price = price;
+                markPriceCache.timestamp = now;
+                return price;
+            }
+            return null;
+        }
+
+        async function getEffectivePrice(symbol, marketType, fallbackPrice) {
+            const settings = await loadBinanceCalcSettings();
+            const normalizedMarket = String(marketType || '').toLowerCase();
+            if (!settings.useMarkPrice || normalizedMarket !== 'futures') {
+                return fallbackPrice;
+            }
+            const markPrice = await getMarkPriceCached(symbol);
+            return Number.isFinite(markPrice) ? markPrice : fallbackPrice;
+        }
+
+        async function resolveTickSize(symbol, marketType, enabled) {
+            if (!enabled || typeof getSymbolTickSize !== 'function') return null;
+            try {
+                return await getSymbolTickSize(symbol, marketType);
+            } catch (error) {
+                console.warn('Tick size resolve error:', error);
+                return null;
+            }
+        }
 
         function getDashboardFiltersFromStorage() {
             try {
@@ -2196,6 +2295,7 @@
                 const { data, error } = await supabaseClient.auth.getSession();
                 if (data && data.session) {
                     currentUser = data.session.user;
+                    await loadBinanceCalcSettings(true);
                     
                     // Telegram chat ID'yi user_settings'den çek
                     const { data: userSettings } = await supabaseClient
@@ -2220,6 +2320,7 @@
         supabaseClient.auth.onAuthStateChange((event, session) => {
             if (session) {
                 currentUser = session.user;
+                loadBinanceCalcSettings(true);
                 
                 // Telegram chat ID'yi user_settings'den çek
                 (async () => {
@@ -2245,6 +2346,7 @@
                 subscribeToAlarmChanges();
             } else {
                 currentUser = null;
+                loadBinanceCalcSettings(true);
                 console.log('Kullanıcı çıkış yaptı');
             }
         });
@@ -3033,33 +3135,37 @@
                     startOpenTradeUpdates();
                 };
 
-                wsConnection.onmessage = (event) => {
+                wsConnection.onmessage = async (event) => {
                     try {
                         if (updateSymbol !== String(currentSymbol || '').toUpperCase()) return;
                         const data = JSON.parse(event.data);
                         const price = parseFloat(data.c);
                         const change = parseFloat(data.P);
+                        const marketType = (typeof getMarketType === 'function')
+                            ? getMarketType()
+                            : (window.CURRENT_MARKET_TYPE || 'spot');
+                        const effectivePrice = await getEffectivePrice(updateSymbol, marketType, price);
                         
                         // Fiyatı localStorage'a kaydet (alarmlar için)
-                        localStorage.setItem(`price_${symbol}`, price);
-                        window.currentPriceData = price; // Global değişkene de kaydet
+                        localStorage.setItem(`price_${symbol}`, effectivePrice);
+                        window.currentPriceData = effectivePrice; // Global değişkene de kaydet
                         
-                        updatePriceDisplay(price, change);
+                        updatePriceDisplay(effectivePrice, change);
                         
                         // Aktif alarmları güncelle
                         loadAlarms();
                         
                         // Alarm kontrolü (TP/SL hit kontrol)
-                        checkActiveTradeLevels(symbol, price);
+                        checkActiveTradeLevels(symbol, effectivePrice);
                         
                         // Eski alarm kontrolü
-                        alarmSystem.checkAlarms(price, symbol);
+                        alarmSystem.checkAlarms(effectivePrice, symbol);
                         
                         // Açık işlem varsa P&L'sini gerçek zamanlı güncelle
                         if (currentAnalysis?.backtest?.trades?.length > 0) {
                             const lastTrade = currentAnalysis.backtest.trades[currentAnalysis.backtest.trades.length - 1];
                             if (lastTrade && (lastTrade.isOpen || lastTrade.duration === 'AÇIK')) {
-                                updateOpenTradePnL(lastTrade, price);  // ← Fiyatı direkt geç
+                                updateOpenTradePnL(lastTrade, effectivePrice);  // ← Fiyatı direkt geç
                             }
                         }
                     } catch (e) {
@@ -3167,17 +3273,23 @@
                     
                     const price = parseFloat(data.lastPrice);
                     const change = parseFloat(data.priceChangePercent);
+                    const marketType = (typeof getMarketType === 'function')
+                        ? getMarketType()
+                        : (window.CURRENT_MARKET_TYPE || 'spot');
+                    const effectivePrice = await getEffectivePrice(updateSymbol, marketType, price);
+                    localStorage.setItem(`price_${symbol}`, effectivePrice);
+                    window.currentPriceData = effectivePrice;
                     
-                    updatePriceDisplay(price, change);
+                    updatePriceDisplay(effectivePrice, change);
                     
                     // Alarm kontrolü (TP/SL hit kontrol)
-                    await alarmSystem.checkAlarms(price, symbol);
+                    await alarmSystem.checkAlarms(effectivePrice, symbol);
                     
                     // Açık işlem varsa P&L'sini gerçek zamanlı güncelle
                     if (currentAnalysis?.backtest?.trades?.length > 0) {
                         const lastTrade = currentAnalysis.backtest.trades[currentAnalysis.backtest.trades.length - 1];
                         if (lastTrade && (lastTrade.isOpen || lastTrade.duration === 'AÇIK')) {
-                            updateOpenTradePnL(lastTrade, price);  // ← Fiyatı direkt geç
+                            updateOpenTradePnL(lastTrade, effectivePrice);  // ← Fiyatı direkt geç
                         }
                     }
                 } catch (error) {
@@ -3309,6 +3421,13 @@
                 const resolvedMarketType = (typeof getMarketType === 'function')
                     ? getMarketType()
                     : (window.CURRENT_MARKET_TYPE || 'spot');
+                const calcSettings = await loadBinanceCalcSettings();
+                const tickSize = await resolveTickSize(symbol, resolvedMarketType, calcSettings.useTickRounding);
+                const applyTickRounding = (value) => {
+                    if (!calcSettings.useTickRounding || typeof roundToTick !== 'function') return value;
+                    if (!Number.isFinite(value)) return value;
+                    return roundToTick(value, tickSize);
+                };
 
                 // Multi-Timeframe analizi
                 const mtfResults = await AdvancedIndicators.analyzeMultiTimeframe(symbol, resolvedMarketType);
@@ -3368,6 +3487,11 @@
 
                 const priceData = await tickerRes.json();
                 const ticker24 = await ticker24Res.json();
+                const basePrice = parseFloat(priceData.price);
+                const resolvedPrice = await getEffectivePrice(symbol, resolvedMarketType, basePrice);
+                if (Number.isFinite(resolvedPrice)) {
+                    priceData.price = String(resolvedPrice);
+                }
                 
                 // Backtest'ten klines verisini al (varsa), yoksa normal çek
                 let klines = null;
@@ -3521,13 +3645,15 @@
                 const signalBase = lastBarIndicators
                     ? AdvancedIndicators.generateSignalScoreAligned(lastBarIndicators, confidenceThreshold)
                     : { direction: 'LONG', score: 0, triggered: false, breakdown: {} };
-                const signalEntry = lastBarPrice;
-                const signalTp = signalBase.direction === 'SHORT'
+                const signalEntry = applyTickRounding(lastBarPrice);
+                const signalTpRaw = signalBase.direction === 'SHORT'
                     ? signalEntry * (1 - takeProfitPercent / 100)
                     : signalEntry * (1 + takeProfitPercent / 100);
-                const signalSl = signalBase.direction === 'SHORT'
+                const signalSlRaw = signalBase.direction === 'SHORT'
                     ? signalEntry * (1 + stopLossPercent / 100)
                     : signalEntry * (1 - stopLossPercent / 100);
+                const signalTp = applyTickRounding(signalTpRaw);
+                const signalSl = applyTickRounding(signalSlRaw);
                 const signal = {
                     ...signalBase,
                     entry: signalEntry,
@@ -3547,19 +3673,20 @@
                     // TP/SL'yi ŞU ANKİ yüzdelerle yeniden hesapla (backtest'in eski değerleri yerine)
                     let currentTP, currentSL;
                     const entryPrice = lastBacktestTrade.entry;
+                    const roundedEntry = applyTickRounding(entryPrice);
                     
                     if (lastBacktestTrade.signal === 'LONG') {
-                        currentTP = entryPrice * (1 + takeProfitPercent / 100);
-                        currentSL = entryPrice * (1 - stopLossPercent / 100);
+                        currentTP = applyTickRounding(entryPrice * (1 + takeProfitPercent / 100));
+                        currentSL = applyTickRounding(entryPrice * (1 - stopLossPercent / 100));
                     } else {
-                        currentTP = entryPrice * (1 - takeProfitPercent / 100);
-                        currentSL = entryPrice * (1 + stopLossPercent / 100);
+                        currentTP = applyTickRounding(entryPrice * (1 - takeProfitPercent / 100));
+                        currentSL = applyTickRounding(entryPrice * (1 + stopLossPercent / 100));
                     }
                     
                     displaySignal = {
                         ...signal,
                         direction: lastBacktestTrade.signal,
-                        entry: lastBacktestTrade.entry,
+                        entry: roundedEntry,
                         tp: currentTP,
                         stop: currentSL,
                         score: lastBacktestTrade.score,
@@ -3582,19 +3709,20 @@
                     // TP/SL'yi ŞU ANKİ yüzdelerle yeniden hesapla (backtest'in eski değerleri yerine)
                     let currentTP, currentSL;
                     const entryPrice = lastBacktestTrade.entry;
+                    const roundedEntry = applyTickRounding(entryPrice);
                     
                     if (lastBacktestTrade.signal === 'LONG') {
-                        currentTP = entryPrice * (1 + takeProfitPercent / 100);
-                        currentSL = entryPrice * (1 - stopLossPercent / 100);
+                        currentTP = applyTickRounding(entryPrice * (1 + takeProfitPercent / 100));
+                        currentSL = applyTickRounding(entryPrice * (1 - stopLossPercent / 100));
                     } else {
-                        currentTP = entryPrice * (1 - takeProfitPercent / 100);
-                        currentSL = entryPrice * (1 + stopLossPercent / 100);
+                        currentTP = applyTickRounding(entryPrice * (1 - takeProfitPercent / 100));
+                        currentSL = applyTickRounding(entryPrice * (1 + stopLossPercent / 100));
                     }
                     
                     displaySignal = {
                         ...signal,
                         direction: lastBacktestTrade.signal,
-                        entry: lastBacktestTrade.entry,
+                        entry: roundedEntry,
                         tp: currentTP,
                         stop: currentSL,
                         score: lastBacktestTrade.score
@@ -5899,6 +6027,15 @@ Detaylar:
             alarmSignalPriceCache[cacheKey] = { inflight: true, timestamp: now };
 
             try {
+                const settings = await loadBinanceCalcSettings();
+                if (settings.useMarkPrice && String(marketType).toLowerCase() === 'futures') {
+                    const markPrice = await getMarkPriceCached(symbol);
+                    if (Number.isFinite(markPrice)) {
+                        localStorage.setItem(`price_${symbol}`, String(markPrice));
+                        alarmSignalPriceCache[cacheKey] = { inflight: false, timestamp: now, price: markPrice };
+                        return;
+                    }
+                }
                 const base = String(marketType).toLowerCase() === 'futures'
                     ? BINANCE_FUTURES_API_BASE
                     : BINANCE_SPOT_API_BASE;
