@@ -540,6 +540,42 @@
             box-shadow: 0 0 12px rgba(0, 255, 136, 0.2);
         }
 
+        .announcement-banner {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            background: linear-gradient(135deg, rgba(245, 183, 91, 0.18), rgba(245, 183, 91, 0.06));
+            border: 1px solid rgba(245, 183, 91, 0.35);
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-top: 16px;
+            box-shadow: 0 10px 24px rgba(6, 6, 8, 0.2);
+        }
+
+        .announcement-icon {
+            color: var(--warning);
+            font-size: 18px;
+            line-height: 1;
+            margin-top: 2px;
+        }
+
+        .announcement-content {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .announcement-title {
+            font-weight: 700;
+            color: var(--warning);
+        }
+
+        .announcement-message {
+            color: var(--text-secondary);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
         .backtest-results {
             max-height: 360px;
             overflow-y: auto;
@@ -1984,8 +2020,11 @@
             </div>
 
             <div class="announcement-banner" id="announcementBanner" style="display: none;">
-                <div class="announcement-title" id="announcementTitle"></div>
-                <div class="announcement-message" id="announcementMessage"></div>
+                <div class="announcement-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                <div class="announcement-content">
+                    <div class="announcement-title" id="announcementTitle"></div>
+                    <div class="announcement-message" id="announcementMessage"></div>
+                </div>
             </div>
         </div>
 
