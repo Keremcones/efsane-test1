@@ -759,6 +759,43 @@
             transform: translateX(28px);
         }
 
+        .admin-announcement-panel {
+            background: linear-gradient(135deg, rgba(56, 232, 255, 0.12), rgba(56, 232, 255, 0.03));
+            border: 1px solid rgba(56, 232, 255, 0.22);
+            box-shadow: 0 10px 24px rgba(5, 18, 32, 0.35);
+        }
+
+        html[data-theme="light"] .admin-announcement-panel {
+            background: linear-gradient(135deg, rgba(58, 123, 213, 0.14), rgba(79, 70, 229, 0.06));
+            border: 1px solid rgba(79, 70, 229, 0.18);
+            box-shadow: 0 10px 22px rgba(70, 90, 140, 0.12);
+        }
+
+        html[data-theme="purple"] .admin-announcement-panel {
+            background: linear-gradient(135deg, rgba(184, 108, 255, 0.18), rgba(124, 92, 255, 0.08));
+            border: 1px solid rgba(184, 108, 255, 0.28);
+            box-shadow: 0 12px 26px rgba(8, 4, 14, 0.6);
+        }
+
+        html[data-theme="gold"] .admin-announcement-panel {
+            background: linear-gradient(135deg, rgba(245, 208, 111, 0.2), rgba(245, 208, 111, 0.08));
+            border: 1px solid rgba(245, 208, 111, 0.3);
+            box-shadow: 0 12px 26px rgba(5, 4, 3, 0.65);
+        }
+
+        .admin-announcement-actions {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+
+        .admin-announcement-actions .btn-primary {
+            min-width: 140px;
+        }
+
         .button-group {
             display: flex;
             gap: 12px;
@@ -1404,6 +1441,35 @@
                         </p>
                     </div>
                 </div>
+
+                <div class="profile-section admin-announcement-panel" id="adminAnnouncementSection" style="display:none;">
+                    <div class="section-title">
+                        <i class="fa-solid fa-bullhorn"></i> Admin Duyuru Paylaş
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="adminAnnouncementTitle">Başlık</label>
+                        <input type="text" id="adminAnnouncementTitle" class="form-input" placeholder="Duyuru başlığı" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="adminAnnouncementMessage">Mesaj</label>
+                        <textarea id="adminAnnouncementMessage" class="form-input" placeholder="Duyuru mesajı"></textarea>
+                    </div>
+                    <div class="admin-announcement-actions">
+                        <div class="toggle-group" style="margin: 0;">
+                            <label class="toggle-label">Yayında</label>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="adminAnnouncementActive" />
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <button class="btn btn-primary" onclick="window.saveAdminAnnouncement()">
+                            <i class="fa-solid fa-paper-plane"></i> Kaydet
+                        </button>
+                    </div>
+                    <p style="color: var(--text-secondary); font-size: 12px; margin-top: 10px;">
+                        Bu duyuru tum kullanicilarda dashboard coin listesi ustunde gorunur.
+                    </p>
+                </div>
             </div>
 
             <div class="profile-col">
@@ -1645,6 +1711,7 @@
         let notificationCount = 0;
         const ADMIN_EMAIL = 'asd@asd.com';
         let canUseTelegramChatId = false;
+        let currentIsAdmin = false;
 
         // Profil Ayarlarını Yükle
         async function loadProfileSettings() {
@@ -1685,6 +1752,7 @@
                 }
 
                 const isAdmin = isAdminByEmail || !!userProfile?.is_admin;
+                currentIsAdmin = isAdmin;
                 const isPremium = (userProfile?.membership_type || 'standard') === 'premium';
                 canUseTelegramChatId = isAdmin || isPremium;
                 const upgradeBtn = document.getElementById('upgradePremiumBtn');
@@ -1694,6 +1762,9 @@
                 if (isAdmin) {
                     await loadAdminUserList();
                 }
+
+                await loadAdminAnnouncement();
+                updateAdminAnnouncementPanel();
 
                 // Son şifre değiştirme tarihini yükle
                 const lastPasswordChangeDate = localStorage.getItem(`pwd_change_${currentUser.id}`) || 'Hiç değiştirilmedi';
@@ -1771,6 +1842,85 @@
                 if (spotSize) spotSize.value = String(Number.isFinite(Number(data.spot_position_size_percent)) ? data.spot_position_size_percent : 20);
             } catch (e) {
                 console.error('Binance ayarları yükleme hatası:', e);
+            }
+        }
+
+        async function loadAdminAnnouncement() {
+            if (!currentIsAdmin) return;
+            try {
+                const { data, error } = await supabaseClient
+                    .from('admin_announcements')
+                    .select('title, message, is_active')
+                    .eq('key', 'dashboard')
+                    .maybeSingle();
+
+                if (error) {
+                    console.warn('Duyuru yukleme hatasi:', error.message);
+                    return;
+                }
+
+                fillAdminAnnouncementForm(data);
+            } catch (error) {
+                console.warn('Duyuru yukleme hatasi:', error);
+            }
+        }
+
+        function fillAdminAnnouncementForm(data) {
+            const titleInput = document.getElementById('adminAnnouncementTitle');
+            const messageInput = document.getElementById('adminAnnouncementMessage');
+            const activeToggle = document.getElementById('adminAnnouncementActive');
+            if (!titleInput || !messageInput || !activeToggle) return;
+
+            titleInput.value = data?.title || '';
+            messageInput.value = data?.message || '';
+            activeToggle.checked = !!data?.is_active;
+        }
+
+        function updateAdminAnnouncementPanel() {
+            const panelEl = document.getElementById('adminAnnouncementSection');
+            if (!panelEl) return;
+            panelEl.style.display = currentIsAdmin ? 'block' : 'none';
+        }
+
+        async function saveAdminAnnouncement() {
+            if (!currentIsAdmin) {
+                showNotification('Bu islem yalnizca adminler icin.', 'error');
+                return;
+            }
+
+            const titleInput = document.getElementById('adminAnnouncementTitle');
+            const messageInput = document.getElementById('adminAnnouncementMessage');
+            const activeToggle = document.getElementById('adminAnnouncementActive');
+
+            const title = titleInput?.value?.trim() || '';
+            const message = messageInput?.value?.trim() || '';
+            const isActive = !!activeToggle?.checked;
+
+            if (isActive && !title && !message) {
+                showNotification('Yayinlamak icin baslik veya mesaj girin.', 'warning');
+                return;
+            }
+
+            const payload = {
+                key: 'dashboard',
+                title: title || null,
+                message: message || null,
+                is_active: isActive,
+                created_by: currentUser?.id || null,
+                updated_at: new Date().toISOString()
+            };
+
+            try {
+                const { error } = await supabaseClient
+                    .from('admin_announcements')
+                    .upsert(payload, { onConflict: 'key' });
+
+                if (error) throw error;
+                showNotification('Duyuru guncellendi.', 'success');
+                await loadAdminAnnouncement();
+            } catch (error) {
+                console.error('Duyuru kaydetme hatasi:', error);
+                showNotification('Duyuru kaydedilemedi.', 'error');
             }
         }
 
