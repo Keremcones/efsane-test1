@@ -539,7 +539,46 @@
             background: rgba(0, 255, 136, 0.08);
             box-shadow: 0 0 12px rgba(0, 255, 136, 0.2);
         }
-        
+
+        .backtest-results {
+            max-height: 360px;
+            overflow-y: auto;
+            display: grid;
+            gap: 10px;
+            padding-right: 4px;
+        }
+
+        .result-row {
+            border: 1px solid var(--border);
+            background: var(--bg-secondary);
+            border-radius: 10px;
+            padding: 12px 14px;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .result-row:hover {
+            border-color: var(--accent);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+        }
+
+        .result-row-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .result-row-details {
+            display: none;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 10px;
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px dashed var(--border);
+        }
+
+        .result-row.expanded .result-row-details {
+            display: grid;
         }
         
         .detail-item {
@@ -1925,10 +1964,6 @@
                                 <option value="futures">Binance Futures</option>
                             </select>
                         </div>
-                        <div class="announcement-banner" id="announcementBanner" style="display: none;">
-                            <div class="announcement-title" id="announcementTitle"></div>
-                            <div class="announcement-message" id="announcementMessage"></div>
-                        </div>
                                                 <div style="max-height: 400px; overflow-y: auto;" id="coinList">
                             <div style="text-align: center; padding: 40px; color: var(--text-secondary);">
                                 Yükleniyor...
@@ -1946,6 +1981,11 @@
                     <option value="change-low">% Değişim (Düşük)</option>
                     <option value="name">İsim (A-Z)</option>
                 </select>
+            </div>
+
+            <div class="announcement-banner" id="announcementBanner" style="display: none;">
+                <div class="announcement-title" id="announcementTitle"></div>
+                <div class="announcement-message" id="announcementMessage"></div>
             </div>
         </div>
 
