@@ -542,7 +542,8 @@
 
         .announcement-banner {
             display: flex;
-            align-items: flex-start;
+            align-items: center;
+            justify-content: center;
             gap: 12px;
             background: linear-gradient(135deg, rgba(245, 183, 91, 0.18), rgba(245, 183, 91, 0.06));
             border: 1px solid rgba(245, 183, 91, 0.35);
@@ -550,30 +551,35 @@
             padding: 14px 16px;
             margin-top: 16px;
             box-shadow: 0 10px 24px rgba(6, 6, 8, 0.2);
+            text-align: center;
         }
 
         .announcement-icon {
             color: var(--warning);
             font-size: 18px;
             line-height: 1;
-            margin-top: 2px;
         }
 
         .announcement-content {
             display: flex;
             flex-direction: column;
             gap: 4px;
+            align-items: center;
         }
 
         .announcement-title {
             font-weight: 700;
             color: var(--warning);
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .announcement-message {
             color: var(--text-secondary);
             font-size: 13px;
             line-height: 1.5;
+            text-align: center;
         }
 
         .backtest-results {
@@ -2020,9 +2026,11 @@
             </div>
 
             <div class="announcement-banner" id="announcementBanner" style="display: none;">
-                <div class="announcement-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
                 <div class="announcement-content">
-                    <div class="announcement-title" id="announcementTitle"></div>
+                    <div class="announcement-title">
+                        <span id="announcementTitle"></span>
+                        <span class="announcement-icon"><i class="fa-solid fa-triangle-exclamation"></i></span>
+                    </div>
                     <div class="announcement-message" id="announcementMessage"></div>
                 </div>
             </div>
