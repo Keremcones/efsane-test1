@@ -144,28 +144,29 @@ async function analyzeMultiTimeframe(symbol, marketType = null) {
             const highs = window.map(k => parseFloat(k[2]));
             const lows = window.map(k => parseFloat(k[3]));
             const volumes = window.map(k => parseFloat(k[5]));
-            const lastClosedKline = window[window.length - 1];
-            const lastClosedTimestamp = Number(lastClosedKline?.[6] ?? lastClosedKline?.[0] ?? 0);
+            const lastOpenKline = klines[klines.length - 1];
+            const lastOpenTimestamp = Number(lastOpenKline?.[0] ?? 0);
+            const lastOpenPrice = Number(lastOpenKline?.[1] ?? closes[closes.length - 1]);
             const nowMs = Date.now();
             const minutes = timeframeMinutes[tf] || 60;
             const timeframeMs = minutes * 60 * 1000;
             const maxDelayMs = Math.min(2 * 60 * 1000, Math.max(60000, Math.floor(timeframeMs * 0.3)));
-            const isWithinCloseWindow = lastClosedTimestamp
-                && nowMs >= lastClosedTimestamp
-                && (nowMs - lastClosedTimestamp) <= maxDelayMs;
+            const isWithinOpenWindow = lastOpenTimestamp
+                && nowMs >= lastOpenTimestamp
+                && (nowMs - lastOpenTimestamp) <= maxDelayMs;
 
-            if (!isWithinCloseWindow) {
+            if (!isWithinOpenWindow) {
                 return {
                     timeframe: tf,
                     signal: 'WAIT',
                     confidence: 0,
-                    price: closes[closes.length - 1],
+                    price: lastOpenPrice,
                     status: 'stale',
-                    message: 'Bar kapanışı bekleniyor'
+                    message: 'Bar açılışı bekleniyor'
                 };
             }
             
-            const indicators = calculateAlarmIndicators(closes, highs, lows, volumes, lastClosedTimestamp);
+            const indicators = calculateAlarmIndicators(closes, highs, lows, volumes, lastOpenTimestamp);
             const signal = indicators
                 ? generateSignalScoreAligned(indicators)
                 : { direction: 'N/A', score: 0 };
@@ -174,7 +175,7 @@ async function analyzeMultiTimeframe(symbol, marketType = null) {
                 timeframe: tf,
                 signal: signal.direction,
                 confidence: signal.score,
-                price: closes[closes.length - 1],
+                price: lastOpenPrice,
                 status: 'ok'
             };
         } catch (error) {
@@ -1086,6 +1087,12 @@ function resolveKlineCloseTimeMs(kline) {
     return closeMs + 1;
 }
 
+function resolveKlineOpenTimeMs(kline) {
+    const openMs = Number(kline?.[0]);
+    if (!Number.isFinite(openMs)) return Date.now();
+    return openMs + 1;
+}
+
 // 7. BACKTEST SİSTEMİ
 async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 70, takeProfitPercent = 5, stopLossPercent = 3, marketType = null, directionFilter = 'BOTH', slippageBps = null, feeBps = null) {
     const results = [];
@@ -1180,6 +1187,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         klines.push(openBar);
         */
         
+        const opens = backtestKlines.map(k => parseFloat(k[1]));
         const closes = backtestKlines.map(k => parseFloat(k[4]));
         const highs = backtestKlines.map(k => parseFloat(k[2]));
         const lows = backtestKlines.map(k => parseFloat(k[3]));
@@ -1339,11 +1347,11 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             // ADIM 2: YENİ SİNYAL KONTROLÜ
             // ============================================
             
-            const windowStart = Math.max(0, i - indicatorWindowSize + 1);
-            const windowCloses = closes.slice(windowStart, i + 1);
-            const windowHighs = highs.slice(windowStart, i + 1);
-            const windowLows = lows.slice(windowStart, i + 1);
-            const windowVolumes = volumes.slice(windowStart, i + 1);
+            const windowStart = Math.max(0, i - indicatorWindowSize);
+            const windowCloses = closes.slice(windowStart, i);
+            const windowHighs = highs.slice(windowStart, i);
+            const windowLows = lows.slice(windowStart, i);
+            const windowVolumes = volumes.slice(windowStart, i);
             
             const indicators = calculateAlarmIndicators(windowCloses, windowHighs, windowLows, windowVolumes);
             if (!indicators) {
@@ -1355,12 +1363,12 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 continue;
             }
 
-            const lastClosedMs = resolveKlineCloseTimeMs(backtestKlines[i]);
-            const nowMs = lastClosedMs + 1;
+            const lastOpenMs = resolveKlineOpenTimeMs(backtestKlines[i]);
+            const nowMs = lastOpenMs + 1;
             const timeframeMs = minutes * 60 * 1000;
             const maxDelayMs = Math.min(2 * 60 * 1000, Math.max(60000, Math.floor(timeframeMs * 0.3)));
-            const isWithinCloseWindow = nowMs >= lastClosedMs && (nowMs - lastClosedMs) <= maxDelayMs;
-            if (!isWithinCloseWindow) {
+            const isWithinOpenWindow = nowMs >= lastOpenMs && (nowMs - lastOpenMs) <= maxDelayMs;
+            if (!isWithinOpenWindow) {
                 continue;
             }
             const directionKey = `${symbol.toUpperCase()}:${signal.direction}`;
@@ -1372,7 +1380,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             
             // DEBUG: Log ekle
             if (i < MIN_BACKTEST_WINDOW + 5 || i > closes.length - 10) {
-                const entryPriceDebug = closes[i];
+                const entryPriceDebug = opens[i];
                 const tpDebug = signal.direction === 'SHORT'
                     ? entryPriceDebug * (1 - takeProfitPercent / 100)
                     : entryPriceDebug * (1 + takeProfitPercent / 100);
@@ -1394,7 +1402,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             // ============================================
             
             const entrySide = signal.direction === 'SHORT' ? 'SELL' : 'BUY';
-            const entryRaw = applySlippage(closes[i], entrySide, slippageBpsValue);
+            const entryRaw = applySlippage(opens[i], entrySide, slippageBpsValue);
             const entryPrice = roundToTick(entryRaw, safeTick);
             const rawTakeProfit = signal.direction === 'SHORT'
                 ? entryPrice * (1 - takeProfitPercent / 100)
@@ -1406,7 +1414,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             const stopLoss = roundToTick(rawStopLoss, safeTick);
             
             // Tarih ve saat (Türkiye saati)
-            const tradeTimestamp = resolveKlineCloseTimeMs(backtestKlines[i]);
+            const tradeTimestamp = resolveKlineOpenTimeMs(backtestKlines[i]);
             const tradeDate = new Date(tradeTimestamp);
             const tradeTime = tradeDate.toLocaleTimeString('tr-TR', {
                 hour: '2-digit',
@@ -1531,7 +1539,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         // SON BAR (grafikle senkronizasyon için) - TAM OLARAK SON BAR İÇİN SİNYAL
         let lastTrade = null;
         try {
-            // Son barı kontrol et, ama kapalı bar'a bak (lastBarIndex - 1)
+            // Son barı kontrol et, bar açılışı için bir önceki bar verileriyle sinyal üret
             const lastBarIndex = closes.length - 1;
             const closedBarIndex = lastBarIndex;
             
@@ -1540,11 +1548,11 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 return { trades: results, lastTrade: null, averages };
             }
             
-            const lastWindowStart = Math.max(0, closedBarIndex - indicatorWindowSize + 1);
-            const lastWindowCloses = closes.slice(lastWindowStart, closedBarIndex + 1);
-            const lastWindowHighs = highs.slice(lastWindowStart, closedBarIndex + 1);
-            const lastWindowLows = lows.slice(lastWindowStart, closedBarIndex + 1);
-            const lastWindowVolumes = volumes.slice(lastWindowStart, closedBarIndex + 1);
+            const lastWindowStart = Math.max(0, closedBarIndex - indicatorWindowSize);
+            const lastWindowCloses = closes.slice(lastWindowStart, closedBarIndex);
+            const lastWindowHighs = highs.slice(lastWindowStart, closedBarIndex);
+            const lastWindowLows = lows.slice(lastWindowStart, closedBarIndex);
+            const lastWindowVolumes = volumes.slice(lastWindowStart, closedBarIndex);
             
             const lastIndicators = calculateAlarmIndicators(lastWindowCloses, lastWindowHighs, lastWindowLows, lastWindowVolumes);
             if (!lastIndicators) {
@@ -1553,14 +1561,14 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
 
             const lastSignal = generateSignalScoreAligned(lastIndicators, confidenceThreshold);
             const lastDirectionOk = normalizedDirectionFilter === 'BOTH' || normalizedDirectionFilter === lastSignal.direction;
-            const lastClosedMs = resolveKlineCloseTimeMs(backtestKlines[closedBarIndex]);
-            const lastNowMs = lastClosedMs + 1;
+            const lastOpenMs = resolveKlineOpenTimeMs(backtestKlines[closedBarIndex]);
+            const lastNowMs = lastOpenMs + 1;
             const lastTimeframeMs = minutes * 60 * 1000;
             const lastMaxDelayMs = Math.min(2 * 60 * 1000, Math.max(60000, Math.floor(lastTimeframeMs * 0.3)));
-            const lastWithinCloseWindow = lastNowMs >= lastClosedMs && (lastNowMs - lastClosedMs) <= lastMaxDelayMs;
+            const lastWithinOpenWindow = lastNowMs >= lastOpenMs && (lastNowMs - lastOpenMs) <= lastMaxDelayMs;
             
             // SADECE triggered true olan sinyalleri göster (confidence threshold gecenler)
-            if (lastSignal && lastSignal.triggered && lastDirectionOk && lastWithinCloseWindow) {
+            if (lastSignal && lastSignal.triggered && lastDirectionOk && lastWithinOpenWindow) {
                 // ÖNEMLİ: Son kapalı işlem ile lastTrade arasında çakışma var mı kontrol et
                 // Eğer son işlem belirsiz durumdaysa (0% profit, actualTP=false, actualSL=false), 
                 // yeni sinyal gösterme
@@ -1589,7 +1597,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 }
                 
                 if (canShowLastTrade) {
-                    const lastBarTimestamp = resolveKlineCloseTimeMs(backtestKlines[closedBarIndex]);
+                    const lastBarTimestamp = resolveKlineOpenTimeMs(backtestKlines[closedBarIndex]);
                     const lastBarTimeUTC = new Date(lastBarTimestamp);
                     const lastTimeStr = lastBarTimeUTC.toLocaleTimeString('tr-TR', {
                         hour: '2-digit',
@@ -1601,7 +1609,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                     const lastBarDateTurkey = new Date(lastBarTimestamp);
                     
                     const lastEntrySide = lastSignal.direction === 'SHORT' ? 'SELL' : 'BUY';
-                    const lastEntryRaw = applySlippage(closes[closedBarIndex], lastEntrySide, slippageBpsValue);
+                    const lastEntryRaw = applySlippage(opens[closedBarIndex], lastEntrySide, slippageBpsValue);
                     const lastEntryPrice = roundToTick(lastEntryRaw, safeTick);
                     const lastTakeProfitRaw = lastSignal.direction === 'SHORT'
                         ? lastEntryPrice * (1 - takeProfitPercent / 100)
