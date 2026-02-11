@@ -3887,18 +3887,28 @@
                     <div class="card">
                         <div class="card-title"><i class="fa-solid fa-chart-line"></i> Multi-Timeframe Analiz</div>
                         <div class="mtf-grid">
-                            ${mtfResults.map(result => `
+                            ${mtfResults.map(result => {
+                                const rawSignal = String(result.signal || 'N/A');
+                                const signalLower = rawSignal.toLowerCase();
+                                const signalClass = ['long', 'short', 'neutral'].includes(signalLower) ? signalLower : 'neutral';
+                                const safeConfidence = Number.isFinite(Number(result.confidence)) ? Math.min(Number(result.confidence), 100) : 0;
+                                const statusNote = result.status && result.status !== 'ok'
+                                    ? `<div style="color: var(--text-secondary); margin-top: 6px; font-size: 0.75rem;">${result.message || 'Veri bekleniyor'}</div>`
+                                    : '';
+                                return `
                                 <div class="mtf-card clickable" onclick="changeTimeframe('${result.timeframe}')" data-tf="${result.timeframe}">
                                     <div class="mtf-tf">${result.timeframe}</div>
-                                    <div class="mtf-signal ${result.signal.toLowerCase()}">${result.signal}</div>
+                                    <div class="mtf-signal ${signalClass}">${rawSignal}</div>
                                     <div style="font-size: 0.8rem; margin-top: 8px;">
-                                        <div style="color: var(--text-secondary); margin-bottom: 4px;">Güven: ${Math.min(result.confidence, 100).toFixed(0)}%</div>
+                                        <div style="color: var(--text-secondary); margin-bottom: 4px;">Güven: ${safeConfidence.toFixed(0)}%</div>
                                         <div style="width: 100%; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;">
-                                            <div style="width: ${Math.min(result.confidence, 100)}%; height: 100%; background: ${result.confidence >= 70 ? 'var(--accent)' : result.confidence >= 40 ? 'var(--accent-yellow)' : 'var(--accent-red)'}; transition: width 0.3s;"></div>
+                                            <div style="width: ${safeConfidence}%; height: 100%; background: ${safeConfidence >= 70 ? 'var(--accent)' : safeConfidence >= 40 ? 'var(--accent-yellow)' : 'var(--accent-red)'}; transition: width 0.3s;"></div>
                                         </div>
+                                        ${statusNote}
                                     </div>
                                 </div>
-                            `).join('')}
+                                `;
+                            }).join('')}
                         </div>
                     </div>
                 `;

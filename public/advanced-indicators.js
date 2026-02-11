@@ -99,19 +99,32 @@ function applySlippage(price, side, slippageBps) {
 // 1. MULTI-TIMEFRAME ANALİZ
 async function analyzeMultiTimeframe(symbol, marketType = null) {
     const timeframes = ['5m', '15m', '1h', '4h', '1d'];
+    const timeframeMinutes = { '5m': 5, '15m': 15, '1h': 60, '4h': 240, '1d': 1440 };
     
     // Tüm API çağrılarını paralel yap (sequential yerine)
     const promises = timeframes.map(async (tf) => {
         try {
             const klinesPath = `/klines?symbol=${symbol}&interval=${tf}&limit=1000`;
             const response = await binanceFetchPath(marketType, klinesPath, {}, { retries: 2, timeoutMs: 15000 });
+            if (!response.ok) {
+                return {
+                    timeframe: tf,
+                    signal: 'ERR',
+                    confidence: 0,
+                    price: 0,
+                    status: 'error',
+                    message: `HTTP ${response.status}`
+                };
+            }
             const klines = await response.json();
             if (!Array.isArray(klines)) {
                 return {
                     timeframe: tf,
                     signal: 'N/A',
                     confidence: 0,
-                    price: 0
+                    price: 0,
+                    status: 'error',
+                    message: 'Kline verisi okunamadı'
                 };
             }
             const closedKlines = klines.slice(0, -1);
@@ -120,7 +133,9 @@ async function analyzeMultiTimeframe(symbol, marketType = null) {
                     timeframe: tf,
                     signal: 'N/A',
                     confidence: 0,
-                    price: 0
+                    price: 0,
+                    status: 'error',
+                    message: 'Yetersiz veri'
                 };
             }
             
@@ -129,8 +144,28 @@ async function analyzeMultiTimeframe(symbol, marketType = null) {
             const highs = window.map(k => parseFloat(k[2]));
             const lows = window.map(k => parseFloat(k[3]));
             const volumes = window.map(k => parseFloat(k[5]));
+            const lastClosedKline = window[window.length - 1];
+            const lastClosedTimestamp = Number(lastClosedKline?.[6] ?? lastClosedKline?.[0] ?? 0);
+            const nowMs = Date.now();
+            const minutes = timeframeMinutes[tf] || 60;
+            const timeframeMs = minutes * 60 * 1000;
+            const maxDelayMs = Math.min(2 * 60 * 1000, Math.max(60000, Math.floor(timeframeMs * 0.3)));
+            const isWithinCloseWindow = lastClosedTimestamp
+                && nowMs >= lastClosedTimestamp
+                && (nowMs - lastClosedTimestamp) <= maxDelayMs;
+
+            if (!isWithinCloseWindow) {
+                return {
+                    timeframe: tf,
+                    signal: 'WAIT',
+                    confidence: 0,
+                    price: closes[closes.length - 1],
+                    status: 'stale',
+                    message: 'Bar kapanışı bekleniyor'
+                };
+            }
             
-            const indicators = calculateAlarmIndicators(closes, highs, lows, volumes);
+            const indicators = calculateAlarmIndicators(closes, highs, lows, volumes, lastClosedTimestamp);
             const signal = indicators
                 ? generateSignalScoreAligned(indicators)
                 : { direction: 'N/A', score: 0 };
@@ -139,7 +174,8 @@ async function analyzeMultiTimeframe(symbol, marketType = null) {
                 timeframe: tf,
                 signal: signal.direction,
                 confidence: signal.score,
-                price: closes[closes.length - 1]
+                price: closes[closes.length - 1],
+                status: 'ok'
             };
         } catch (error) {
             console.error(`MTF error for ${tf}:`, error);
@@ -147,7 +183,9 @@ async function analyzeMultiTimeframe(symbol, marketType = null) {
                 timeframe: tf,
                 signal: 'N/A',
                 confidence: 0,
-                price: 0
+                price: 0,
+                status: 'error',
+                message: 'İstek başarısız'
             };
         }
     });
