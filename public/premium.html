@@ -175,6 +175,12 @@
             color: #111111;
         }
 
+        .user-role-badge.plus {
+            background: linear-gradient(135deg, #2bb3ff, #11d5b4);
+            box-shadow: 0 0 18px rgba(43, 179, 255, 0.35);
+            color: #0a0a0a;
+        }
+
         .user-role-badge.admin {
             background: linear-gradient(135deg, #f5d06f, #ffd86b);
             box-shadow: 0 0 18px rgba(245, 208, 111, 0.45);
@@ -424,6 +430,99 @@
             border-radius: 999px;
         }
 
+        .pricing-grid {
+            margin-top: 22px;
+            display: grid;
+            gap: 18px;
+            grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        }
+
+        .plan-card {
+            position: relative;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 22px;
+            padding: 22px;
+            display: grid;
+            gap: 14px;
+            text-align: left;
+            box-shadow: 0 18px 40px rgba(8, 16, 28, 0.22);
+        }
+
+        .plan-card.featured {
+            border: 1px solid rgba(245, 208, 111, 0.6);
+            background: linear-gradient(160deg, rgba(245, 208, 111, 0.16), rgba(255, 255, 255, 0.02));
+            box-shadow: 0 20px 50px rgba(245, 208, 111, 0.18);
+        }
+
+        .plan-card .plan-badge {
+            position: absolute;
+            top: 18px;
+            right: 18px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.16em;
+            background: rgba(245, 208, 111, 0.2);
+            color: var(--accent-gold);
+        }
+
+        .plan-title {
+            font-size: 1.2rem;
+            font-weight: 800;
+        }
+
+        .plan-price {
+            font-size: 2.1rem;
+            font-weight: 800;
+            color: var(--text-primary);
+        }
+
+        .plan-price span {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        .plan-subtitle {
+            color: var(--text-secondary);
+            font-size: 0.92rem;
+            line-height: 1.6;
+        }
+
+        .plan-list {
+            display: grid;
+            gap: 10px;
+            font-size: 0.92rem;
+            color: var(--text-primary);
+        }
+
+        .plan-list span {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .plan-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn-outline {
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-primary);
+            padding: 10px 18px;
+            border-radius: 10px;
+            font-weight: 700;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
         .section {
             margin-top: 34px;
             text-align: center;
@@ -667,20 +766,74 @@
 
     <div class="container">
         <section class="hero">
-            <span class="hero__eyebrow">Rolin Signal Premium</span>
-            <h1 class="hero__title">Sinyal deneyimini sessizce güçlendir.</h1>
+            <span class="hero__eyebrow">Rolin Signal Planlari</span>
+            <h1 class="hero__title">Her seviye icin net, odakli bir plan.</h1>
             <p class="hero__subtitle">
-                Akıllı sinyal takibi, gelişmiş alarmlar, Telegram bildirimleri ve Binance otomatik trade; hepsi
-                tek panelde, sade bir akışla.
+                Sinyal takibi, alarm kurma ve otomasyon akisini ihtiyacin kadar ac. Plus ile alarm ve Telegram,
+                Premium ile tam otomasyon ve 1 yillik indikator paketi.
             </p>
             <div class="hero__meta">
-                <span class="hero__price">$230 / yıl</span>
-                <span class="hero__note">Yıllık plan</span>
+                <span class="hero__price">Plus $150 / yil</span>
+                <span class="hero__note">Premium $230 / yil</span>
             </div>
-            <div class="hero__actions">
-                <button class="btn-cta" onclick="window.open('https://t.me/keremcones', '_blank')">
-                    <i class="fa-brands fa-telegram"></i> Telegram ile Satın Al
-                </button>
+        </section>
+
+        <section class="section">
+            <h2 class="section-title">Planlari karsilastir</h2>
+            <p class="section-subtitle">Tum planlar ayni panelde; farklari net sekilde gorun.</p>
+            <div class="pricing-grid">
+                <div class="plan-card">
+                    <div class="plan-title">Free</div>
+                    <div class="plan-price">Ucretsiz <span>/ sınırsiz</span></div>
+                    <div class="plan-subtitle">Temel izleme ve sinyal kartlari.</div>
+                    <div class="plan-list">
+                        <span><i class="fa-solid fa-circle-check"></i> Temel dashboard gorunumu</span>
+                        <span><i class="fa-solid fa-circle-check"></i> Sinyal listesi goruntuleme</span>
+                        <span><i class="fa-solid fa-circle-xmark"></i> Alarm kurma</span>
+                        <span><i class="fa-solid fa-circle-xmark"></i> Telegram bildirimleri</span>
+                        <span><i class="fa-solid fa-circle-xmark"></i> Binance otomatik trade</span>
+                    </div>
+                    <div class="plan-actions">
+                        <button class="btn-outline" onclick="window.location.href='index.html'">
+                            <i class="fa-solid fa-chart-line"></i> Dashboard'a Don
+                        </button>
+                    </div>
+                </div>
+                <div class="plan-card">
+                    <div class="plan-title">Plus</div>
+                    <div class="plan-price">$150 <span>/ yil</span></div>
+                    <div class="plan-subtitle">Alarm + Telegram + premium ekranlar.</div>
+                    <div class="plan-list">
+                        <span><i class="fa-solid fa-circle-check"></i> Dashboard + Her Durumda + Kazananlar</span>
+                        <span><i class="fa-solid fa-circle-check"></i> Alarm kurma ve takip</span>
+                        <span><i class="fa-solid fa-circle-check"></i> Telegram bildirimleri</span>
+                        <span><i class="fa-solid fa-circle-xmark"></i> Binance otomatik trade</span>
+                        <span><i class="fa-solid fa-circle-xmark"></i> Indikator paketleri</span>
+                    </div>
+                    <div class="plan-actions">
+                        <button class="btn-cta" onclick="window.open('https://t.me/keremcones', '_blank')">
+                            <i class="fa-brands fa-telegram"></i> Telegram ile Satin Al
+                        </button>
+                    </div>
+                </div>
+                <div class="plan-card featured">
+                    <div class="plan-badge">Onerilen</div>
+                    <div class="plan-title">Premium</div>
+                    <div class="plan-price">$230 <span>/ yil</span></div>
+                    <div class="plan-subtitle">Tum ozellikler + otomatik trade.</div>
+                    <div class="plan-list">
+                        <span><i class="fa-solid fa-circle-check"></i> Plus'taki her sey</span>
+                        <span><i class="fa-solid fa-circle-check"></i> Binance baglanti ve otomatik trade</span>
+                        <span><i class="fa-solid fa-circle-check"></i> Gelismis sinyal filtreleri</span>
+                        <span><i class="fa-solid fa-circle-check"></i> 1 yil indikator paketleri</span>
+                        <span><i class="fa-solid fa-circle-check"></i> Oncelikli destek</span>
+                    </div>
+                    <div class="plan-actions">
+                        <button class="btn-cta" onclick="window.open('https://t.me/keremcones', '_blank')">
+                            <i class="fa-brands fa-telegram"></i> Telegram ile Satin Al
+                        </button>
+                    </div>
+                </div>
             </div>
         </section>
 
@@ -711,9 +864,9 @@
         </section>
 
         <section class="section">
-            <h2 class="section-title">İndikatör Paketleri</h2>
+            <h2 class="section-title">Indikator Paketleri</h2>
             <p class="section-subtitle">
-                Premium paketle birlikte, aşağıdaki indikatör içeriklerine erişim sağlanır.
+                Bu paketler sadece Premium (1 yil) planinda acilir. Plus planina dahil degildir.
             </p>
             <div class="card" style="margin-top: 16px;">
                 <div class="chip-grid">
@@ -739,22 +892,6 @@
             </div>
         </section>
 
-        <section class="section">
-            <h2 class="section-title">Fiyat</h2>
-            <p class="section-subtitle">Premium plan yıllık olarak sunulur.</p>
-            <div class="grid">
-                <div class="card price-card">
-                    <div class="card-title" style="justify-content: center;"><i class="fa-solid fa-tag"></i> Tek Fiyat</div>
-                    <div class="amount">230 USD</div>
-                    <div class="muted" style="margin-top: 6px;">Yıllık Plan</div>
-                </div>
-            </div>
-            <div class="cta">
-                <button class="btn-cta" onclick="window.open('https://t.me/keremcones', '_blank')">
-                    <i class="fa-brands fa-telegram"></i> Telegram ile Satın Al
-                </button>
-            </div>
-        </section>
 
         <section class="section">
             <h2 class="section-title">Bağlantılar</h2>
@@ -831,6 +968,13 @@
             if (membershipType === 'premium') {
                 badgeEl.innerHTML = '<i class="fa-solid fa-star"></i> Premium';
                 badgeEl.className = 'user-role-badge premium';
+                badgeEl.style.display = 'inline-flex';
+                return;
+            }
+
+            if (membershipType === 'plus') {
+                badgeEl.innerHTML = '<i class="fa-solid fa-circle-plus"></i> Plus';
+                badgeEl.className = 'user-role-badge plus';
                 badgeEl.style.display = 'inline-flex';
                 return;
             }
