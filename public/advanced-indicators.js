@@ -1135,9 +1135,9 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         const highs = trimmedKlines.map(k => parseFloat(k[2]));
         const lows = trimmedKlines.map(k => parseFloat(k[3]));
         const volumes = trimmedKlines.map(k => parseFloat(k[5]));
-        let windowSize = Math.min(200, closes.length - 2);
-        if (windowSize < MIN_BACKTEST_WINDOW) {
-            console.warn(`⚠️ Backtest window çok küçük: ${windowSize}`);
+        const indicatorWindowSize = Math.min(1000, closes.length - 2);
+        if (indicatorWindowSize < MIN_BACKTEST_WINDOW) {
+            console.warn(`⚠️ Backtest window çok küçük: ${indicatorWindowSize}`);
             return results;
         }
         
@@ -1154,7 +1154,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         const activeSignalDirections = new Set();
         
         // Her bar kontrol edilsin (SON AÇIK BAR HARIÇ - incomplete data)
-        for (let i = windowSize; i <= closes.length - 2; i++) {
+        for (let i = MIN_BACKTEST_WINDOW; i <= closes.length - 2; i++) {
             
             // ============================================
             // ADIM 1: AÇIK İŞLEM KONTROLÜ VE KAPATMA
@@ -1290,10 +1290,11 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             // ADIM 2: YENİ SİNYAL KONTROLÜ
             // ============================================
             
-            const windowCloses = closes.slice(i - windowSize + 1, i + 1);
-            const windowHighs = highs.slice(i - windowSize + 1, i + 1);
-            const windowLows = lows.slice(i - windowSize + 1, i + 1);
-            const windowVolumes = volumes.slice(i - windowSize + 1, i + 1);
+            const windowStart = Math.max(0, i - indicatorWindowSize + 1);
+            const windowCloses = closes.slice(windowStart, i + 1);
+            const windowHighs = highs.slice(windowStart, i + 1);
+            const windowLows = lows.slice(windowStart, i + 1);
+            const windowVolumes = volumes.slice(windowStart, i + 1);
             
             const indicators = calculateAlarmIndicators(windowCloses, windowHighs, windowLows, windowVolumes);
             if (!indicators) {
@@ -1321,7 +1322,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             const shouldOpenTrade = signal && signal.triggered;
             
             // DEBUG: Log ekle
-            if (i < windowSize + 5 || i > closes.length - 10) {
+            if (i < MIN_BACKTEST_WINDOW + 5 || i > closes.length - 10) {
                 const entryPriceDebug = closes[i];
                 const tpDebug = signal.direction === 'SHORT'
                     ? entryPriceDebug * (1 - takeProfitPercent / 100)
@@ -1485,12 +1486,12 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             const lastBarIndex = closes.length - 1;
             const closedBarIndex = lastBarIndex - 1;  // Kapalı bar (sonuncudan bir öncesi)
             
-            if (closedBarIndex < windowSize) {
+            if (closedBarIndex < MIN_BACKTEST_WINDOW) {
                 // Yeterli bar yok
                 return { trades: results, lastTrade: null, averages };
             }
             
-            const lastWindowStart = Math.max(0, closedBarIndex - windowSize);
+            const lastWindowStart = Math.max(0, closedBarIndex - indicatorWindowSize + 1);
             const lastWindowCloses = closes.slice(lastWindowStart, closedBarIndex + 1);
             const lastWindowHighs = highs.slice(lastWindowStart, closedBarIndex + 1);
             const lastWindowLows = lows.slice(lastWindowStart, closedBarIndex + 1);
