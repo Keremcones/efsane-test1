@@ -571,21 +571,11 @@ async function openBinanceTrade(
       }
 
       await cancelFuturesOrder(apiKey, apiSecret, symbol, limitOrder.orderId);
-
-      const precision = Number.isFinite(options.quantityPrecision) ? Number(options.quantityPrecision) : 0;
-      const minQty = Number.isFinite(options.minQty) ? Number(options.minQty) : 0;
-      const remainingRaw = quantity - executedQty;
-      const remaining = precision > 0 ? roundQuantity(remainingRaw, precision) : remainingRaw;
-
-      if (remaining > minQty) {
-        const marketResult = await placeFuturesMarketOrder(apiKey, apiSecret, symbol, side, remaining);
-        if (!marketResult.success) {
-          return { success: false, error: marketResult.error || "Order failed" };
-        }
-        return { success: true, orderId: marketResult.orderId };
+      if (executedQty > 0) {
+        return { success: false, error: `Limit emir dolmadi. Kismi dolum: ${executedQty}. Pozisyonu kontrol et.` };
       }
 
-      return { success: true, orderId: limitOrder.orderId };
+      return { success: false, error: "Limit emir dolmadi. Islem acilmadi." };
     }
 
     return placeFuturesMarketOrder(apiKey, apiSecret, symbol, side, quantity);
