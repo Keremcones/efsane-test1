@@ -1,5 +1,3 @@
 [functions.check-alarm-signals]
 verify_jwt = false
 
-[functions.binance-proxy]
-verify_jwt = false

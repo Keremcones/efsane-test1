@@ -17,17 +17,10 @@
     ];
     const SPOT_PATH = '/api/v3';
     const FUTURES_PATH = '/fapi/v1';
-    const PROXY_BASES = (() => {
-        const bases = [];
-        if (window.SUPABASE_URL) {
-            bases.push(`${window.SUPABASE_URL}/functions/v1/binance-proxy?url=`);
-        }
-        bases.push('/api/cors-proxy?url=');
-        return bases;
-    })();
+    const PROXY_BASES = [];
     const SPOT_BASE_KEY = 'binanceSpotBase';
     const FUTURES_BASE_KEY = 'binanceFuturesBase';
-    const FORCE_PROXY_ALWAYS = true;
+    const FORCE_PROXY_ALWAYS = false;
 
     const statusState = {
         mode: 'offline',
@@ -229,7 +222,7 @@
             urls.map(url => buildProxyUrl(proxyBase, url))
         );
 
-        if (shouldForceProxy()) {
+        if (shouldForceProxy() && PROXY_BASES.length) {
             try {
                 const res = await tryUrls(proxyUrls, options, retries, timeoutMs);
                 return res;
@@ -251,6 +244,9 @@
             }
             return res;
         } catch (error) {
+            if (!proxyUrls.length) {
+                throw error;
+            }
             try {
                 const res = await tryUrls(proxyUrls, options, retries, timeoutMs, false);
                 return res;
