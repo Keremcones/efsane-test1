@@ -841,6 +841,28 @@ async function hasOpenSpotOrders(apiKey: string, apiSecret: string, symbol: stri
   return Array.isArray(data) && data.length > 0;
 }
 
+type UserBinanceKeys = {
+  api_key: string;
+  api_secret: string;
+  auto_trade_enabled?: boolean | null;
+  futures_enabled?: boolean | null;
+  spot_enabled?: boolean | null;
+};
+
+async function fetchUserBinanceKeys(userId: string): Promise<UserBinanceKeys | null> {
+  const { data, error } = await supabase
+    .from("user_binance_keys")
+    .select("api_key, api_secret, auto_trade_enabled, futures_enabled, spot_enabled")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error || !data?.api_key || !data?.api_secret) {
+    return null;
+  }
+
+  return data as UserBinanceKeys;
+}
+
 async function executeAutoTrade(
   userId: string,
   symbol: string,
@@ -1452,7 +1474,14 @@ function calculateADX(highs: number[], lows: number[], closes: number[], period:
   return Math.min(100, adx);
 }
 
-async function getKlines(symbol: string, marketType: "spot" | "futures", timeframe: string = "1h", limit: number = 100, retries: number = 3): Promise<any[] | null> {
+async function getKlines(
+  symbol: string,
+  marketType: "spot" | "futures",
+  timeframe: string = "1h",
+  limit: number = 100,
+  retries: number = 3,
+  forceRefresh: boolean = false
+): Promise<any[] | null> {
   const cacheKey = `${symbol}:${marketType}:${timeframe}`;
   const now = Date.now();
 
@@ -1463,7 +1492,7 @@ async function getKlines(symbol: string, marketType: "spot" | "futures", timefra
   }
   
   // Check klines cache first
-  if (klinesCache[cacheKey] && (now - klinesCache[cacheKey].timestamp) < KLINES_CACHE_TTL) {
+  if (!forceRefresh && klinesCache[cacheKey] && (now - klinesCache[cacheKey].timestamp) < KLINES_CACHE_TTL) {
     console.log(`💾 Klines cache hit for ${cacheKey}`);
     return klinesCache[cacheKey].data;
   }
@@ -1556,21 +1585,45 @@ interface TechnicalIndicators {
 
 async function calculateIndicators(symbol: string, marketType: "spot" | "futures", timeframe: string = "1h"): Promise<TechnicalIndicators | null> {
   const MIN_INDICATOR_WINDOW = 100;
-  const klines = await getKlines(symbol, marketType, timeframe, 1000);
+  let klines = await getKlines(symbol, marketType, timeframe, 1000);
   if (!klines || klines.length < 2) return null;
 
   // ✅ Backtest ile birebir uyum için açık (son) bar'ı dahil etme
-  const closedKlines = klines.slice(0, -1);
+  let closedKlines = klines.slice(0, -1);
   if (closedKlines.length < MIN_INDICATOR_WINDOW) return null;
-  const windowSize = Math.min(1000, closedKlines.length);
-  const window = closedKlines.slice(-windowSize);
+  let windowSize = Math.min(1000, closedKlines.length);
+  let window = closedKlines.slice(-windowSize);
 
-  const closes = window.map((k: any) => parseFloat(k[4]));
-  const volumes = window.map((k: any) => parseFloat(k[5]));
-  const highs = window.map((k: any) => parseFloat(k[2]));
-  const lows = window.map((k: any) => parseFloat(k[3]));
-  const lastClosedKline = window[window.length - 1];
-  const lastClosedTimestamp = Number(lastClosedKline?.[6] ?? lastClosedKline?.[0] ?? Date.now());
+  let closes = window.map((k: any) => parseFloat(k[4]));
+  let volumes = window.map((k: any) => parseFloat(k[5]));
+  let highs = window.map((k: any) => parseFloat(k[2]));
+  let lows = window.map((k: any) => parseFloat(k[3]));
+  let lastClosedKline = window[window.length - 1];
+  let lastClosedTimestamp = Number(lastClosedKline?.[6] ?? lastClosedKline?.[0] ?? Date.now());
+
+  const timeframeMinutes = timeframeToMinutes(timeframe);
+  const timeframeMs = timeframeMinutes * 60 * 1000;
+  if (timeframeMs > 0) {
+    const nowMs = Date.now();
+    const expectedCloseMs = Math.floor(nowMs / timeframeMs) * timeframeMs;
+    const isStale = lastClosedTimestamp < (expectedCloseMs - 2000);
+    const afterClose = nowMs >= expectedCloseMs + 1000;
+
+    if (isStale && afterClose) {
+      klines = await getKlines(symbol, marketType, timeframe, 1000, 3, true);
+      if (!klines || klines.length < 2) return null;
+      closedKlines = klines.slice(0, -1);
+      if (closedKlines.length < MIN_INDICATOR_WINDOW) return null;
+      windowSize = Math.min(1000, closedKlines.length);
+      window = closedKlines.slice(-windowSize);
+      closes = window.map((k: any) => parseFloat(k[4]));
+      volumes = window.map((k: any) => parseFloat(k[5]));
+      highs = window.map((k: any) => parseFloat(k[2]));
+      lows = window.map((k: any) => parseFloat(k[3]));
+      lastClosedKline = window[window.length - 1];
+      lastClosedTimestamp = Number(lastClosedKline?.[6] ?? lastClosedKline?.[0] ?? Date.now());
+    }
+  }
 
   return calculateAlarmIndicators(closes, highs, lows, volumes, lastClosedTimestamp);
 }
@@ -2450,6 +2503,83 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
     const signals = rawSignals || [];
     if (!signals || signals.length === 0) return [];
 
+    const alarmIds = Array.from(
+      new Set(
+        signals
+          .map(signal => (signal.alarm_id ? String(signal.alarm_id) : ""))
+          .filter(id => id)
+      )
+    );
+
+    const alarmMap = new Map<string, { id: string; user_id: string; market_type?: string | null; auto_trade_enabled?: boolean | null; binance_order_id?: string | null }>();
+    if (alarmIds.length > 0) {
+      const { data: alarmsData, error: alarmsError } = await supabase
+        .from("alarms")
+        .select("id, user_id, market_type, auto_trade_enabled, binance_order_id")
+        .in("id", alarmIds);
+
+      if (alarmsError) {
+        console.error("❌ Error fetching alarms for close verification:", alarmsError);
+      }
+
+      (alarmsData || []).forEach(alarm => {
+        if (alarm?.id) {
+          alarmMap.set(String(alarm.id), alarm as { id: string; user_id: string; market_type?: string | null; auto_trade_enabled?: boolean | null; binance_order_id?: string | null });
+        }
+      });
+    }
+
+    const userKeysCache = new Map<string, UserBinanceKeys | null>();
+    let lastBinanceCheckAt = 0;
+    const throttleBinanceCheck = async () => {
+      const elapsed = Date.now() - lastBinanceCheckAt;
+      const waitMs = MIN_REQUEST_INTERVAL - elapsed;
+      if (waitMs > 0) {
+        await delay(waitMs);
+      }
+      lastBinanceCheckAt = Date.now();
+    };
+
+    const shouldSkipCloseForBinance = async (
+      signal: any,
+      alarmData: { id: string; user_id: string; market_type?: string | null; auto_trade_enabled?: boolean | null; binance_order_id?: string | null } | null,
+      marketType: "spot" | "futures"
+    ): Promise<boolean> => {
+      if (!alarmData?.binance_order_id) return false;
+
+      const userId = String(alarmData.user_id || signal.user_id || "");
+      if (!userId) return false;
+
+      if (!userKeysCache.has(userId)) {
+        userKeysCache.set(userId, await fetchUserBinanceKeys(userId));
+      }
+      const keys = userKeysCache.get(userId);
+
+      if (!keys || keys.auto_trade_enabled === false) {
+        console.warn(`⚠️ Binance keys missing or auto-trade disabled for user ${userId}. Skipping close for signal ${signal.id}.`);
+        return true;
+      }
+
+      if (marketType === "futures" && !keys.futures_enabled) return true;
+      if (marketType === "spot" && !keys.spot_enabled) return true;
+
+      try {
+        await throttleBinanceCheck();
+        const hasOpen = marketType === "futures"
+          ? await hasOpenFuturesPosition(keys.api_key, keys.api_secret, String(signal.symbol || ""))
+          : await hasOpenSpotOrders(keys.api_key, keys.api_secret, String(signal.symbol || ""));
+        if (hasOpen) {
+          console.log(`⏹️ Binance still shows open position/order for ${signal.symbol}. Skip close for signal ${signal.id}.`);
+          return true;
+        }
+      } catch (e) {
+        console.warn(`⚠️ Binance close verification failed for signal ${signal.id}:`, e);
+        return true;
+      }
+
+      return false;
+    };
+
     const closedSignals: ClosedSignal[] = [];
 
     for (let idx = 0; idx < signals.length; idx++) {
@@ -2473,6 +2603,12 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         const takeProfit = tp;
         const stopLoss = sl;
 
+        const alarmId = signal.alarm_id ? String(signal.alarm_id) : "";
+        const alarmData = alarmId ? alarmMap.get(alarmId) || null : null;
+        const marketType = normalizeMarketType(
+          signal.market_type || signal.marketType || signal.market || alarmData?.market_type || "spot"
+        );
+
         let shouldClose = false;
         let closeReason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "" = "";
         let closePrice: number | null = null;
@@ -2480,6 +2616,10 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
         const createdAtMs = Date.parse(String(signal.created_at || ""));
         if (Number.isFinite(createdAtMs) && (Date.now() - createdAtMs) > maxAgeMs) {
+          const skipClose = await shouldSkipCloseForBinance(signal, alarmData, marketType);
+          if (skipClose) {
+            continue;
+          }
           const updateResult = await supabase
             .from("active_signals")
             .update({
@@ -2510,7 +2650,6 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         }
 
         // Backtest ile uyum icin kapanis sadece son kapanan barin high/low degerine gore belirlenir.
-        const marketType = normalizeMarketType(signal.market_type || signal.marketType || signal.market);
         const timeframe = String(signal.timeframe || "1h");
         const klines = await getKlines(symbol, marketType, timeframe, 2);
         if (klines && klines.length >= 2) {
@@ -2543,6 +2682,11 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         }
 
         if (!shouldClose || !closeReason) continue;
+
+        const skipClose = await shouldSkipCloseForBinance(signal, alarmData, marketType);
+        if (skipClose) {
+          continue;
+        }
 
         const effectiveClosePrice = Number.isFinite(closePrice) ? Number(closePrice) : Number(signal.entry_price);
         const rawProfitLoss = direction === "LONG"

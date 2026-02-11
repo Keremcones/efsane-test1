@@ -1114,8 +1114,19 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         const response = await binanceFetchPath(marketType, klinesPath, {}, { retries: 3, timeoutMs: 30000 });
         const klines = await response.json();
         const trimmedKlines = Array.isArray(klines) ? klines.slice(-1000) : [];
-        if (trimmedKlines.length < MIN_BACKTEST_WINDOW + 1) {
-            console.warn(`⚠️ Backtest için yetersiz kline: ${trimmedKlines.length}`);
+        const lastBarIndex = trimmedKlines.length - 1;
+        let closedEndIndex = lastBarIndex;
+        if (lastBarIndex >= 0) {
+            const lastCloseMs = resolveKlineCloseTimeMs(trimmedKlines[lastBarIndex]);
+            if (lastCloseMs > Date.now()) {
+                closedEndIndex = lastBarIndex - 1;
+            }
+        }
+        const backtestKlines = closedEndIndex >= 0
+            ? trimmedKlines.slice(0, closedEndIndex + 1)
+            : [];
+        if (backtestKlines.length < MIN_BACKTEST_WINDOW + 1) {
+            console.warn(`⚠️ Backtest için yetersiz kline: ${backtestKlines.length}`);
             return results;
         }
 
@@ -1169,11 +1180,11 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         klines.push(openBar);
         */
         
-        const closes = trimmedKlines.map(k => parseFloat(k[4]));
-        const highs = trimmedKlines.map(k => parseFloat(k[2]));
-        const lows = trimmedKlines.map(k => parseFloat(k[3]));
-        const volumes = trimmedKlines.map(k => parseFloat(k[5]));
-        const indicatorWindowSize = Math.min(1000, closes.length - 2);
+        const closes = backtestKlines.map(k => parseFloat(k[4]));
+        const highs = backtestKlines.map(k => parseFloat(k[2]));
+        const lows = backtestKlines.map(k => parseFloat(k[3]));
+        const volumes = backtestKlines.map(k => parseFloat(k[5]));
+        const indicatorWindowSize = Math.min(1000, closes.length - 1);
         if (indicatorWindowSize < MIN_BACKTEST_WINDOW) {
             console.warn(`⚠️ Backtest window çok küçük: ${indicatorWindowSize}`);
             return results;
@@ -1192,7 +1203,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         const activeSignalDirections = new Set();
         
         // Her bar kontrol edilsin (SON AÇIK BAR HARIÇ - incomplete data)
-        for (let i = MIN_BACKTEST_WINDOW; i <= closes.length - 2; i++) {
+        for (let i = MIN_BACKTEST_WINDOW; i <= closes.length - 1; i++) {
             
             // ============================================
             // ADIM 1: AÇIK İŞLEM KONTROLÜ VE KAPATMA
@@ -1344,7 +1355,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 continue;
             }
 
-            const lastClosedMs = resolveKlineCloseTimeMs(klines[i]);
+            const lastClosedMs = resolveKlineCloseTimeMs(backtestKlines[i]);
             const nowMs = lastClosedMs + 1;
             const timeframeMs = minutes * 60 * 1000;
             const maxDelayMs = Math.min(2 * 60 * 1000, Math.max(60000, Math.floor(timeframeMs * 0.3)));
@@ -1395,7 +1406,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             const stopLoss = roundToTick(rawStopLoss, safeTick);
             
             // Tarih ve saat (Türkiye saati)
-            const tradeTimestamp = resolveKlineCloseTimeMs(klines[i]);
+            const tradeTimestamp = resolveKlineCloseTimeMs(backtestKlines[i]);
             const tradeDate = new Date(tradeTimestamp);
             const tradeTime = tradeDate.toLocaleTimeString('tr-TR', {
                 hour: '2-digit',
@@ -1522,7 +1533,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         try {
             // Son barı kontrol et, ama kapalı bar'a bak (lastBarIndex - 1)
             const lastBarIndex = closes.length - 1;
-            const closedBarIndex = lastBarIndex - 1;  // Kapalı bar (sonuncudan bir öncesi)
+            const closedBarIndex = lastBarIndex;
             
             if (closedBarIndex < MIN_BACKTEST_WINDOW) {
                 // Yeterli bar yok
@@ -1542,7 +1553,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
 
             const lastSignal = generateSignalScoreAligned(lastIndicators, confidenceThreshold);
             const lastDirectionOk = normalizedDirectionFilter === 'BOTH' || normalizedDirectionFilter === lastSignal.direction;
-            const lastClosedMs = resolveKlineCloseTimeMs(klines[closedBarIndex]);
+            const lastClosedMs = resolveKlineCloseTimeMs(backtestKlines[closedBarIndex]);
             const lastNowMs = lastClosedMs + 1;
             const lastTimeframeMs = minutes * 60 * 1000;
             const lastMaxDelayMs = Math.min(2 * 60 * 1000, Math.max(60000, Math.floor(lastTimeframeMs * 0.3)));
@@ -1578,7 +1589,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 }
                 
                 if (canShowLastTrade) {
-                    const lastBarTimestamp = resolveKlineCloseTimeMs(klines[closedBarIndex]);
+                    const lastBarTimestamp = resolveKlineCloseTimeMs(backtestKlines[closedBarIndex]);
                     const lastBarTimeUTC = new Date(lastBarTimestamp);
                     const lastTimeStr = lastBarTimeUTC.toLocaleTimeString('tr-TR', {
                         hour: '2-digit',
