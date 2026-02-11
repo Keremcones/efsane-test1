@@ -1046,6 +1046,10 @@
         function renderStrategyTable(results) {
             const table = document.getElementById('strategyTable');
             if (!table) return;
+            if (window.BINANCE_BLOCKED === true) {
+                table.innerHTML = '<tr><td colspan="5" style="text-align:center; color: var(--text-secondary);">Binance verisine erişilemiyor (CORS/451). VPN deneyin veya daha sonra tekrar deneyin.</td></tr>';
+                return;
+            }
             if (!results.length) {
                 const blocked = window.BINANCE_BLOCKED === true;
                 const message = blocked

@@ -116,6 +116,16 @@
         return `${proxyBase}${encoded}&t=${Date.now()}`;
     }
 
+    function isBinanceTarget(url) {
+        try {
+            const target = new URL(url, window.location.origin);
+            const host = target.hostname;
+            return host.endsWith('binance.com') || host.endsWith('binance.vision');
+        } catch (error) {
+            return false;
+        }
+    }
+
     function extractTargetUrl(maybeProxyUrl) {
         try {
             if (!maybeProxyUrl.includes('/api/cors-proxy?url=')) return maybeProxyUrl;
@@ -194,6 +204,12 @@
                     }
                     lastError = new Error(`HTTP ${res.status}`);
                 } catch (error) {
+                    if (isBinanceTarget(checkUrl)) {
+                        const message = String(error && error.message ? error.message : '');
+                        if (error?.name === 'TypeError' || message.includes('Failed to fetch') || message.includes('NetworkError')) {
+                            setBinanceBlocked(true);
+                        }
+                    }
                     if (error && error.forceProxy) {
                         throw error;
                     }
