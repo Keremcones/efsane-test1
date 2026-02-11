@@ -1,12 +1,9 @@
-const CACHE_VERSION = 'v2-20260211';
+const CACHE_VERSION = 'v2-20260210';
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 const PRECACHE_URLS = [
   '/',
   '/index.html',
   '/config.js',
-  '/binance-connection.js',
-  '/indicators.js',
-  '/advanced-indicators.js',
   '/site.webmanifest'
 ];
 
