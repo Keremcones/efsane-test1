@@ -155,17 +155,6 @@ async function analyzeMultiTimeframe(symbol, marketType = null) {
                 && nowMs >= lastOpenTimestamp
                 && (nowMs - lastOpenTimestamp) <= maxDelayMs;
 
-            if (!isWithinOpenWindow) {
-                return {
-                    timeframe: tf,
-                    signal: 'WAIT',
-                    confidence: 0,
-                    price: lastOpenPrice,
-                    status: 'stale',
-                    message: 'Bar açılışı bekleniyor'
-                };
-            }
-            
             const indicators = calculateAlarmIndicators(closes, highs, lows, volumes, lastOpenTimestamp);
             const signal = indicators
                 ? generateSignalScoreAligned(indicators)
