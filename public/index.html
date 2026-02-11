@@ -3806,7 +3806,8 @@
                     sentiment,
                     backtest,
                     displaySignal,
-                    lastBacktestTrade  // ← Burada ekle
+                    lastBacktestTrade,
+                    signalTimestamp  // ← Burada ekle
                 );
                 
                 // Açık işlem P&L güncellemesini başlat
@@ -3852,7 +3853,7 @@
         function displayAdvancedAnalysis(
             symbol, price, priceChange, indicators, sr, signal, klines,
             mtfResults, fibLevels, volumeProfile, vwap, patterns, divergence,
-            prediction, news, sentiment, backtest, displaySignal, lastBacktestTrade
+            prediction, news, sentiment, backtest, displaySignal, lastBacktestTrade, signalTimestamp
         ) {
             const coinName = symbol.replace('USDT', '');
             const coinLower = coinName.toLowerCase();
@@ -4562,9 +4563,9 @@
                 
                 // Chart'ı oluştur (sinyal varsa entry/tp/sl çizgileri ekle)
                 if (backtest?.klines && backtest.klines.length > 0) {
-                    createMiniChart(backtest.klines, signal, backtest, displaySignal, lastBacktestTrade);
+                    createMiniChart(backtest.klines, signal, backtest, displaySignal, lastBacktestTrade, signalTimestamp);
                 } else if (klines && klines.length > 0) {
-                    createMiniChart(klines, signal, backtest, displaySignal, lastBacktestTrade);
+                    createMiniChart(klines, signal, backtest, displaySignal, lastBacktestTrade, signalTimestamp);
                 } else {
                     miniChartContainer.innerHTML = `
                         <div style="text-align: center; padding: 40px; color: var(--text-secondary);">
@@ -4595,7 +4596,7 @@
         }
         
         // Lightweight Charts - TradingView açık kaynaklı
-        function createMiniChart(klines, signal, backtest, displaySignal, lastBacktestTrade) {
+        function createMiniChart(klines, signal, backtest, displaySignal, lastBacktestTrade, signalTimestamp) {
             const container = document.getElementById('miniChart');
             if (!container || !klines || klines.length === 0) return;
             
@@ -4861,8 +4862,35 @@
             try {
                 const markers = [];
                 
-                if (lastBacktestTrade) {
-                    // ENTRY MARKER
+                const signalMarkerMs = signalTimestamp ? Date.parse(signalTimestamp) : NaN;
+                const hasSignalMarker = Number.isFinite(signalMarkerMs) && displaySignal;
+
+                if (hasSignalMarker) {
+                    const entryMarkerTime = Math.floor(signalMarkerMs / 1000) + (3 * 3600); // ✅ UTC + 3 saat (Türkiye saati)
+                    if (isFinite(entryMarkerTime)) {
+                        const direction = String(displaySignal.direction || '').toUpperCase();
+                        if (direction === 'LONG') {
+                            markers.push({
+                                time: entryMarkerTime,
+                                position: 'belowBar',
+                                color: '#00ff88',
+                                shape: 'arrowUp',
+                                text: '↑',
+                                size: 2
+                            });
+                        } else if (direction === 'SHORT') {
+                            markers.push({
+                                time: entryMarkerTime,
+                                position: 'aboveBar',
+                                color: '#ff4757',
+                                shape: 'arrowDown',
+                                text: '↓',
+                                size: 2
+                            });
+                        }
+                    }
+                } else if (lastBacktestTrade) {
+                    // ENTRY MARKER (fallback to last backtest trade)
                     if (lastBacktestTrade.barIndex !== undefined && klines[lastBacktestTrade.barIndex]) {
                         const barData = klines[lastBacktestTrade.barIndex];
                         const entryMarkerTime = Math.floor(barData[0] / 1000) + (3 * 3600); // ✅ UTC + 3 saat (Türkiye saati)
@@ -4872,42 +4900,42 @@
                             if (lastBacktestTrade.signal === 'LONG') {
                                 markers.push({
                                     time: entryMarkerTime,
-                                    position: 'belowBar',  // Barın altında
-                                    color: '#00ff88',  // Yeşil
-                                    shape: 'arrowUp',  // Yukarı ok
+                                    position: 'belowBar',
+                                    color: '#00ff88',
+                                    shape: 'arrowUp',
                                     text: '↑',
                                     size: 2
                                 });
                             } else {
                                 markers.push({
                                     time: entryMarkerTime,
-                                    position: 'aboveBar',  // Barın üstünde
-                                    color: '#ff4757',  // Kırmızı
-                                    shape: 'arrowDown',  // Aşağı ok
+                                    position: 'aboveBar',
+                                    color: '#ff4757',
+                                    shape: 'arrowDown',
                                     text: '↓',
                                     size: 2
                                 });
                             }
                         }
                     }
+                }
+
+                // EXIT MARKER - Eğer işlem kapalıysa
+                // İşlem kapalı = duration !== 'AÇIK' VEYA isOpen === false
+                if (lastBacktestTrade && lastBacktestTrade.duration !== 'AÇIK' && lastBacktestTrade.isOpen !== true 
+                    && lastBacktestTrade.exitBarIndex !== undefined && klines[lastBacktestTrade.exitBarIndex]) {
+                    const exitBarData = klines[lastBacktestTrade.exitBarIndex];
+                    const exitMarkerTime = Math.floor(exitBarData[0] / 1000) + (3 * 3600); // ✅ UTC + 3 saat (Türkiye saati)
                     
-                    // EXIT MARKER - Eğer işlem kapalıysa
-                    // İşlem kapalı = duration !== 'AÇIK' VEYA isOpen === false
-                    if (lastBacktestTrade.duration !== 'AÇIK' && lastBacktestTrade.isOpen !== true 
-                        && lastBacktestTrade.exitBarIndex !== undefined && klines[lastBacktestTrade.exitBarIndex]) {
-                        const exitBarData = klines[lastBacktestTrade.exitBarIndex];
-                        const exitMarkerTime = Math.floor(exitBarData[0] / 1000) + (3 * 3600); // ✅ UTC + 3 saat (Türkiye saati)
-                        
-                        if (isFinite(exitMarkerTime)) {
-                            markers.push({
-                                time: exitMarkerTime,
-                                position: 'belowBar',  // Barın altında
-                                color: '#ff4757',  // Kırmızı
-                                shape: 'circle',  // Daire (X yerine)
-                                text: 'X',
-                                size: 2
-                            });
-                        }
+                    if (isFinite(exitMarkerTime)) {
+                        markers.push({
+                            time: exitMarkerTime,
+                            position: 'belowBar',
+                            color: '#ff4757',
+                            shape: 'circle',
+                            text: 'X',
+                            size: 2
+                        });
                     }
                 }
                 
