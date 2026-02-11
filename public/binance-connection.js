@@ -17,7 +17,14 @@
     ];
     const SPOT_PATH = '/api/v3';
     const FUTURES_PATH = '/fapi/v1';
-    const PROXY_BASES = ['/api/cors-proxy?url='];
+    const PROXY_BASES = (() => {
+        const bases = [];
+        if (window.SUPABASE_URL) {
+            bases.push(`${window.SUPABASE_URL}/functions/v1/binance-proxy?url=`);
+        }
+        bases.push('/api/cors-proxy?url=');
+        return bases;
+    })();
     const SPOT_BASE_KEY = 'binanceSpotBase';
     const FUTURES_BASE_KEY = 'binanceFuturesBase';
     const FORCE_PROXY_ALWAYS = true;
@@ -95,7 +102,7 @@
     }
 
     function shouldExpectJson(url) {
-        return /\/exchangeInfo|\/klines|\/ticker|\/depth|\/trades|\/aggTrades|ticker\/price|\/ping/i.test(url);
+        return /\/exchangeInfo|\/klines|\/ticker|\/depth|\/trades|\/aggTrades|ticker\/price|\/ping|\/time/i.test(url);
     }
 
     function isJsonResponse(res) {
