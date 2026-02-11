@@ -1047,7 +1047,11 @@
             const table = document.getElementById('strategyTable');
             if (!table) return;
             if (!results.length) {
-                table.innerHTML = '<tr><td colspan="5" style="text-align:center; color: var(--text-secondary);">Karşılaştırma için ayarları seçin.</td></tr>';
+                const blocked = window.BINANCE_BLOCKED === true;
+                const message = blocked
+                    ? 'Binance verisine erişilemiyor (CORS/451). VPN deneyin veya daha sonra tekrar deneyin.'
+                    : 'Karşılaştırma için ayarları seçin.';
+                table.innerHTML = `<tr><td colspan="5" style="text-align:center; color: var(--text-secondary);">${message}</td></tr>`;
                 return;
             }
 

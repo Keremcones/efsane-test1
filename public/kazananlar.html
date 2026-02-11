@@ -1067,7 +1067,11 @@
             if (!container) return;
 
             if (!list.length) {
-                container.innerHTML = '<div class="empty-state" id="winnersEmpty">Bu ayarlarda sonuç bulunamadı.</div>';
+                const blocked = window.BINANCE_BLOCKED === true;
+                const message = blocked
+                    ? 'Binance verisine erişilemiyor (CORS/451). VPN deneyin veya daha sonra tekrar deneyin.'
+                    : 'Bu ayarlarda sonuç bulunamadı.';
+                container.innerHTML = `<div class="empty-state" id="winnersEmpty">${message}</div>`;
                 return;
             }
 

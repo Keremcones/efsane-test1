@@ -17,15 +17,23 @@
     ];
     const SPOT_PATH = '/api/v3';
     const FUTURES_PATH = '/fapi/v1';
-    const PROXY_BASES = ['/api/cors-proxy?url='];
+    const PROXY_BASES = [];
     const SPOT_BASE_KEY = 'binanceSpotBase';
     const FUTURES_BASE_KEY = 'binanceFuturesBase';
-    const FORCE_PROXY_ALWAYS = true;
+    const FORCE_PROXY_ALWAYS = false;
 
     const statusState = {
         mode: 'offline',
         hideTimer: null
     };
+
+    function setBinanceBlocked(flag) {
+        try {
+            window.BINANCE_BLOCKED = Boolean(flag);
+        } catch (error) {
+            // Ignore assignment failures.
+        }
+    }
 
     function ensureStatusEl() {
         let el = document.getElementById('binanceConnectionStatus');
@@ -161,6 +169,9 @@
             for (let attempt = 0; attempt < retries; attempt++) {
                 try {
                     const res = await fetchWithTimeout(url, requestOptions, timeoutMs);
+                    if (res.ok) {
+                        setBinanceBlocked(false);
+                    }
                     if (res.ok && shouldExpectJson(checkUrl)) {
                         if (!isJsonResponse(res)) {
                             lastError = new Error('Non-JSON response');
@@ -173,6 +184,9 @@
                         }
                     }
                     if (res.ok) return res;
+                    if (res.status === 451 || res.status === 403) {
+                        setBinanceBlocked(true);
+                    }
                     if (allowForceProxy && shouldForceProxyStatus(res.status)) {
                         const error = new Error('force_proxy');
                         error.forceProxy = true;
