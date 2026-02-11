@@ -184,11 +184,17 @@
                     }
                     if (res.ok && shouldExpectJson(checkUrl)) {
                         if (!isJsonResponse(res)) {
+                            if (isBinanceTarget(checkUrl)) {
+                                setBinanceBlocked(true);
+                            }
                             lastError = new Error('Non-JSON response');
                             continue;
                         }
                         const valid = await isValidJsonPayload(res);
                         if (!valid) {
+                            if (isBinanceTarget(checkUrl)) {
+                                setBinanceBlocked(true);
+                            }
                             lastError = new Error('Invalid JSON payload');
                             continue;
                         }
