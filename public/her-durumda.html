@@ -855,142 +855,10 @@
     </div>
 
     <script src="rate-limiter.js"></script>
+    <script src="binance-connection.js"></script>
     <script src="indicators.js"></script>
     <script src="advanced-indicators.js?v=20260129"></script>
     <script>
-        const originalFetch = window.fetch;
-        const BINANCE_HOST_COOLDOWN_MS = 10 * 60 * 1000;
-        const binanceHostCooldowns = new Map();
-
-        function isHostAvailable(host) {
-            const downUntil = binanceHostCooldowns.get(host);
-            return !downUntil || downUntil <= Date.now();
-        }
-
-        function markHostDown(host) {
-            binanceHostCooldowns.set(host, Date.now() + BINANCE_HOST_COOLDOWN_MS);
-        }
-
-        function isNetworkError(error) {
-            if (!error || error.name === 'AbortError') return false;
-            const message = String(error.message || error);
-            return error instanceof TypeError
-                || /ERR_NAME_NOT_RESOLVED|Failed to fetch|NetworkError|ERR_CONNECTION/i.test(message);
-        }
-
-        function filterAvailableBases(baseList) {
-            return baseList.filter(base => {
-                try {
-                    return isHostAvailable(new URL(base).hostname);
-                } catch (error) {
-                    return true;
-                }
-            });
-        }
-
-        const BINANCE_SPOT_BASES = [
-            'https://api1.binance.com',
-            'https://api2.binance.com',
-            'https://api3.binance.com',
-            'https://api4.binance.com',
-            'https://data-api.binance.vision'
-        ];
-        const BINANCE_FUTURES_BASES = [
-            'https://fapi.binance.com',
-            'https://api1.binance.com',
-            'https://api2.binance.com',
-            'https://api3.binance.com',
-            'https://api4.binance.com',
-            'https://data-api.binance.vision'
-        ];
-        const BINANCE_PROXY_BASES = [
-            '/api/cors-proxy?url='
-        ];
-        const BINANCE_SPOT_BASE_KEY = 'binanceSpotBase';
-        const BINANCE_FUTURES_BASE_KEY = 'binanceFuturesBase';
-
-        function setConnectionStatus(text, level) {
-            // Connection banner disabled to avoid visible labels.
-            void text;
-            void level;
-        }
-
-        function getCachedBase(storageKey) {
-            try {
-                return localStorage.getItem(storageKey);
-            } catch (error) {
-                return null;
-            }
-        }
-
-        function setCachedBase(storageKey, base) {
-            try {
-                localStorage.setItem(storageKey, base);
-            } catch (error) {
-                // Ignore storage errors.
-            }
-        }
-
-        function reorderWithCached(baseList, storageKey) {
-            const cached = getCachedBase(storageKey);
-            if (cached && baseList.includes(cached)) {
-                return [cached, ...baseList.filter(base => base !== cached)];
-            }
-            return baseList;
-        }
-
-        function getBinanceMeta(urlObj) {
-            const host = urlObj.hostname;
-            const path = urlObj.pathname || '';
-            const isFutures = host.includes('fapi') || path.includes('/fapi/');
-            const isSpot = host.includes('api') || path.includes('/api/');
-            if (!isFutures && !isSpot) return null;
-            const baseList = isFutures ? BINANCE_FUTURES_BASES : BINANCE_SPOT_BASES;
-            const storageKey = isFutures ? BINANCE_FUTURES_BASE_KEY : BINANCE_SPOT_BASE_KEY;
-            return { baseList, storageKey };
-        }
-
-        function buildBinanceCandidates(inputUrl) {
-            const urlObj = new URL(inputUrl);
-            const meta = getBinanceMeta(urlObj);
-            if (!meta) {
-                return { candidates: [inputUrl], isBinance: false };
-            }
-            const path = urlObj.pathname + urlObj.search;
-            const orderedBases = reorderWithCached(meta.baseList, meta.storageKey);
-            const filteredBases = filterAvailableBases(orderedBases);
-            const candidates = filteredBases.map(base => `${base}${path}`);
-            return {
-                candidates,
-                baseList: filteredBases,
-                storageKey: meta.storageKey,
-                isBinance: true
-            };
-        }
-
-        function buildProxyUrl(proxyBase, targetUrl) {
-            const encoded = encodeURIComponent(targetUrl);
-            return `${proxyBase}${encoded}`;
-        }
-
-        function buildProxyCandidates(candidateUrls) {
-            return BINANCE_PROXY_BASES.flatMap(proxyBase =>
-                candidateUrls.map(url => buildProxyUrl(proxyBase, url))
-            );
-        }
-
-        function shouldExpectJson(url) {
-            return /\/exchangeInfo|\/klines|\/ticker|\/depth|\/trades|\/aggTrades|ticker\/price/i.test(url);
-        }
-
-        function isJsonResponse(res) {
-            const contentType = res.headers.get('content-type') || '';
-            return contentType.includes('application/json') || contentType.includes('text/plain');
-        }
-
-        function sleep(ms) {
-            return new Promise(resolve => setTimeout(resolve, ms));
-        }
 
         let supabaseClient = null;
         let currentUser = null;
@@ -1016,118 +884,28 @@
             status.style.color = active ? 'var(--accent)' : 'var(--text-secondary)';
         }
 
-        async function baseFetchWithTimeout(url, options, timeoutMs = 10000) {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), timeoutMs);
-            try {
-                return await originalFetch(url, { ...options, signal: controller.signal });
-            } finally {
-                clearTimeout(timer);
+        async function fetchWithTimeout(url, options, timeoutMs = 10000) {
+            if (window.BinanceAPI) {
+                return window.BinanceAPI.fetchUrl(url, options, { retries: 1, timeoutMs });
             }
-        }
-
-        async function baseFetchWithRetry(url, options, retries = 3, delayMs = 0, timeoutMs = 10000) {
-            let lastError = null;
-            for (let attempt = 0; attempt < retries; attempt++) {
-                try {
-                    const res = await baseFetchWithTimeout(url, options, timeoutMs);
-                    if (res.ok) return res;
-                    lastError = new Error(`HTTP ${res.status}`);
-                } catch (error) {
-                    lastError = error;
-                    if (isNetworkError(error)) {
-                        try {
-                            markHostDown(new URL(url).hostname);
-                        } catch (err) {
-                            // Ignore URL parsing errors.
-                        }
-                        break;
-                    }
-                }
-                if (delayMs > 0 && attempt < retries - 1) {
-                    await sleep(delayMs);
-                }
-            }
-            throw lastError || new Error('Request failed');
+            return fetch(url, options);
         }
 
         async function fetchWithRetry(url, options, retries = 3, delayMs = 0, timeoutMs = 10000) {
-            const inputUrl = typeof url === 'string' ? url : (url && url.url ? url.url : String(url));
-            const info = buildBinanceCandidates(inputUrl);
-            const candidates = info.candidates || [inputUrl];
-            let lastError = null;
-
-            if (info.isBinance) {
-                setConnectionStatus('Baglanti deneniyor...', 'pending');
+            if (window.BinanceAPI) {
+                return window.BinanceAPI.fetchUrl(url, options, { retries, timeoutMs });
             }
-
-            for (const candidate of candidates) {
-                try {
-                    const res = await baseFetchWithRetry(candidate, options, retries, delayMs, timeoutMs);
-                    if (res.ok && info.isBinance && shouldExpectJson(candidate) && !isJsonResponse(res)) {
-                        lastError = new Error('Non-JSON response');
-                        continue;
-                    }
-                    if (res.ok) {
-                        if (info.isBinance) {
-                            try {
-                                setCachedBase(info.storageKey, new URL(candidate).origin);
-                            } catch (error) {
-                                // Ignore URL parsing errors.
-                            }
-                            setConnectionStatus(`Baglanti kuruldu: ${new URL(candidate).hostname}`, 'ok');
-                        }
-                        return res;
-                    }
-                    lastError = new Error(`HTTP ${res.status}`);
-                } catch (error) {
-                    lastError = error;
-                }
-            }
-
-            if (info.isBinance) {
-                const proxyCandidates = buildProxyCandidates(candidates);
-                for (const candidate of proxyCandidates) {
-                    try {
-                        const res = await baseFetchWithRetry(candidate, options, retries, delayMs, timeoutMs);
-                        if (res.ok && shouldExpectJson(candidate) && !isJsonResponse(res)) {
-                            lastError = new Error('Non-JSON response');
-                            continue;
-                        }
-                        if (res.ok) {
-                            const proxyHost = new URL(candidate).hostname;
-                            setConnectionStatus(`Proxy baglandi: ${proxyHost}`, 'proxy');
-                            return res;
-                        }
-                        lastError = new Error(`HTTP ${res.status}`);
-                    } catch (error) {
-                        lastError = error;
-                    }
-                }
-
-                setConnectionStatus('Baglanti basarisiz', 'fail');
-            }
-
-            throw lastError || new Error('Request failed');
+            return fetch(url, options);
         }
-
-        async function fetchWithTimeout(url, options, timeoutMs = 10000) {
-            return fetchWithRetry(url, options, 1, 0, timeoutMs);
-        }
-
-        window.fetch = async function(url, options) {
-            if (typeof url !== 'string') {
-                return originalFetch(url, options);
-            }
-            return fetchWithRetry(url, options, 3, 0, 10000);
-        };
-        window.fetch.__binanceFallback = true;
 
         async function fetchExchangeInfo(market) {
-            const base = market === 'futures'
-                ? 'https://fapi.binance.com/fapi/v1'
-                : 'https://api1.binance.com/api/v3';
-            const res = await fetchWithRetry(`${base}/exchangeInfo`, {}, 3, 0, 10000);
+            const path = '/exchangeInfo';
+            const fetchFn = String(market || '').toLowerCase() === 'futures'
+                ? window.BinanceAPI?.futuresFetch
+                : window.BinanceAPI?.spotFetch;
+            const res = fetchFn
+                ? await fetchFn(path, {}, { retries: 3, timeoutMs: 10000 })
+                : await fetchWithRetry(path, {}, 3, 10000);
             if (!res.ok) {
                 throw new Error(`HTTP ${res.status}`);
             }

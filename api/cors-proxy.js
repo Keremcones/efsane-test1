@@ -33,6 +33,10 @@ export default async function handler(req, res) {
     'api2.binance.com',
     'api3.binance.com',
     'api4.binance.com',
+    'fapi1.binance.com',
+    'fapi2.binance.com',
+    'fapi3.binance.com',
+    'fapi4.binance.com',
     'data-api.binance.vision'
   ]);
   if (!allowedHosts.has(targetUrl.hostname)) {

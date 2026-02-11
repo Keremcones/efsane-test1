@@ -73,6 +73,11 @@ var CURRENT_MARKET_TYPE = window.CURRENT_MARKET_TYPE || 'spot'; // Default to sp
 window.CURRENT_MARKET_TYPE = CURRENT_MARKET_TYPE;
 
 function getBinanceApiBase() {
+    if (window.BinanceAPI) {
+        return CURRENT_MARKET_TYPE === 'futures'
+            ? window.BinanceAPI.getFuturesBase()
+            : window.BinanceAPI.getSpotBase();
+    }
     return CURRENT_MARKET_TYPE === 'futures' ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
 }
 
