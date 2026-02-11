@@ -194,6 +194,7 @@
         }
         .user-role-badge.standard { background: linear-gradient(135deg, #c07a2b, #8b4f1f); color: #ffffff; }
         .user-role-badge.premium { background: linear-gradient(135deg, #FFD700, #FFA500); box-shadow: 0 0 20px rgba(255, 215, 0, 0.4); color: #111111; }
+        .user-role-badge.plus { background: linear-gradient(135deg, #38e8ff, #4f46e5); box-shadow: 0 0 18px rgba(56, 232, 255, 0.35); color: #081018; }
         .user-role-badge.admin { background: linear-gradient(135deg, #f5d06f, #ffd86b); box-shadow: 0 0 18px rgba(245, 208, 111, 0.45); color: #0a0a0a; }
         .hamburger-menu {
             display: flex;
@@ -802,6 +803,13 @@
                 return;
             }
 
+            if (membershipType === 'plus') {
+                badgeEl.innerHTML = '<i class="fa-solid fa-circle-plus"></i> Plus';
+                badgeEl.className = 'user-role-badge plus';
+                badgeEl.style.display = 'inline-flex';
+                return;
+            }
+
             badgeEl.innerHTML = '<i class="fa-solid fa-leaf"></i> Free';
             badgeEl.className = 'user-role-badge standard';
             badgeEl.style.display = 'inline-flex';
@@ -1074,9 +1082,15 @@
                 .maybeSingle();
 
             const isAdmin = isAdminByEmail || !!userProfile?.is_admin;
-            const isPremium = (userProfile?.membership_type || 'standard') === 'premium' || isAdmin;
+            const membershipType = String(userProfile?.membership_type || 'standard');
+            const isPremium = membershipType === 'premium' || isAdmin;
 
             updateUserRoleBadge(userProfile?.membership_type || 'standard', isAdmin);
+
+            if (membershipType === 'plus' && !isAdmin) {
+                window.location.href = 'premium.html';
+                return;
+            }
 
             if (!isPremium) {
                 showPremiumLock();

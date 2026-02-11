@@ -1094,12 +1094,8 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
     };
     const minutes = timeframeMinutes[timeframe] || 60;
     const normalizedDirectionFilter = String(directionFilter || 'BOTH').toUpperCase();
-    const resolvedSlippageBps = Number.isFinite(Number(slippageBps))
-        ? Number(slippageBps)
-        : Number(window.APP_CONFIG && window.APP_CONFIG.backtestSlippageBps);
-    const resolvedFeeBps = Number.isFinite(Number(feeBps))
-        ? Number(feeBps)
-        : Number(window.APP_CONFIG && window.APP_CONFIG.backtestFeeBps);
+    const resolvedSlippageBps = Number.isFinite(Number(slippageBps)) ? Number(slippageBps) : 0;
+    const resolvedFeeBps = Number.isFinite(Number(feeBps)) ? Number(feeBps) : 0;
     const slippageBpsValue = Number.isFinite(resolvedSlippageBps) ? resolvedSlippageBps : 0;
     const feeBpsValue = Number.isFinite(resolvedFeeBps) ? resolvedFeeBps : 0;
     const neededKlines = 1000;
@@ -1355,8 +1351,9 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             const lastOpenMs = resolveKlineOpenTimeMs(backtestKlines[i]);
             const nowMs = lastOpenMs + 1;
             const timeframeMs = minutes * 60 * 1000;
-            const maxDelayMs = Math.min(2 * 60 * 1000, Math.max(60000, Math.floor(timeframeMs * 0.3)));
-            const isWithinOpenWindow = nowMs >= lastOpenMs && (nowMs - lastOpenMs) <= maxDelayMs;
+            const barStartMs = Number.isFinite(lastOpenMs) ? lastOpenMs : 0;
+            const barEndMs = barStartMs + (Number.isFinite(timeframeMs) && timeframeMs > 0 ? timeframeMs : 60 * 60 * 1000);
+            const isWithinOpenWindow = nowMs >= barStartMs && nowMs < barEndMs;
             if (!isWithinOpenWindow) {
                 continue;
             }
@@ -1553,8 +1550,9 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             const lastOpenMs = resolveKlineOpenTimeMs(backtestKlines[closedBarIndex]);
             const lastNowMs = lastOpenMs + 1;
             const lastTimeframeMs = minutes * 60 * 1000;
-            const lastMaxDelayMs = Math.min(2 * 60 * 1000, Math.max(60000, Math.floor(lastTimeframeMs * 0.3)));
-            const lastWithinOpenWindow = lastNowMs >= lastOpenMs && (lastNowMs - lastOpenMs) <= lastMaxDelayMs;
+            const lastBarStartMs = Number.isFinite(lastOpenMs) ? lastOpenMs : 0;
+            const lastBarEndMs = lastBarStartMs + (Number.isFinite(lastTimeframeMs) && lastTimeframeMs > 0 ? lastTimeframeMs : 60 * 60 * 1000);
+            const lastWithinOpenWindow = lastNowMs >= lastBarStartMs && lastNowMs < lastBarEndMs;
             
             // SADECE triggered true olan sinyalleri göster (confidence threshold gecenler)
             if (lastSignal && lastSignal.triggered && lastDirectionOk && lastWithinOpenWindow) {

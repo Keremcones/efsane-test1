@@ -290,6 +290,12 @@
             color: #111111;
         }
 
+        .user-role-badge.plus {
+            background: linear-gradient(135deg, #38e8ff, #4f46e5);
+            box-shadow: 0 0 18px rgba(56, 232, 255, 0.35);
+            color: #081018;
+        }
+
         .user-role-badge.admin {
             background: linear-gradient(135deg, #f5d06f, #ffd86b);
             box-shadow: 0 0 18px rgba(245, 208, 111, 0.45);
@@ -3005,6 +3011,13 @@
                 return;
             }
 
+            if (membershipType === 'plus') {
+                badgeEl.innerHTML = '<i class="fa-solid fa-circle-plus"></i> Plus';
+                badgeEl.className = 'user-role-badge plus';
+                badgeEl.style.display = 'inline-flex';
+                return;
+            }
+
             badgeEl.innerHTML = '<i class="fa-solid fa-leaf"></i> Free';
             badgeEl.className = 'user-role-badge standard';
             badgeEl.style.display = 'inline-flex';
@@ -4226,7 +4239,7 @@
                 `;
             }
 
-            const canCreateAlarm = currentIsAdmin || currentMembershipType === 'premium';
+            const canCreateAlarm = currentIsAdmin || currentMembershipType === 'premium' || currentMembershipType === 'plus';
             
             document.getElementById('analysisContent').innerHTML = `
                 <div class="grid">
@@ -5305,7 +5318,7 @@
         
         // Sinyalden alarm oluştur (sinyal yoksa)
         async function createAlarmFromAnalysis() {
-            const canCreateAlarm = currentIsAdmin || currentMembershipType === 'premium';
+            const canCreateAlarm = currentIsAdmin || currentMembershipType === 'premium' || currentMembershipType === 'plus';
             if (!canCreateAlarm) {
                 showUpdateToast('Alarm kurmak için Premium gerekli', 'warning');
                 return;

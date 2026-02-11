@@ -873,6 +873,18 @@ async function executeAutoTrade(
   marketType: "spot" | "futures"
 ): Promise<{ success: boolean; message: string; orderId?: string; blockedByOpenPosition?: boolean }> {
   try {
+    const { data: userProfile } = await supabase
+      .from("user_profiles")
+      .select("membership_type, is_admin")
+      .eq("id", userId)
+      .maybeSingle();
+
+    const membershipType = String(userProfile?.membership_type || "standard").toLowerCase();
+    const isAdmin = !!userProfile?.is_admin;
+    if (!isAdmin && membershipType !== "premium") {
+      return { success: false, message: "Otomatik işlem sadece Premium üyeler içindir." };
+    }
+
     const { data: userKeys, error: keysError } = await supabase
       .from("user_binance_keys")
       .select("*")
@@ -2051,8 +2063,9 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
       const nowMs = Date.now();
       const timeframeMinutes = timeframeToMinutes(String(alarm.timeframe || "1h"));
       const timeframeMs = timeframeMinutes * 60 * 1000;
-      const maxDelayMs = Math.min(2 * 60 * 1000, Math.max(60000, Math.floor(timeframeMs * 0.3)));
-      const isWithinOpenWindow = nowMs >= lastOpenMs && (nowMs - lastOpenMs) <= maxDelayMs;
+      const barStartMs = Number.isFinite(lastOpenMs) ? lastOpenMs : 0;
+      const barEndMs = barStartMs + (Number.isFinite(timeframeMs) && timeframeMs > 0 ? timeframeMs : 60 * 60 * 1000);
+      const isWithinOpenWindow = nowMs >= barStartMs && nowMs < barEndMs;
       const lastSignalTs = alarm.signal_timestamp || alarm.signalTimestamp;
       const lastSignalMs = lastSignalTs ? Date.parse(String(lastSignalTs)) : NaN;
 
@@ -2066,7 +2079,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         if (autoTradeEnabled && openTradeSymbols.has(symbolKey)) {
           console.log(`⏹️ Skipping user_alarm for ${symbol}: ACTIVE_TRADE in progress (user: ${alarm.user_id})`);
         } else if (!isWithinOpenWindow) {
-          console.log(`⏹️ Skipping user_alarm for ${symbol}: outside open window (${Math.round((nowMs - lastOpenMs) / 1000)}s)`);
+          console.log(`⏹️ Skipping user_alarm for ${symbol}: outside current bar (${Math.round((nowMs - lastOpenMs) / 1000)}s)`);
         } else if (Number.isFinite(lastSignalMs) && lastSignalMs >= lastOpenMs) {
           console.log(`⏹️ Skipping user_alarm for ${symbol}: same bar already processed (alarm ${alarm.id})`);
         } else if (openSignalKeys.has(signalKey)) {
@@ -2201,7 +2214,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         if (openTradeSymbols.has(symbolKey)) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: ACTIVE_TRADE in progress (user: ${alarm.user_id})`);
         } else if (!isWithinOpenWindow) {
-          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: outside open window (${Math.round((nowMs - lastOpenMs) / 1000)}s)`);
+          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: outside current bar (${Math.round((nowMs - lastOpenMs) / 1000)}s)`);
         } else if (Number.isFinite(lastSignalMs) && lastSignalMs >= lastOpenMs) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: same bar already processed (alarm ${alarm.id})`);
         } else if (openSignalKeys.has(signalKey)) {
@@ -2306,8 +2319,8 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
 
       if (shouldTrigger && triggerMessage) {
         const sendNowMs = Date.now();
-        if (sendNowMs < lastOpenMs || (sendNowMs - lastOpenMs) > maxDelayMs) {
-          console.log(`⏹️ Skipping signal send for ${alarm.symbol}: outside open window (${Math.round((sendNowMs - lastOpenMs) / 1000)}s)`);
+        if (sendNowMs < barStartMs || sendNowMs >= barEndMs) {
+          console.log(`⏹️ Skipping signal send for ${alarm.symbol}: outside current bar (${Math.round((sendNowMs - lastOpenMs) / 1000)}s)`);
           return;
         }
         try {

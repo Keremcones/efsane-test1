@@ -289,6 +289,12 @@
             color: #ffffff;
         }
 
+        .user-role-badge.plus {
+            background: linear-gradient(135deg, #2bb3ff, #11d5b4);
+            box-shadow: 0 0 18px rgba(43, 179, 255, 0.35);
+            color: #0a0a0a;
+        }
+
         .user-role-badge.premium {
             background: linear-gradient(135deg, #FFD700, #FFA500);
             box-shadow: 0 0 20px rgba(255, 215, 0, 0.4);
@@ -888,8 +894,8 @@
 
     <div class="premium-lock" id="premiumLock" aria-hidden="true">
         <div class="premium-modal">
-            <h2>Premium gerekli</h2>
-            <p>Kazananlar modülü sadece Premium üyeler için aktif. Premium ile neler açılıyor?</p>
+            <h2>Plus veya Premium gerekli</h2>
+            <p>Kazananlar modülü sadece Plus ve Premium üyeler için aktif. Planları inceleyin.</p>
             <ul class="premium-features">
                 <li><i class="fa-solid fa-check"></i> Tüm coinlerde canlı tarama</li>
                 <li><i class="fa-solid fa-check"></i> Win rate, profit factor ve kâr filtreleri</li>
@@ -897,7 +903,7 @@
                 <li><i class="fa-solid fa-check"></i> Hızlı dashboard geçişi</li>
             </ul>
             <div class="premium-actions">
-                <a href="premium.html" class="premium-btn primary"><i class="fa-solid fa-star"></i> Premium Ol</a>
+                <a href="premium.html" class="premium-btn primary"><i class="fa-solid fa-star"></i> Planları Gör</a>
                 <a href="index.html" class="premium-btn secondary"><i class="fa-solid fa-chart-line"></i> Dashboard'a Dön</a>
             </div>
         </div>
@@ -1420,6 +1426,13 @@
                 return;
             }
 
+            if (membershipType === 'plus') {
+                badgeEl.innerHTML = '<i class="fa-solid fa-circle-plus"></i> Plus';
+                badgeEl.className = 'user-role-badge plus';
+                badgeEl.style.display = 'inline-flex';
+                return;
+            }
+
             badgeEl.innerHTML = '<i class="fa-solid fa-leaf"></i> Free';
             badgeEl.className = 'user-role-badge standard';
             badgeEl.style.display = 'inline-flex';
@@ -1465,7 +1478,7 @@
                     return { isPremium: false };
                 } else {
                     updateUserRoleBadge(userProfile.membership_type || 'standard', !!userProfile.is_admin);
-                    const isPremium = userProfile.membership_type === 'premium' || !!userProfile.is_admin;
+                    const isPremium = ['premium', 'plus'].includes(userProfile.membership_type) || !!userProfile.is_admin;
                     return { isPremium };
                 }
             } catch {
