@@ -4955,10 +4955,14 @@
                     const tp = descriptionMatch ? descriptionMatch[1] : alarm.takeProfitPercent || '-';
                     const sl = descriptionMatch ? descriptionMatch[2] : alarm.stopLossPercent || '-';
                     
+                    const confidenceValue = Number.isFinite(Number(alarm.confidenceScore)) ? Number(alarm.confidenceScore) : '';
+                    const tpValue = Number.isFinite(Number(alarm.tpPercent)) ? Number(alarm.tpPercent) : (Number.isFinite(Number(tp)) ? Number(tp) : '');
+                    const slValue = Number.isFinite(Number(alarm.slPercent)) ? Number(alarm.slPercent) : (Number.isFinite(Number(sl)) ? Number(sl) : '');
+
                     if (alarm.type === 'ACTIVE_TRADE') {
-                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;">${logoHtml}<div><span style="font-weight: 600;">${coinSymbol} ${alarm.direction}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span><br><span style="font-size: 0.75rem; color: var(--text-secondary);">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></span></div></div></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;"><div><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div><i class="fa-regular fa-clock"></i> Timeframe: <strong>${alarm.timeframe || '-'} </strong></div><div><i class="fa-regular fa-calendar"></i> Tarih/Saat: <strong>${alarmCreatedAt}</strong></div><div style="margin-top: 4px;"><i class="fa-solid fa-bullseye"></i> TP: ${alarm.tpPercent}% | <i class="fa-solid fa-circle-stop"></i> SL: ${alarm.slPercent}%</div></div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
+                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;">${logoHtml}<div><span style="font-weight: 600;">${coinSymbol} ${alarm.direction}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe}', '${alarm.market_type || alarm.marketType || 'spot'}', '${confidenceValue}', '${tpValue}', '${slValue}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span><br><span style="font-size: 0.75rem; color: var(--text-secondary);">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></span></div></div></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;"><div><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div><i class="fa-regular fa-clock"></i> Timeframe: <strong>${alarm.timeframe || '-'} </strong></div><div><i class="fa-regular fa-calendar"></i> Tarih/Saat: <strong>${alarmCreatedAt}</strong></div><div style="margin-top: 4px;"><i class="fa-solid fa-bullseye"></i> TP: ${alarm.tpPercent}% | <i class="fa-solid fa-circle-stop"></i> SL: ${alarm.slPercent}%</div></div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
                     } else {
-                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;"><div>${logoHtml}</div><div><span style="font-weight: 600;">${coinSymbol} - ${alarmTitleSuffix}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe || '1h'}', '${alarm.market_type || alarm.marketType || 'spot'}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span></div></div><span style="font-size: 0.85rem; color: var(--text-secondary);"><i class="fa-solid fa-circle"></i> Aktif</span></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-regular fa-calendar"></i> Tarih/Saat: <strong>${alarmCreatedAt}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">Timeframe: ${alarm.timeframe || '1h'} | TP: ${tp}% | SL: ${sl}%</div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
+                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;"><div>${logoHtml}</div><div><span style="font-weight: 600;">${coinSymbol} - ${alarmTitleSuffix}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe || '1h'}', '${alarm.market_type || alarm.marketType || 'spot'}', '${confidenceValue}', '${tpValue}', '${slValue}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span></div></div><span style="font-size: 0.85rem; color: var(--text-secondary);"><i class="fa-solid fa-circle"></i> Aktif</span></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-regular fa-calendar"></i> Tarih/Saat: <strong>${alarmCreatedAt}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">Timeframe: ${alarm.timeframe || '1h'} | TP: ${tp}% | SL: ${sl}%</div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
                     }
                 });
                 activeGrid.innerHTML = activeHtml;
@@ -5585,8 +5589,46 @@ Detaylar:
             }
         }
 
+        function applyAlarmSettingsToUi(options = {}) {
+            const allowedTimeframes = ['5m', '15m', '1h', '4h', '1d'];
+            const normalizedTimeframe = allowedTimeframes.includes(options.timeframe)
+                ? options.timeframe
+                : (currentTimeframe || '1h');
+            const confidenceValue = Number(options.confidence);
+            const tpValue = Number(options.takeProfitPercent);
+            const slValue = Number(options.stopLossPercent);
+
+            currentTimeframe = normalizedTimeframe;
+            document.querySelectorAll('.timeframe-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tf === normalizedTimeframe);
+            });
+            document.querySelectorAll('.mtf-card').forEach(card => {
+                card.classList.toggle('active', card.dataset.tf === normalizedTimeframe);
+            });
+
+            if (Number.isFinite(confidenceValue)) {
+                confidenceThreshold = Math.min(100, Math.max(1, confidenceValue));
+                const confDisplay = document.getElementById('confidenceDisplay');
+                const confSlider = document.getElementById('confidenceSlider');
+                if (confDisplay) confDisplay.textContent = `${confidenceThreshold}%`;
+                if (confSlider) confSlider.value = String(confidenceThreshold);
+            }
+
+            if (Number.isFinite(tpValue)) {
+                takeProfitPercent = tpValue;
+                const tpInput = document.getElementById('tpInput');
+                if (tpInput) tpInput.value = String(tpValue);
+            }
+
+            if (Number.isFinite(slValue)) {
+                stopLossPercent = slValue;
+                const slInput = document.getElementById('slInput');
+                if (slInput) slInput.value = String(slValue);
+            }
+        }
+
         // Alarmdan coin seçerek dashboard'da aç
-        function selectCoinForDashboard(symbol, timeframe, marketType) {
+        function selectCoinForDashboard(symbol, timeframe, marketType, confidence, tpPercent, slPercent) {
             const normalizedSymbol = String(symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
             const allowedTimeframes = ['5m', '15m', '1h', '4h', '1d'];
             const normalizedTimeframe = allowedTimeframes.includes(timeframe) ? timeframe : (currentTimeframe || '1h');
@@ -5603,6 +5645,12 @@ Detaylar:
             // Değişkenleri ön set et
             currentSymbol = normalizedSymbol;
             currentTimeframe = normalizedTimeframe;
+            applyAlarmSettingsToUi({
+                timeframe: normalizedTimeframe,
+                confidence: confidence,
+                takeProfitPercent: tpPercent,
+                stopLossPercent: slPercent
+            });
             saveDashboardFilters();
             
             // Select öğelerini güncelle
