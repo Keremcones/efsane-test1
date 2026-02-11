@@ -105,7 +105,7 @@
 
     function buildProxyUrl(proxyBase, targetUrl) {
         const encoded = encodeURIComponent(targetUrl);
-        return `${proxyBase}${encoded}`;
+        return `${proxyBase}${encoded}&t=${Date.now()}`;
     }
 
     function extractTargetUrl(maybeProxyUrl) {
@@ -132,16 +132,45 @@
         return status === 418 || status === 429 || status === 451 || status === 403;
     }
 
+    async function isValidJsonPayload(res) {
+        try {
+            const data = await res.clone().json();
+            if (Array.isArray(data)) return true;
+            if (data && typeof data === 'object' && 'code' in data && 'msg' in data) {
+                return false;
+            }
+            return true;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    function withJsonAccept(options) {
+        const headers = new Headers(options?.headers || {});
+        if (!headers.has('Accept')) {
+            headers.set('Accept', 'application/json');
+        }
+        return { ...options, headers };
+    }
+
     async function tryUrls(urls, options, retries, timeoutMs, allowForceProxy) {
         let lastError = null;
+        const requestOptions = withJsonAccept(options || {});
         for (const url of urls) {
             const checkUrl = extractTargetUrl(url);
             for (let attempt = 0; attempt < retries; attempt++) {
                 try {
-                    const res = await fetchWithTimeout(url, options, timeoutMs);
-                    if (res.ok && shouldExpectJson(checkUrl) && !isJsonResponse(res)) {
-                        lastError = new Error('Non-JSON response');
-                        continue;
+                    const res = await fetchWithTimeout(url, requestOptions, timeoutMs);
+                    if (res.ok && shouldExpectJson(checkUrl)) {
+                        if (!isJsonResponse(res)) {
+                            lastError = new Error('Non-JSON response');
+                            continue;
+                        }
+                        const valid = await isValidJsonPayload(res);
+                        if (!valid) {
+                            lastError = new Error('Invalid JSON payload');
+                            continue;
+                        }
                     }
                     if (res.ok) return res;
                     if (allowForceProxy && shouldForceProxyStatus(res.status)) {
