@@ -41,25 +41,10 @@
 
     function setStatus(mode) {
         statusState.mode = mode;
-        const el = ensureStatusEl();
-        if (mode === 'connected') {
-            el.textContent = '✅ Bagli';
-            el.style.background = 'rgba(0, 150, 90, 0.92)';
-        } else if (mode === 'proxy') {
-            el.textContent = '🔶 Proxy';
-            el.style.background = 'rgba(200, 150, 0, 0.92)';
-        } else {
-            el.textContent = '❌ Baglanti yok';
-            el.style.background = 'rgba(180, 60, 60, 0.92)';
+        const el = document.getElementById('binanceConnectionStatus');
+        if (el && el.parentNode) {
+            el.parentNode.removeChild(el);
         }
-
-        if (statusState.hideTimer) {
-            clearTimeout(statusState.hideTimer);
-        }
-        statusState.hideTimer = setTimeout(() => {
-            el.style.display = 'none';
-        }, 2000);
-        el.style.display = 'block';
     }
 
     function getForceProxyUntil() {
@@ -150,6 +135,16 @@
         return `${proxyBase}${encoded}`;
     }
 
+    function extractTargetUrl(maybeProxyUrl) {
+        try {
+            if (!maybeProxyUrl.includes('/api/cors-proxy?url=')) return maybeProxyUrl;
+            const param = maybeProxyUrl.split('/api/cors-proxy?url=')[1] || '';
+            return decodeURIComponent(param);
+        } catch (error) {
+            return maybeProxyUrl;
+        }
+    }
+
     async function fetchWithTimeout(url, options, timeoutMs) {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -167,10 +162,11 @@
     async function tryUrls(urls, options, retries, timeoutMs, allowForceProxy) {
         let lastError = null;
         for (const url of urls) {
+            const checkUrl = extractTargetUrl(url);
             for (let attempt = 0; attempt < retries; attempt++) {
                 try {
                     const res = await fetchWithTimeout(url, options, timeoutMs);
-                    if (res.ok && shouldExpectJson(url) && !isJsonResponse(res)) {
+                    if (res.ok && shouldExpectJson(checkUrl) && !isJsonResponse(res)) {
                         lastError = new Error('Non-JSON response');
                         continue;
                     }
