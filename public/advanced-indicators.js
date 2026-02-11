@@ -1135,7 +1135,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         const highs = trimmedKlines.map(k => parseFloat(k[2]));
         const lows = trimmedKlines.map(k => parseFloat(k[3]));
         const volumes = trimmedKlines.map(k => parseFloat(k[5]));
-        let windowSize = Math.min(1000, closes.length - 2);
+        let windowSize = Math.min(200, closes.length - 2);
         if (windowSize < MIN_BACKTEST_WINDOW) {
             console.warn(`⚠️ Backtest window çok küçük: ${windowSize}`);
             return results;
