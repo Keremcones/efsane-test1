@@ -1098,6 +1098,20 @@ function resolveKlineOpenTimeMs(kline) {
     return openMs + 1;
 }
 
+async function resolveBinanceServerTimeMs(marketType) {
+    try {
+        const response = await binanceFetchPath(marketType, '/time', {}, { retries: 2, timeoutMs: 15000 });
+        const data = await response.json();
+        const serverTime = Number(data?.serverTime);
+        if (Number.isFinite(serverTime)) {
+            return serverTime;
+        }
+    } catch (error) {
+        console.warn('Binance server time fallback:', error);
+    }
+    return Date.now();
+}
+
 // 7. BACKTEST SİSTEMİ
 async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 70, takeProfitPercent = 5, stopLossPercent = 3, marketType = null, directionFilter = 'BOTH', slippageBps = null, feeBps = null) {
     const results = [];
@@ -1122,11 +1136,12 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         const response = await binanceFetchPath(marketType, klinesPath, {}, { retries: 3, timeoutMs: 30000 });
         const klines = await response.json();
         const trimmedKlines = Array.isArray(klines) ? klines.slice(-1000) : [];
+        const serverNowMs = await resolveBinanceServerTimeMs(marketType);
         const lastBarIndex = trimmedKlines.length - 1;
         let closedEndIndex = lastBarIndex;
         if (lastBarIndex >= 0) {
             const lastCloseMs = resolveKlineCloseTimeMs(trimmedKlines[lastBarIndex]);
-            if (lastCloseMs > Date.now()) {
+            if (lastCloseMs > serverNowMs) {
                 closedEndIndex = lastBarIndex - 1;
             }
         }
