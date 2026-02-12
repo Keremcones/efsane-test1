@@ -2001,6 +2001,33 @@ async function updateActiveSignalTelegramStatus(
   }
 }
 
+async function updateActiveSignalCloseTelegramStatus(
+  signalId: string | number,
+  status: "QUEUED" | "SENT" | "FAILED" | "SKIPPED",
+  error: string | null = null
+): Promise<void> {
+  try {
+    const updatePayload: Record<string, unknown> = {
+      telegram_close_status: status,
+      telegram_close_error: error,
+    };
+    if (status === "SENT") {
+      updatePayload.telegram_close_sent_at = new Date().toISOString();
+    }
+
+    const { error: updateError } = await supabase
+      .from("active_signals")
+      .update(updatePayload)
+      .eq("id", signalId);
+
+    if (updateError) {
+      console.warn(`⚠️ Failed to update close telegram status for signal ${signalId}:`, updateError);
+    }
+  } catch (e) {
+    console.warn(`⚠️ Close telegram status update error for signal ${signalId}:`, e);
+  }
+}
+
 async function sendTelegramToChatId(chatId: string, message: string): Promise<{ ok: boolean; description?: string; error_code?: number }> {
   try {
     const botUrl = `https://api.telegram.org/bot${telegramBotToken}/sendMessage`;
@@ -3467,7 +3494,10 @@ ${emoji} ${statusMessage}
     📈 Kar/Zarar: <b>${safePnL}</b>
 `;
 
-      return sendTelegramNotification(signal.user_id, telegramMessage);
+      await updateActiveSignalCloseTelegramStatus(signal.id, "QUEUED", null);
+      const sendResult = await sendTelegramNotification(signal.user_id, telegramMessage);
+      await updateActiveSignalCloseTelegramStatus(signal.id, sendResult.status, sendResult.error ?? null);
+      return;
     });
     
     await Promise.all(notificationPromises);
