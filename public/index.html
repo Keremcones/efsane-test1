@@ -204,16 +204,22 @@
             box-shadow: 0 8px 24px rgba(5, 12, 24, 0.45);
         }
 
+        html[data-theme="light"] .navbar {
+            background: rgba(231, 238, 248, 0.86);
+            border-bottom: 1px solid rgba(79, 70, 229, 0.2);
+            box-shadow: 0 12px 28px rgba(70, 90, 140, 0.18);
+        }
+
         html[data-theme="purple"] .navbar {
             background: rgba(11, 7, 20, 0.82);
-            border-bottom: 1px solid rgba(184, 108, 255, 0.2);
-            box-shadow: 0 8px 24px rgba(10, 6, 18, 0.55);
+            border-bottom: 1px solid rgba(184, 108, 255, 0.22);
+            box-shadow: 0 10px 24px rgba(10, 6, 18, 0.6);
         }
 
         html[data-theme="gold"] .navbar {
             background: rgba(11, 11, 11, 0.86);
-            border-bottom: 1px solid rgba(245, 208, 111, 0.28);
-            box-shadow: 0 8px 24px rgba(5, 4, 3, 0.65);
+            border-bottom: 1px solid rgba(245, 208, 111, 0.3);
+            box-shadow: 0 10px 24px rgba(5, 4, 3, 0.7);
         }
 
         html[data-theme="purple"] body {
@@ -244,19 +250,18 @@
         }
 
         .logo-text {
-            font-size: 1.45rem;
+            font-size: 1.35rem;
             font-weight: 800;
             letter-spacing: 0.5px;
             background: linear-gradient(135deg, var(--accent), var(--accent-blue));
             background-clip: text;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            text-shadow: 0 0 24px rgba(56, 232, 255, 0.18);
         }
 
         .user-menu {
             display: flex;
-            gap: 20px;
+            gap: 16px;
             align-items: center;
         }
 
@@ -1395,9 +1400,6 @@
             .card { padding: 12px; margin-bottom: 12px; }
             .tpsl-grid { grid-template-columns: 1fr !important; }
             .navbar { padding: 8px 12px; }
-            .logo-text { font-size: 1.2rem; }
-            .logo-img { width: 26px; height: 26px; flex-basis: 26px; }
-            .user-email { font-size: 0.75rem; }
             .header h1 { font-size: 1.2rem; margin-bottom: 4px; }
             .header p { font-size: 0.8rem; }
             .price-display { font-size: 1.5rem; }
@@ -1408,10 +1410,6 @@
             .level { padding: 12px; }
             .level-label { font-size: 0.7rem; }
             .level-value { font-size: 1.1rem; }
-            
-            /* Hamburger menu for mobile */
-            .hamburger-menu { width: 40px; height: 40px; }
-            .hamburger-menu span { width: 22px; height: 2px; }
             
             /* Dropdown adjustments */
             .coin-dropdown { max-height: 70vh; }
@@ -1438,7 +1436,6 @@
             height: 44px;
             align-items: center;
             justify-content: center;
-            margin-left: auto;
             border-radius: 8px;
             transition: all 0.3s ease;
         }
@@ -1944,42 +1941,43 @@
                 <span></span>
                 <span></span>
             </button>
-            <div class="menu-panel" id="menuPanel">
-                <button class="menu-close" onclick="closeHamburgerMenu()">×</button>
-                <div class="menu-content">
-                    <div class="menu-user-info">
-                        <div class="menu-user-email" id="menuUserEmail">Yükleniyor...</div>
-                    </div>
-                    <nav class="menu-nav">
-                        <a href="profile.html" class="menu-item" onclick="closeHamburgerMenu()">
-                            <i class="fa-solid fa-user"></i>
-                            Profil
-                        </a>
-                        <a href="index.html" class="menu-item" onclick="closeHamburgerMenu()">
-                            <i class="fa-solid fa-chart-line"></i>
-                            Dashboard
-                        </a>
-                        <a href="her-durumda.html" class="menu-item" onclick="closeHamburgerMenu()">
-                            <i class="fa-solid fa-layer-group"></i>
-                            Her Durumda
-                        </a>
-                        <a href="kazananlar.html" class="menu-item" onclick="closeHamburgerMenu()">
-                            <i class="fa-solid fa-trophy"></i>
-                            Kazananlar
-                        </a>
-                        <a href="binance.html" class="menu-item" onclick="closeHamburgerMenu()">
-                            <i class="fa-brands fa-bitcoin"></i>
-                            Binance Bağlantısı
-                        </a>
-                        <button class="menu-item logout-item" onclick="logout()">
-                            <i class="fa-solid fa-right-from-bracket"></i>
-                            Çıkış Yap
-                        </button>
-                    </nav>
-                </div>
-            </div>
         </div>
     </nav>
+
+    <div class="menu-panel" id="menuPanel">
+        <button class="menu-close" onclick="closeHamburgerMenu()">×</button>
+        <div class="menu-content">
+            <div class="menu-user-info">
+                <div class="menu-user-email" id="menuUserEmail">Yükleniyor...</div>
+            </div>
+            <nav class="menu-nav">
+                <a href="profile.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-user"></i>
+                    Profil
+                </a>
+                <a href="index.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-chart-line"></i>
+                    Dashboard
+                </a>
+                <a href="her-durumda.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-layer-group"></i>
+                    Her Durumda
+                </a>
+                <a href="kazananlar.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-trophy"></i>
+                    Kazananlar
+                </a>
+                <a href="binance.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-brands fa-bitcoin"></i>
+                    Binance Bağlantısı
+                </a>
+                <button class="menu-item logout-item" onclick="logout()">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                    Çıkış Yap
+                </button>
+            </nav>
+        </div>
+    </div>
 
     <div class="container">
         <div class="header">
@@ -4145,6 +4143,10 @@
                         <div style="margin: 10px 0 14px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-secondary); font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5;">
                             <i class="fa-solid fa-circle-info"></i>
                             Backtest bölümünde işlem açıkken alarm kurarsanız, alarm kurulduktan sonra oluşan yeni sinyal şartlarına göre bildirim gelir. Bu nedenle backtestteki açık işlem ile canlı alarm birebir aynı zamanlamayı göstermez.
+                        </div>
+                        <div style="margin: 10px 0 14px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-secondary); font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5;">
+                            <i class="fa-solid fa-circle-info"></i>
+                            TP/SL fiyatlarında coin’e göre farklı küsuratlar görülebilir. Bunun nedeni her sembolün fiyat adımı (tick size) ve ondalık hassasiyetinin farklı olmasıdır; yüzde hedefler fiyata çevrilirken borsa kurallarına göre yuvarlama/kırpma uygulanır.
                         </div>
                         <div style="margin-bottom: 16px;">
                             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">

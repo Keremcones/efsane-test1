@@ -123,7 +123,7 @@
 
         .navbar {
             background: rgba(240, 246, 255, 0.82);
-            border-bottom: 1px solid rgba(124, 92, 255, 0.24);
+            border-bottom: 1px solid rgba(124, 92, 255, 0.22);
             padding: 16px 24px;
             display: flex;
             justify-content: space-between;
@@ -132,14 +132,14 @@
             position: sticky;
             top: 0;
             z-index: 100;
-            box-shadow: 0 12px 30px rgba(86, 110, 170, 0.22);
+            box-shadow: 0 10px 28px rgba(86, 110, 170, 0.2);
             min-height: 72px;
         }
 
         html[data-theme="dark"] .navbar {
             background: rgba(11, 15, 20, 0.78);
-            border-bottom: 1px solid rgba(56, 232, 255, 0.16);
-            box-shadow: 0 10px 24px rgba(5, 12, 24, 0.5);
+            border-bottom: 1px solid rgba(56, 232, 255, 0.12);
+            box-shadow: 0 8px 24px rgba(5, 12, 24, 0.45);
         }
 
         html[data-theme="purple"] .navbar {
@@ -466,28 +466,27 @@
             text-decoration: none;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
         }
 
         .logo-img {
-            width: 28px;
-            height: 28px;
-            flex: 0 0 28px;
-            filter: drop-shadow(0 0 10px rgba(56, 232, 255, 0.35));
+            width: 32px;
+            height: 32px;
+            flex: 0 0 32px;
+            filter: drop-shadow(0 0 12px rgba(56, 232, 255, 0.35));
         }
 
         .logo-text {
-            font-size: 18px;
+            font-size: 1.35rem;
             font-weight: 800;
-            letter-spacing: 0.4px;
-            color: transparent;
+            letter-spacing: 0.5px;
             background: linear-gradient(135deg, var(--primary), var(--secondary));
             -webkit-background-clip: text;
             background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
 
         .user-email-header {
-            margin-left: auto;
             color: var(--text-secondary);
             font-size: 14px;
         }
