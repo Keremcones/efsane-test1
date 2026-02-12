@@ -1561,6 +1561,38 @@ async function getKlines(
   return null;
 }
 
+async function getKlinesRange(
+  symbol: string,
+  marketType: "spot" | "futures",
+  timeframe: string,
+  startTimeMs: number,
+  endTimeMs: number,
+  limit: number = 1000,
+  retries: number = 2
+): Promise<any[] | null> {
+  const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
+  const url = `${base}/klines?symbol=${symbol}&interval=${timeframe}&startTime=${startTimeMs}&endTime=${endTimeMs}&limit=${limit}`;
+
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await throttledFetch(url);
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error(`❌ klines range fetch failed for ${symbol}:`, res.status, errorText);
+        return null;
+      }
+      return await res.json();
+    } catch (e) {
+      console.error(`❌ klines range fetch error for ${symbol} (attempt ${attempt + 1}):`, e);
+      if (attempt < retries - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+  }
+
+  return null;
+}
+
 interface TechnicalIndicators {
   rsi: number;
   sma20: number;
@@ -2352,78 +2384,6 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         const tpPrice = roundToTick(rawTpPrice, tick);
         const slPrice = roundToTick(rawSlPrice, tick);
 
-        // 🚀 AUTO TRADE EXECUTION
-        let tradeResult = { success: false, message: "Auto-trade not triggered" } as { success: boolean; message: string; orderId?: string; blockedByOpenPosition?: boolean };
-        let tradeNotificationText = "";
-        const autoTradeEnabled = alarm.auto_trade_enabled === true;
-
-        if (autoTradeEnabled && !alarm.binance_order_id) {
-          tradeResult = await executeAutoTrade(
-            alarm.user_id,
-            symbol,
-            direction,
-            entryPrice,
-            tpPrice,
-            slPrice,
-            normalizeMarketType(alarm.market_type || "spot")
-          );
-
-          if (tradeResult.success) {
-            tradeNotificationText = `\n\n🤖 <b>OTOMATİK İŞLEM:</b>\n${tradeResult.message}`;
-            if (tradeResult.orderId) {
-              await supabase
-                .from("alarms")
-                .update({ binance_order_id: tradeResult.orderId })
-                .eq("id", alarm.id);
-            }
-          } else if (
-            tradeResult.message !== "Auto-trade not enabled" &&
-            tradeResult.message !== "Futures auto-trade not enabled" &&
-            tradeResult.message !== "Spot auto-trade not enabled"
-          ) {
-            tradeNotificationText = `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${tradeResult.message}`;
-          }
-        }
-
-        if (autoTradeEnabled && tradeResult.blockedByOpenPosition) {
-          console.log(`⏹️ Skipping signal for ${symbol}: open position detected for user ${alarm.user_id}`);
-          return;
-        }
-
-        if (!tradeNotificationText) {
-          tradeNotificationText = autoTradeEnabled
-            ? `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${tradeResult.message}`
-            : `\n\nℹ️ <b>Otomatik işlem:</b> Kapalı`;
-        }
-        
-        const formattedDateTime = formatTurkeyDateTime(indicators.lastOpenTimestamp);
-
-        // Get signal analysis score for market strength
-        const userConfidenceThreshold = Number(alarm.confidence_score || 70);
-        const signalAnalysis = generateSignalScoreAligned(alarmIndicators, userConfidenceThreshold);
-
-        let telegramMessage = `
-🔔 <b>ALARM AKTİVE!</b> 🔔
-
-💰 Çift: <b>${symbol}</b>
-🎯 ${directionTR} Sinyali Tespit Edildi!
-
-📊 Piyasa: <b>${marketType}</b> | Zaman: <b>${timeframe}</b>
-💹 Fiyat: <b>$${formatPriceWithPrecision(triggerPrice, decimals)}</b>
-
-📈 Sinyal: Güven: <b>${userConfidenceThreshold}%</b>
-📊 Gelen Sinyalin Güveni: <b>${signalAnalysis.score}%</b>
-
-🎯 Hedefler:
-  TP: <b>$${formatPriceWithPrecision(tpPrice, decimals)}</b> (<b>+${tpPercent}%</b>)
-  SL: <b>$${formatPriceWithPrecision(slPrice, decimals)}</b> (<b>-${slPercent}%</b>)
-
-⏰ Zaman: <b>${formattedDateTime}</b>
-${tradeNotificationText}
-
-<i>Not:</i> Otomatik al-sat işlemleri market fiyatından anlık alındığı için, sinyalin giriş fiyatına göre farklılık gösterebilir.
-`;
-
         // 🚀 INSERT active signal INTO DATABASE
         let signalInserted = false;
         try {
@@ -2476,6 +2436,73 @@ ${tradeNotificationText}
           return;
         }
 
+        // 🚀 AUTO TRADE EXECUTION
+        let tradeResult = { success: false, message: "Auto-trade not triggered" } as { success: boolean; message: string; orderId?: string; blockedByOpenPosition?: boolean };
+        let tradeNotificationText = "";
+        const autoTradeEnabled = alarm.auto_trade_enabled === true;
+
+        if (autoTradeEnabled && !alarm.binance_order_id) {
+          tradeResult = await executeAutoTrade(
+            alarm.user_id,
+            symbol,
+            direction,
+            entryPrice,
+            tpPrice,
+            slPrice,
+            normalizeMarketType(alarm.market_type || "spot")
+          );
+
+          if (tradeResult.success) {
+            tradeNotificationText = `\n\n🤖 <b>OTOMATİK İŞLEM:</b>\n${tradeResult.message}`;
+            if (tradeResult.orderId) {
+              await supabase
+                .from("alarms")
+                .update({ binance_order_id: tradeResult.orderId })
+                .eq("id", alarm.id);
+            }
+          } else if (
+            tradeResult.message !== "Auto-trade not enabled" &&
+            tradeResult.message !== "Futures auto-trade not enabled" &&
+            tradeResult.message !== "Spot auto-trade not enabled"
+          ) {
+            tradeNotificationText = `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${tradeResult.message}`;
+          }
+        }
+
+        if (!tradeNotificationText) {
+          tradeNotificationText = autoTradeEnabled
+            ? `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${tradeResult.message}`
+            : `\n\nℹ️ <b>Otomatik işlem:</b> Kapalı`;
+        }
+        
+        const formattedDateTime = formatTurkeyDateTime(indicators.lastOpenTimestamp);
+
+        // Get signal analysis score for market strength
+        const userConfidenceThreshold = Number(alarm.confidence_score || 70);
+        const signalAnalysis = generateSignalScoreAligned(alarmIndicators, userConfidenceThreshold);
+
+        let telegramMessage = `
+🔔 <b>ALARM AKTİVE!</b> 🔔
+
+💰 Çift: <b>${symbol}</b>
+🎯 ${directionTR} Sinyali Tespit Edildi!
+
+📊 Piyasa: <b>${marketType}</b> | Zaman: <b>${timeframe}</b>
+💹 Fiyat: <b>$${formatPriceWithPrecision(triggerPrice, decimals)}</b>
+
+📈 Sinyal: Güven: <b>${userConfidenceThreshold}%</b>
+📊 Gelen Sinyalin Güveni: <b>${signalAnalysis.score}%</b>
+
+🎯 Hedefler:
+  TP: <b>$${formatPriceWithPrecision(tpPrice, decimals)}</b> (<b>+${tpPercent}%</b>)
+  SL: <b>$${formatPriceWithPrecision(slPrice, decimals)}</b> (<b>-${slPercent}%</b>)
+
+⏰ Zaman: <b>${formattedDateTime}</b>
+${tradeNotificationText}
+
+<i>Not:</i> Otomatik al-sat işlemleri market fiyatından anlık alındığı için, sinyalin giriş fiyatına göre farklılık gösterebilir.
+`;
+
         try {
           await supabase
             .from("alarms")
@@ -2511,6 +2538,61 @@ type ClosedSignal = {
   profitLoss?: number;
   market_type?: string;
 };
+
+function resolveSameCandleHit(
+  open: number,
+  takeProfit: number,
+  stopLoss: number
+): "TP_HIT" | "SL_HIT" {
+  if (!Number.isFinite(open)) return "SL_HIT";
+  const distToTp = Math.abs(takeProfit - open);
+  const distToSl = Math.abs(open - stopLoss);
+  if (distToTp < distToSl) return "TP_HIT";
+  return "SL_HIT";
+}
+
+async function resolveFirstTouch(
+  symbol: string,
+  marketType: "spot" | "futures",
+  timeframe: string,
+  startMs: number,
+  endMs: number,
+  direction: "LONG" | "SHORT",
+  takeProfit: number,
+  stopLoss: number
+): Promise<"TP_HIT" | "SL_HIT" | ""> {
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return "";
+
+  const durationMin = Math.max(1, Math.ceil((endMs - startMs) / 60000));
+  const useInterval = durationMin <= 1000 ? "1m" : "5m";
+  const intervalMin = useInterval === "1m" ? 1 : 5;
+  const limit = Math.min(1000, Math.ceil(durationMin / intervalMin));
+  const klines = await getKlinesRange(symbol, marketType, useInterval, startMs, endMs, limit);
+  if (!klines || klines.length === 0) return "";
+
+  for (const k of klines) {
+    const open = Number(k?.[1]);
+    const high = Number(k?.[2]);
+    const low = Number(k?.[3]);
+    if (!Number.isFinite(high) || !Number.isFinite(low)) continue;
+
+    if (direction === "LONG") {
+      const hitSl = low <= stopLoss;
+      const hitTp = high >= takeProfit;
+      if (hitSl && hitTp) return resolveSameCandleHit(open, takeProfit, stopLoss);
+      if (hitSl) return "SL_HIT";
+      if (hitTp) return "TP_HIT";
+    } else {
+      const hitSl = high >= stopLoss;
+      const hitTp = low <= takeProfit;
+      if (hitSl && hitTp) return resolveSameCandleHit(open, takeProfit, stopLoss);
+      if (hitSl) return "SL_HIT";
+      if (hitTp) return "TP_HIT";
+    }
+  }
+
+  return "";
+}
 
 async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
   try {
@@ -2620,30 +2702,99 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           continue;
         }
 
-        // Backtest ile uyum icin kapanis sadece son kapanan barin high/low degerine gore belirlenir.
+        // Kapanis kontrolu: son kapanan bar + aktif barin high/low degerleri ile anlik TP/SL yakala.
         const timeframe = String(signal.timeframe || "1h");
+        const timeframeMinutes = timeframeToMinutes(timeframe);
+        const timeframeMs = timeframeMinutes * 60 * 1000;
         const klines = await getKlines(symbol, marketType, timeframe, 2);
         if (klines && klines.length >= 2) {
           const lastClosed = klines[klines.length - 2];
-          const barHigh = Number(lastClosed?.[2]);
-          const barLow = Number(lastClosed?.[3]);
+          const currentBar = klines[klines.length - 1];
+          const lastClosedHigh = Number(lastClosed?.[2]);
+          const lastClosedLow = Number(lastClosed?.[3]);
+          const currentHigh = Number(currentBar?.[2]);
+          const currentLow = Number(currentBar?.[3]);
+          const highCandidates = [lastClosedHigh, currentHigh].filter(v => Number.isFinite(v));
+          const lowCandidates = [lastClosedLow, currentLow].filter(v => Number.isFinite(v));
+          let barHigh = highCandidates.length ? Math.max(...highCandidates) : NaN;
+          let barLow = lowCandidates.length ? Math.min(...lowCandidates) : NaN;
+
+          const currentPrice = await getCurrentPrice(symbol, marketType);
+          if (Number.isFinite(currentPrice)) {
+            barHigh = Number.isFinite(barHigh) ? Math.max(barHigh, currentPrice) : currentPrice;
+            barLow = Number.isFinite(barLow) ? Math.min(barLow, currentPrice) : currentPrice;
+          }
+
           if (Number.isFinite(barHigh) && Number.isFinite(barLow)) {
             if (direction === "LONG") {
-              if (barLow <= stopLoss) {
+              const hitSl = barLow <= stopLoss;
+              const hitTp = barHigh >= takeProfit;
+              if (hitSl && hitTp) {
+                const lastClosedStart = Number(lastClosed?.[0]);
+                const lastClosedEnd = Number(lastClosed?.[6]) || (Number.isFinite(timeframeMs) ? lastClosedStart + timeframeMs : lastClosedStart);
+                let resolved = await resolveFirstTouch(symbol, marketType, timeframe, lastClosedStart, lastClosedEnd, direction, takeProfit, stopLoss);
+                if (!resolved && Number.isFinite(Number(currentBar?.[0]))) {
+                  const currentStart = Number(currentBar?.[0]);
+                  const currentEnd = Math.min(Date.now(), Number.isFinite(timeframeMs) ? currentStart + timeframeMs : Date.now());
+                  resolved = await resolveFirstTouch(symbol, marketType, timeframe, currentStart, currentEnd, direction, takeProfit, stopLoss);
+                }
+                closeReason = resolved || resolveSameCandleHit(Number(lastClosed?.[1]), takeProfit, stopLoss);
+                shouldClose = true;
+                closePrice = closeReason === "TP_HIT" ? takeProfit : stopLoss;
+              } else if (hitSl) {
                 shouldClose = true;
                 closeReason = "SL_HIT";
                 closePrice = stopLoss;
-              } else if (barHigh >= takeProfit) {
+              } else if (hitTp) {
                 shouldClose = true;
                 closeReason = "TP_HIT";
                 closePrice = takeProfit;
               }
             } else if (direction === "SHORT") {
-              if (barHigh >= stopLoss) {
+              const hitSl = barHigh >= stopLoss;
+              const hitTp = barLow <= takeProfit;
+              if (hitSl && hitTp) {
+                const lastClosedStart = Number(lastClosed?.[0]);
+                const lastClosedEnd = Number(lastClosed?.[6]) || (Number.isFinite(timeframeMs) ? lastClosedStart + timeframeMs : lastClosedStart);
+                let resolved = await resolveFirstTouch(symbol, marketType, timeframe, lastClosedStart, lastClosedEnd, direction, takeProfit, stopLoss);
+                if (!resolved && Number.isFinite(Number(currentBar?.[0]))) {
+                  const currentStart = Number(currentBar?.[0]);
+                  const currentEnd = Math.min(Date.now(), Number.isFinite(timeframeMs) ? currentStart + timeframeMs : Date.now());
+                  resolved = await resolveFirstTouch(symbol, marketType, timeframe, currentStart, currentEnd, direction, takeProfit, stopLoss);
+                }
+                closeReason = resolved || resolveSameCandleHit(Number(lastClosed?.[1]), takeProfit, stopLoss);
+                shouldClose = true;
+                closePrice = closeReason === "TP_HIT" ? takeProfit : stopLoss;
+              } else if (hitSl) {
                 shouldClose = true;
                 closeReason = "SL_HIT";
                 closePrice = stopLoss;
-              } else if (barLow <= takeProfit) {
+              } else if (hitTp) {
+                shouldClose = true;
+                closeReason = "TP_HIT";
+                closePrice = takeProfit;
+              }
+            }
+          }
+        } else {
+          const currentPrice = await getCurrentPrice(symbol, marketType);
+          if (Number.isFinite(currentPrice)) {
+            if (direction === "LONG") {
+              if (currentPrice <= stopLoss) {
+                shouldClose = true;
+                closeReason = "SL_HIT";
+                closePrice = stopLoss;
+              } else if (currentPrice >= takeProfit) {
+                shouldClose = true;
+                closeReason = "TP_HIT";
+                closePrice = takeProfit;
+              }
+            } else if (direction === "SHORT") {
+              if (currentPrice >= stopLoss) {
+                shouldClose = true;
+                closeReason = "SL_HIT";
+                closePrice = stopLoss;
+              } else if (currentPrice <= takeProfit) {
                 shouldClose = true;
                 closeReason = "TP_HIT";
                 closePrice = takeProfit;
@@ -2852,6 +3003,7 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
         console.warn("⚠️ No active alarm for user/symbol, skipping signal insert:", newSignal.symbol);
         return { inserted: false, duplicate: false };
       }
+      newSignal.alarm_id = String(activeAlarm.id);
     }
   } catch (e) {
     console.error("❌ Alarm validation error:", e);
