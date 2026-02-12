@@ -2553,56 +2553,7 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
       });
     }
 
-    const userKeysCache = new Map<string, UserBinanceKeys | null>();
-    let lastBinanceCheckAt = 0;
-    const throttleBinanceCheck = async () => {
-      const elapsed = Date.now() - lastBinanceCheckAt;
-      const waitMs = MIN_REQUEST_INTERVAL - elapsed;
-      if (waitMs > 0) {
-        await delay(waitMs);
-      }
-      lastBinanceCheckAt = Date.now();
-    };
-
-    const shouldSkipCloseForBinance = async (
-      signal: any,
-      alarmData: { id: string; user_id: string; market_type?: string | null; auto_trade_enabled?: boolean | null; binance_order_id?: string | null } | null,
-      marketType: "spot" | "futures"
-    ): Promise<boolean> => {
-      if (!alarmData?.binance_order_id) return false;
-
-      const userId = String(alarmData.user_id || signal.user_id || "");
-      if (!userId) return false;
-
-      if (!userKeysCache.has(userId)) {
-        userKeysCache.set(userId, await fetchUserBinanceKeys(userId));
-      }
-      const keys = userKeysCache.get(userId);
-
-      if (!keys || keys.auto_trade_enabled === false) {
-        console.warn(`⚠️ Binance keys missing or auto-trade disabled for user ${userId}. Skipping close for signal ${signal.id}.`);
-        return true;
-      }
-
-      if (marketType === "futures" && !keys.futures_enabled) return true;
-      if (marketType === "spot" && !keys.spot_enabled) return true;
-
-      try {
-        await throttleBinanceCheck();
-        const hasOpen = marketType === "futures"
-          ? await hasOpenFuturesPosition(keys.api_key, keys.api_secret, String(signal.symbol || ""))
-          : await hasOpenSpotOrders(keys.api_key, keys.api_secret, String(signal.symbol || ""));
-        if (hasOpen) {
-          console.log(`⏹️ Binance still shows open position/order for ${signal.symbol}. Skip close for signal ${signal.id}.`);
-          return true;
-        }
-      } catch (e) {
-        console.warn(`⚠️ Binance close verification failed for signal ${signal.id}:`, e);
-        return true;
-      }
-
-      return false;
-    };
+    const shouldSkipCloseForBinance = async () => false;
 
     const closedSignals: ClosedSignal[] = [];
 
@@ -2640,10 +2591,6 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
         const createdAtMs = Date.parse(String(signal.created_at || ""));
         if (Number.isFinite(createdAtMs) && (Date.now() - createdAtMs) > maxAgeMs) {
-          const skipClose = await shouldSkipCloseForBinance(signal, alarmData, marketType);
-          if (skipClose) {
-            continue;
-          }
           const updateResult = await supabase
             .from("active_signals")
             .update({
@@ -2706,11 +2653,6 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         }
 
         if (!shouldClose || !closeReason) continue;
-
-        const skipClose = await shouldSkipCloseForBinance(signal, alarmData, marketType);
-        if (skipClose) {
-          continue;
-        }
 
         const effectiveClosePrice = Number.isFinite(closePrice) ? Number(closePrice) : Number(signal.entry_price);
         const rawProfitLoss = direction === "LONG"
