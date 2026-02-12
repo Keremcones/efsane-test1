@@ -5145,7 +5145,9 @@
                                 const storedPnl = parseFloat(sig.profit_loss);
                                 const closeReason = String(sig.close_reason || '').toUpperCase();
                                 let pnlPercent = null;
-                                if (isClosed && Number.isFinite(storedPnl)) {
+                                if (isClosed && closeReason === 'NOT_FILLED') {
+                                    pnlPercent = 0;
+                                } else if (isClosed && Number.isFinite(storedPnl)) {
                                     pnlPercent = parseFloat(storedPnl.toFixed(2));
                                 } else if (isClosed && closeReason === 'TP_HIT' && Number.isFinite(Number(sig.tp_percent))) {
                                     pnlPercent = Math.abs(Number(sig.tp_percent));
@@ -5162,7 +5164,9 @@
                                 const slPercent = Number(sig.sl_percent);
                                 const tpText = Number.isFinite(tpPercent) ? `${tpPercent}%` : '-';
                                 const slText = Number.isFinite(slPercent) ? `${slPercent}%` : '-';
-                                const statusText = isClosed ? 'KAPALI' : 'AKTİF';
+                                const statusText = isClosed
+                                    ? (closeReason === 'NOT_FILLED' ? 'GIRILEMEDI' : 'KAPALI')
+                                    : 'AKTİF';
                                 const statusClass = isClosed ? 'negative' : 'positive';
                                 return `
                                     <div class="alarm-card" style="margin-bottom: 12px;">

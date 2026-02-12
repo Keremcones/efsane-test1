@@ -2386,6 +2386,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
 
         // 🚀 INSERT active signal INTO DATABASE
         let signalInserted = false;
+        let insertedSignalId: string | number | null = null;
         try {
           const marketTypeNorm = normalizeMarketType(alarm.market_type || "spot");
           const newActiveSignal = {
@@ -2422,6 +2423,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
           if (data) {
             console.log(`✅ Signal created in active_signals for ${symbol}`);
             signalInserted = true;
+            insertedSignalId = data.id;
             openSignalSymbols.add(`${alarm.user_id}:${symbol}`);
             openSignalKeys.add(`${alarm.user_id}:${String(alarm.id || "")}`);
             openSignalDirections.add(`${alarm.user_id}:${symbol}:${direction}`);
@@ -2473,6 +2475,24 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
           tradeNotificationText = autoTradeEnabled
             ? `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${tradeResult.message}`
             : `\n\nℹ️ <b>Otomatik işlem:</b> Kapalı`;
+        }
+
+        const limitNotFilled = autoTradeEnabled && !tradeResult.success && /limit emir dolmadi/i.test(tradeResult.message || "");
+        if (limitNotFilled && insertedSignalId) {
+          try {
+            await supabase
+              .from("active_signals")
+              .update({
+                status: "CLOSED",
+                close_reason: "NOT_FILLED",
+                profit_loss: 0,
+                closed_at: new Date().toISOString()
+              })
+              .eq("id", insertedSignalId)
+              .eq("status", "ACTIVE");
+          } catch (e) {
+            console.warn(`⚠️ Failed to close signal after limit not filled for ${symbol}:`, e);
+          }
         }
         
         const formattedDateTime = formatTurkeyDateTime(indicators.lastOpenTimestamp);
@@ -2532,7 +2552,7 @@ type ClosedSignal = {
   id: string | number;
   symbol: string;
   direction: "LONG" | "SHORT";
-  close_reason: "TP_HIT" | "SL_HIT" | "TIMEOUT";
+  close_reason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "NOT_FILLED";
   price: number;
   user_id: string;
   profitLoss?: number;
