@@ -1910,7 +1910,9 @@ function generateSignalScore(indicators: TechnicalIndicators, userConfidenceThre
 // =====================
 // Telegram
 // =====================
-async function sendTelegramNotification(userId: string, message: string): Promise<void> {
+type TelegramSendResult = { ok: boolean; status: "SENT" | "FAILED" | "SKIPPED"; error?: string };
+
+async function sendTelegramNotification(userId: string, message: string): Promise<TelegramSendResult> {
   try {
     const { data: userSettings, error } = await supabase
       .from("user_settings")
@@ -1920,17 +1922,17 @@ async function sendTelegramNotification(userId: string, message: string): Promis
 
     if (error) {
       console.error("❌ user_settings fetch error:", error);
-      return;
+      return { ok: false, status: "FAILED", error: "user_settings_error" };
     }
     if (userSettings?.notifications_enabled === false) {
       console.log(`⚠️ Notifications disabled for user ${userId}`);
-      return;
+      return { ok: false, status: "SKIPPED", error: "notifications_disabled" };
     }
 
     const chatId = userSettings?.telegram_chat_id || userSettings?.telegram_username;
     if (!chatId) {
       console.log(`⚠️ No Telegram chat ID for user ${userId}`);
-      return;
+      return { ok: false, status: "SKIPPED", error: "missing_chat_id" };
     }
 
     const botUrl = `https://api.telegram.org/bot${telegramBotToken}/sendMessage`;
@@ -1948,21 +1950,52 @@ async function sendTelegramNotification(userId: string, message: string): Promis
     });
 
     if (!resp.ok) {
-      console.error("❌ Telegram send failed:", resp.status, await resp.text());
+      const errorText = await resp.text();
+      console.error("❌ Telegram send failed:", resp.status, errorText);
       const retryResp = await fetch(botUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: payload,
       });
       if (!retryResp.ok) {
-        console.error("❌ Telegram retry failed:", retryResp.status, await retryResp.text());
-        return;
+        const retryText = await retryResp.text();
+        console.error("❌ Telegram retry failed:", retryResp.status, retryText);
+        return { ok: false, status: "FAILED", error: `send_failed:${resp.status}` };
       }
     }
 
     console.log(`✅ Telegram message sent to user ${userId}`);
+    return { ok: true, status: "SENT" };
   } catch (e) {
     console.error("❌ Telegram notification error:", e);
+    return { ok: false, status: "FAILED", error: e instanceof Error ? e.message : "unknown_error" };
+  }
+}
+
+async function updateActiveSignalTelegramStatus(
+  signalId: string | number,
+  status: "QUEUED" | "SENT" | "FAILED" | "SKIPPED",
+  error: string | null = null
+): Promise<void> {
+  try {
+    const updatePayload: Record<string, unknown> = {
+      telegram_status: status,
+      telegram_error: error,
+    };
+    if (status === "SENT") {
+      updatePayload.telegram_sent_at = new Date().toISOString();
+    }
+
+    const { error: updateError } = await supabase
+      .from("active_signals")
+      .update(updatePayload)
+      .eq("id", signalId);
+
+    if (updateError) {
+      console.warn(`⚠️ Failed to update telegram status for signal ${signalId}:`, updateError);
+    }
+  } catch (e) {
+    console.warn(`⚠️ Telegram status update error for signal ${signalId}:`, e);
   }
 }
 
@@ -2581,7 +2614,17 @@ ${tradeNotificationText}
           console.warn(`⚠️ Failed to update alarm signal_timestamp for ${symbol}:`, e);
         }
 
-        telegramPromises.push(sendTelegramNotification(alarm.user_id, telegramMessage));
+        if (insertedSignalId) {
+          await updateActiveSignalTelegramStatus(insertedSignalId, "QUEUED", null);
+          console.log(`📨 Telegram queued for signal ${insertedSignalId} (user ${alarm.user_id})`);
+        }
+
+        telegramPromises.push((async () => {
+          const sendResult = await sendTelegramNotification(alarm.user_id, telegramMessage);
+          if (insertedSignalId) {
+            await updateActiveSignalTelegramStatus(insertedSignalId, sendResult.status, sendResult.error ?? null);
+          }
+        })());
         console.log(`✅ User alarm triggered for ${symbol}: ${triggerMessage}`);
       }
     } catch (e) {
