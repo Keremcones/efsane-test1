@@ -3093,7 +3093,9 @@
             stopWebSocketUpdates();
             wsConnection = null;
             
-            alarmSystem.stopMonitoring();
+            if (alarmSystem && typeof alarmSystem.stopMonitoring === 'function') {
+                alarmSystem.stopMonitoring();
+            }
         }
         
         // WebSocket ile canlı fiyat güncellemesi

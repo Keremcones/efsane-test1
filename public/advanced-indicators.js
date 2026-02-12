@@ -2276,13 +2276,6 @@ ${profitEmoji} Kar/Zarar: *${profit}%*
                 : (window.TELEGRAM_BOT_TOKEN || '');
 
             if (!resolvedBotToken) {
-                return;
-            }
-            const resolvedBotToken = (typeof TELEGRAM_BOT_TOKEN !== 'undefined' && TELEGRAM_BOT_TOKEN)
-                ? TELEGRAM_BOT_TOKEN
-                : (window.TELEGRAM_BOT_TOKEN || '');
-
-            if (!resolvedBotToken) {
                 console.warn('⚠️ [TELEGRAM] Bot token yok, bildirim gonderilmedi');
                 return;
             }
