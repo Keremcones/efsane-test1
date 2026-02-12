@@ -2786,6 +2786,43 @@ async function resolveFirstTouch(
   return "";
 }
 
+async function resolveFirstTouchRange(
+  symbol: string,
+  marketType: "spot" | "futures",
+  timeframe: string,
+  startMs: number,
+  endMs: number,
+  direction: "LONG" | "SHORT",
+  takeProfit: number,
+  stopLoss: number
+): Promise<"TP_HIT" | "SL_HIT" | ""> {
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return "";
+
+  const durationMin = Math.max(1, Math.ceil((endMs - startMs) / 60000));
+  const useInterval = durationMin <= 1000 ? "1m" : "5m";
+  const intervalMin = useInterval === "1m" ? 1 : 5;
+  const maxWindowMs = intervalMin * 60 * 1000 * 1000;
+
+  let cursor = startMs;
+  while (cursor < endMs) {
+    const windowEnd = Math.min(endMs, cursor + maxWindowMs);
+    const hit = await resolveFirstTouch(
+      symbol,
+      marketType,
+      useInterval,
+      cursor,
+      windowEnd,
+      direction,
+      takeProfit,
+      stopLoss
+    );
+    if (hit) return hit;
+    cursor = windowEnd;
+  }
+
+  return "";
+}
+
 async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
   try {
     const { data: rawSignals, error: signalsError } = await supabase
@@ -2895,8 +2932,32 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           continue;
         }
 
-        // Kapanis kontrolu: son kapanan bar + aktif barin high/low degerleri ile anlik TP/SL yakala.
         const timeframe = String(signal.timeframe || "1h");
+
+        // Kapanis kontrolu: sinyal acildigindan beri TP/SL hit kontrolu.
+        const signalStartMs = Date.parse(String(signal.signal_timestamp || signal.created_at || ""));
+        if (Number.isFinite(signalStartMs)) {
+          const historicalHit = await resolveFirstTouchRange(
+            symbol,
+            effectiveMarketType,
+            timeframe,
+            signalStartMs,
+            Date.now(),
+            direction,
+            takeProfit,
+            stopLoss
+          );
+          if (historicalHit) {
+            shouldClose = true;
+            closeReason = historicalHit;
+            closePrice = historicalHit === "TP_HIT" ? takeProfit : stopLoss;
+          }
+        }
+
+        if (shouldClose && closeReason) {
+          // continue to close update section
+        } else {
+          // Kapanis kontrolu: son kapanan bar + aktif barin high/low degerleri ile anlik TP/SL yakala.
         const timeframeMinutes = timeframeToMinutes(timeframe);
         const timeframeMs = timeframeMinutes * 60 * 1000;
         let klines = await getKlines(symbol, effectiveMarketType, timeframe, 2, 2, true);
@@ -2916,7 +2977,10 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           let barHigh = highCandidates.length ? Math.max(...highCandidates) : NaN;
           let barLow = lowCandidates.length ? Math.min(...lowCandidates) : NaN;
 
-          const currentPrice = await getCurrentPriceFresh(symbol, effectiveMarketType);
+          let currentPrice = await getCurrentPriceFresh(symbol, effectiveMarketType);
+          if (!Number.isFinite(currentPrice) && effectiveMarketType === "futures") {
+            currentPrice = await getFuturesMarkPrice(symbol);
+          }
           if (Number.isFinite(currentPrice)) {
             barHigh = Number.isFinite(barHigh) ? Math.max(barHigh, currentPrice) : currentPrice;
             barLow = Number.isFinite(barLow) ? Math.min(barLow, currentPrice) : currentPrice;
@@ -2974,7 +3038,10 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
             }
           }
         } else {
-          const currentPrice = await getCurrentPriceFresh(symbol, effectiveMarketType);
+          let currentPrice = await getCurrentPriceFresh(symbol, effectiveMarketType);
+          if (!Number.isFinite(currentPrice) && effectiveMarketType === "futures") {
+            currentPrice = await getFuturesMarkPrice(symbol);
+          }
           if (Number.isFinite(currentPrice)) {
             if (direction === "LONG") {
               if (currentPrice <= stopLoss) {
@@ -2998,6 +3065,7 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
               }
             }
           }
+        }
         }
 
         if (!shouldClose || !closeReason) continue;

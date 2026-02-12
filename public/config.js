@@ -158,6 +158,15 @@ if (!DEBUG_CONSOLE) {
     console.info = function () {};
     console.warn = function () {};
 }
+// Suppress noisy realtime socket errors (Supabase reconnect churn)
+const originalConsoleError = console.error;
+console.error = function (...args) {
+    const message = typeof args[0] === 'string' ? args[0] : '';
+    if (message.includes("/realtime/v1/websocket") && message.includes("WebSocket connection")) {
+        return;
+    }
+    originalConsoleError.apply(console, args);
+};
 // Theme sync across all pages/tabs
 (() => {
     const applyTheme = (theme) => {
