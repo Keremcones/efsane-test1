@@ -1910,7 +1910,12 @@ class AlarmSystem {
         }
         
         this.alarms.push(alarm);
-        await this.saveAlarms();
+        const saved = await this.saveAlarms();
+        if (!saved) {
+            this.alarms = this.alarms.filter(a => a.id !== alarm.id);
+            localStorage.setItem('crypto_alarms', JSON.stringify(this.alarms));
+            throw new Error('Alarm kaydedilemedi');
+        }
         
         // Telegram'a gönder
         await this.sendTelegramAlarmCreated(alarm);
@@ -2151,269 +2156,67 @@ class AlarmSystem {
             userId: this.userId,
             intersectionDetected: alarm.intersectionDetected 
         });
-        
-        if (!this.supabase || !this.userId) {
-            console.error('❌ [TELEGRAM] Supabase veya userId eksik - Bildirim gönderilemiyor');
-            console.error('  - Supabase:', !!this.supabase);
-            console.error('  - UserId:', this.userId);
-            return;
-        }
 
-        try {
-            // Kullanıcının Telegram ayarlarını al
-            console.log('📱 [TELEGRAM] user_settings sorgulanıyor...');
-            const { data: userSettings, error } = await this.supabase
-                .from('user_settings')
-                .select('telegram_username, notifications_enabled')
-                .eq('user_id', this.userId)
-                .single();
+        const payload = {
+            type: alarm.type,
+            symbol: symbol,
+            direction: alarm.direction,
+            entryPrice: alarm.entryPrice || alarm.entry_price,
+            takeProfit: alarm.takeProfit || alarm.take_profit,
+            stopLoss: alarm.stopLoss || alarm.stop_loss,
+            targetPrice: alarm.targetPrice || alarm.target_price,
+            condition: alarm.condition,
+            currentPrice: currentPrice,
+            triggerReason: triggerReason,
+            intersectionDetected: alarm.intersectionDetected,
+            marketType: alarm.marketType || alarm.market_type,
+            timeframe: alarm.timeframe
+        };
 
-            console.log('📊 [TELEGRAM] user_settings sorgu sonucu:', { 
-                hasData: !!userSettings, 
-                hasError: !!error,
-                error: error?.message,
-                username: userSettings?.telegram_username
-            });
-
-            if (error) {
-                console.error('❌ [TELEGRAM] user_settings sorgu hatası:', error);
-                throw error;
-            }
-
-            if (!userSettings) {
-                console.error('❌ [TELEGRAM] user_settings kaydı bulunamadı');
-                return;
-            }
-
-            if (!userSettings.notifications_enabled) {
-                console.warn('⚠️ [TELEGRAM] Bildirimler devre dışı');
-                return;
-            }
-
-            if (!userSettings.telegram_username) {
-                console.error('❌ [TELEGRAM] Telegram Chat ID (username) boş');
-                return;
-            }
-
-            let messageText = '';
-
-            // PRICE_LEVEL (fiyat seviye) alarmı için detaylı mesaj
-            if (alarm.type === 'PRICE_LEVEL') {
-                const conditionText = alarm.condition === 'above' ? '⬆️ FİYAT ÜZERİNE ÇIKTI' : '⬇️ FİYAT ALTINA İNDİ';
-                
-                // Alarm kurulduğu fiyattan itibaren kar/zarar hesapla
-                const profit = ((currentPrice - alarm.targetPrice) / alarm.targetPrice * 100).toFixed(2);
-                const profitEmoji = parseFloat(profit) > 0 ? '💚' : '❤️';
-                
-                messageText = `
-🚨 *${symbol}* Alarm Pasif Oldu!
-
-${conditionText}
-🎯 Hedef Fiyat: *$${alarm.targetPrice?.toFixed(2) || '?'}*
-💹 Güncel Fiyat: *$${currentPrice?.toFixed(2) || '?'}*
-${profitEmoji} Değişim: *${profit}%*
-
-⏰ Zaman: ${new Date().toLocaleString('tr-TR')}
-                `.trim();
-            } else if (alarm.type === 'ACTIVE_TRADE') {
-                // İşlem kapanış alarmı - entry, TP, SL ve kar/zarar göster
-                const directionEmoji = alarm.direction === 'LONG' ? '📈' : '📉';
-                const entryPrice = alarm.entryPrice || currentPrice;
-                
-                // Kar/zarar hesapla
-                const profit = alarm.direction === 'LONG'
-                    ? ((currentPrice - entryPrice) / entryPrice * 100).toFixed(2)
-                    : ((entryPrice - currentPrice) / entryPrice * 100).toFixed(2);
-                const profitEmoji = parseFloat(profit) > 0 ? '💚' : '❤️';
-                
-                // Kesişim algılandı mı kontrol et
-                if (alarm.intersectionDetected) {
-                    // Pasif alarmlarla kesişim mesajı
-                    messageText = `
-📍 *PASIF ALARM KESİŞİMİ ALGILANDI*
-
-${directionEmoji} *${symbol}* - ${alarm.direction} İşlem
-
-💰 Giriş Fiyatı: *$${entryPrice?.toFixed(2) || '?'}*
-🎯 Güncel Fiyat: *$${currentPrice?.toFixed(2) || '?'}*
-${profitEmoji} Mevcut Kar/Zarar: *${profit}%*
-
-🚨 ${alarm.triggerReason || 'Pasif alarm seviyesine ulaştı'}
-
-📊 Detaylar:
-• Take Profit: $${alarm.takeProfit?.toFixed(2) || '?'}
-• Stop Loss: $${alarm.stopLoss?.toFixed(2) || '?'}
-• Zaman: ${new Date().toLocaleString('tr-TR')}
-                    `.trim();
-                } else {
-                    // Normal işlem kapanış mesajı (TP/SL)
-                    messageText = `
-${directionEmoji} *${symbol}* - ${alarm.direction} İşlem Kapandı
-
-💰 Giriş Fiyatı: *$${entryPrice?.toFixed(2) || '?'}*
-🎯 Çıkış Fiyatı: *$${currentPrice?.toFixed(2) || '?'}*
-${profitEmoji} Kar/Zarar: *${profit}%*
-
-📊 Detaylar:
-• Take Profit: $${alarm.takeProfit?.toFixed(2) || '?'}
-• Stop Loss: $${alarm.stopLoss?.toFixed(2) || '?'}
-• Kapatılma: ${new Date().toLocaleString('tr-TR')}
-                    `.trim();
-                }
-            } else {
-                // Diğer alarm türleri için fallback
-                messageText = `🚨 *${symbol}* Alarm Tetiklendi!\n⏰ Zaman: ${new Date().toLocaleString('tr-TR')}`;
-            }
-
-            if (!messageText) {
-                console.warn('⚠️ Mesaj metni boş, gönderme yapılmıyor');
-                return;
-            }
-
-            const chatId = userSettings.telegram_username;
-            const resolvedBotToken = (typeof TELEGRAM_BOT_TOKEN !== 'undefined' && TELEGRAM_BOT_TOKEN)
-                ? TELEGRAM_BOT_TOKEN
-                : (window.TELEGRAM_BOT_TOKEN || '');
-
-            if (!resolvedBotToken) {
-                console.warn('⚠️ [TELEGRAM] Bot token yok, bildirim gonderilmedi');
-                return;
-            }
-
-            console.log('📤 [TELEGRAM] Mesaj hazırlanıyor:', { 
-                chatId,
-                type: alarm.type,
-                symbol,
-                messagePreview: messageText.substring(0, 100) + '...'
-            });
-
-            // Telegram API'ye gönder
-            console.log('🌐 [TELEGRAM] Edge Function çağrılıyor...');
-            const response = await fetch(
-                'https://jcrbhekrphxodxhkuzju.supabase.co/functions/v1/dynamic-responder',
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        telegramUsername: chatId,
-                        botToken: resolvedBotToken,
-                        message: messageText,
-                        parse_mode: 'Markdown'
-                    })
-                }
-            );
-
-            if (!response.ok) {
-                console.error('❌ [TELEGRAM] Fetch başarısız, status:', response.status);
-                const text = await response.text();
-                console.error('❌ [TELEGRAM] Hata detayı:', text);
-                throw new Error(`Telegram API hatası: ${response.status} - ${text}`);
-            }
-
-            const result = await response.json();
-            console.log('✅ [TELEGRAM] API yanıtı başarılı:', result);
-
-            if (result.ok || result.success) {
-                console.log('✅ [TELEGRAM] ✨ Telegram bildirimi başarıyla gönderildi ✨');
-            } else {
-                console.warn('⚠️ [TELEGRAM] API başarılı yanıt verdi ama ok/success false:', result);
-            }
-
-        } catch (error) {
-            console.error('❌ [TELEGRAM] 🔴 TELEGRAM BİLDİRİM GÖNDERME HATASI 🔴:', error.message);
-            console.error('   Detay:', error);
-        }
+        await this.sendAlarmNotificationToEdge('trigger', payload);
     }
 
     async sendTelegramAlarmCreated(alarm) {
-        console.log('� [TELEGRAM] Alarm bildirimi gönderiliyor (oluşturma):', { type: alarm.type, symbol: alarm.symbol });
-        
+        console.log('🔔 [TELEGRAM] Alarm bildirimi gönderiliyor (oluşturma):', { type: alarm.type, symbol: alarm.symbol });
+        const payload = {
+            type: alarm.type,
+            symbol: alarm.symbol,
+            targetPrice: alarm.targetPrice || alarm.target_price || alarm.price || alarm.target,
+            condition: alarm.condition,
+            direction: alarm.direction,
+            entryPrice: alarm.entryPrice || alarm.entry_price,
+            takeProfit: alarm.takeProfit || alarm.take_profit,
+            stopLoss: alarm.stopLoss || alarm.stop_loss,
+            marketType: alarm.marketType || alarm.market_type,
+            timeframe: alarm.timeframe
+        };
+
+        await this.sendAlarmNotificationToEdge('created', payload);
+    }
+
+    async sendAlarmNotificationToEdge(notificationType, alarmPayload) {
         if (!this.supabase || !this.userId) {
-            return;
+            return { ok: false, error: 'missing_supabase_or_user' };
         }
 
         try {
-            console.log('📱 Supabase user_settings kontrol ediliyor...');
-            const { data: userSettings, error } = await this.supabase
-                .from('user_settings')
-                .select('telegram_username, notifications_enabled')
-                .eq('user_id', this.userId)
-                .single();
-
-            console.log('📊 user_settings sorgusu:', { userSettings, error });
-
-            if (error) {
-                console.warn('⚠️ Sorgu hatası:', error.message);
-                return;
-            }
-
-            if (!userSettings) {
-                console.warn('⚠️ user_settings kaydı bulunamadı');
-                return;
-            }
-
-            if (!userSettings.telegram_username) {
-                console.warn('⚠️ Telegram username (Chat ID) boş');
-                return;
-            }
-
-            if (!userSettings.notifications_enabled) {
-                console.log('ℹ️ Notifications devre dışı');
-                return;
-            }
-
-            // Telegram şablonunu oluştur
-            let messageText;
-            const targetPrice = alarm.targetPrice || alarm.price || alarm.target;
-            
-            if (targetPrice) {
-                messageText = TelegramNotificationTemplates.alarmCreated({
-                    symbol: alarm.symbol,
-                    targetPrice: Number(targetPrice).toFixed(2),
-                    condition: alarm.condition || 'N/A',
-                    timestamp: new Date().toLocaleString('tr-TR')
-                });
-            } else {
-                // Fiyat hedefi yoksa basit mesaj
-                messageText = `✅ *Alarm Oluşturuldu!*\n\n📊 Kripto: *${alarm.symbol}*\n⏰ Saat: ${new Date().toLocaleString('tr-TR')}`;
-            }
-
-            const chatId = userSettings.telegram_username;
-
-            const resolvedBotToken = (typeof TELEGRAM_BOT_TOKEN !== 'undefined' && TELEGRAM_BOT_TOKEN)
-                ? TELEGRAM_BOT_TOKEN
-                : (window.TELEGRAM_BOT_TOKEN || '');
-
-            if (!resolvedBotToken) {
-                console.warn('⚠️ Telegram bot token yok, alarm olusturma bildirimi gonderilmedi');
-                return;
-            }
-
-            console.log('📤 Telegram mesajı gönderiliyor:', {
-                chatId,
-                messageLength: messageText.length,
-                botTokenExists: !!resolvedBotToken
+            const { data, error } = await this.supabase.functions.invoke('check-alarm-signals', {
+                body: {
+                    action: 'alarm_notification',
+                    notification_type: notificationType,
+                    alarm: alarmPayload
+                }
             });
 
-            const response = await fetch(
-                'https://jcrbhekrphxodxhkuzju.supabase.co/functions/v1/dynamic-responder',
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        telegramUsername: chatId,
-                        botToken: resolvedBotToken,
-                        message: messageText,
-                        parse_mode: 'Markdown'
-                    })
-                }
-            );
+            if (error) {
+                console.warn('⚠️ [TELEGRAM] Edge bildirim hatasi:', error);
+                return { ok: false, error: error.message || String(error) };
+            }
 
-            const result = await response.json();
-            console.log('✅ Alarm oluşturuldu, Telegram\'a gönderildi');
-
+            return data || { ok: true };
         } catch (error) {
-            console.error('❌ [TELEGRAM] sendTelegramAlarmCreated error:', error);
+            console.error('❌ [TELEGRAM] Edge bildirim hatasi:', error);
+            return { ok: false, error: error?.message || 'unknown_error' };
         }
     }
 
@@ -2425,152 +2228,28 @@ ${profitEmoji} Kar/Zarar: *${profit}%*
             userId: this.userId,
             supabaseExists: !!this.supabase
         });
-        
+
         if (!this.supabase || !this.userId) {
             console.error('❌ [TELEGRAM PASIF] KRİTİK: Supabase veya userId eksik!');
-            console.error('   - this.supabase:', !!this.supabase);
-            console.error('   - this.userId:', this.userId);
             return;
         }
 
         try {
-            // Kullanıcının Telegram ayarlarını al
-            console.log('📱 [TELEGRAM PASIF] user_settings sorgulanıyor...');
-            const { data: userSettings, error } = await this.supabase
-                .from('user_settings')
-                .select('telegram_username, notifications_enabled')
-                .eq('user_id', this.userId)
-                .single();
+            const payload = {
+                type: alarm.type,
+                symbol: alarm.symbol,
+                direction: alarm.direction,
+                entryPrice: alarm.entryPrice || alarm.entry_price,
+                takeProfit: alarm.takeProfit || alarm.take_profit,
+                stopLoss: alarm.stopLoss || alarm.stop_loss,
+                closePrice: alarm.closePrice || alarm.currentPrice,
+                marketType: alarm.marketType || alarm.market_type,
+                timeframe: alarm.timeframe
+            };
 
-            console.log('📊 [TELEGRAM PASIF] Sorgu sonucu:', {
-                success: !error,
-                error: error?.message,
-                hasUsername: !!userSettings?.telegram_username,
-                notificationsEnabled: userSettings?.notifications_enabled
-            });
-
-            if (error) {
-                console.error('❌ [TELEGRAM PASIF] Supabase sorgu hatası:', error.message);
-                return;
-            }
-
-            if (!userSettings) {
-                console.error('❌ [TELEGRAM PASIF] user_settings kaydı bulunamadı');
-                return;
-            }
-
-            if (!userSettings.telegram_username) {
-                console.error('❌ [TELEGRAM PASIF] Telegram username boş!');
-                console.log('   - user_settings:', userSettings);
-                return;
-            }
-
-            if (!userSettings.notifications_enabled) {
-                console.warn('⚠️ [TELEGRAM PASIF] Bildirimler devre dışı kullanıcı tarafından');
-                return;
-            }
-
-            let messageText = '';
-
-            // ACTIVE_TRADE (işlem) alarmı için
-            if (alarm.type === 'ACTIVE_TRADE') {
-                console.log('📈 [TELEGRAM PASIF] ACTIVE_TRADE mesajı hazırlanıyor...');
-                
-                const directionEmoji = alarm.direction === 'LONG' ? '📈' : '📉';
-                const entryPrice = alarm.entryPrice || 0;
-                const currentPrice = alarm.closePrice || alarm.currentPrice || entryPrice;
-                
-                // Kar/zarar hesapla
-                let pnl = 0;
-                if (alarm.direction === 'LONG') {
-                    pnl = ((currentPrice - entryPrice) / entryPrice * 100).toFixed(2);
-                } else {
-                    pnl = ((entryPrice - currentPrice) / entryPrice * 100).toFixed(2);
-                }
-                
-                const pnlEmoji = parseFloat(pnl) > 0 ? '💚' : '❤️';
-                
-                messageText = `
-${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Pasif Oldu
-
-💰 Giriş: *$${entryPrice?.toFixed(2) || '?'}*
-🎯 Çıkış: *$${currentPrice?.toFixed(2) || '?'}*
-${pnlEmoji} Kar/Zarar: *${pnl}%*
-
-📊 İşlem Detayları:
-• TP Seviyesi: $${alarm.takeProfit?.toFixed(2) || '?'}
-• SL Seviyesi: $${alarm.stopLoss?.toFixed(2) || '?'}
-• Durumu: KAPATILDI
-• Zaman: ${new Date().toLocaleString('tr-TR')}
-
-✅ İşlem başarıyla sonlandırıldı
-                `.trim();
-            } else if (alarm.type === 'PRICE_LEVEL') {
-                console.log('📌 [TELEGRAM PASIF] PRICE_LEVEL mesajı hazırlanıyor...');
-                
-                // Fiyat seviyesi alarmı - sadeleştirilmiş mesaj
-                messageText = `
-⏹️ *${alarm.symbol}* - Alarm Kapatıldı
-
-✅ Alarm başarıyla devre dışı bırakıldı
-⏰ Zaman: ${new Date().toLocaleString('tr-TR')}
-                `.trim();
-            } else {
-                console.warn('⚠️ [TELEGRAM PASIF] Bilinmeyen alarm tipi:', alarm.type);
-                messageText = `⏹️ *${alarm.symbol}* Alarmı Pasif Hale Geçti\n⏰ Zaman: ${new Date().toLocaleString('tr-TR')}`;
-            }
-
-            if (!messageText) {
-                console.error('❌ [TELEGRAM PASIF] Mesaj metni boş!');
-                return;
-            }
-
-            const chatId = userSettings.telegram_username;
-
-            const resolvedBotToken = (typeof TELEGRAM_BOT_TOKEN !== 'undefined' && TELEGRAM_BOT_TOKEN)
-                ? TELEGRAM_BOT_TOKEN
-                : (window.TELEGRAM_BOT_TOKEN || '');
-
-            if (!resolvedBotToken) {
-                console.warn('⚠️ [TELEGRAM PASIF] Bot token yok, bildirim gonderilmedi');
-                return;
-            }
-
-            console.log('📤 [TELEGRAM PASIF] Telegram mesajı gönderiliyor...', {
-                chatId,
-                messageLength: messageText.length,
-                botTokenExists: !!resolvedBotToken
-            });
-
-            const response = await fetch(
-                'https://jcrbhekrphxodxhkuzju.supabase.co/functions/v1/dynamic-responder',
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        telegramUsername: chatId,
-                        botToken: resolvedBotToken,
-                        message: messageText,
-                        parse_mode: 'Markdown'
-                    })
-                }
-            );
-
-            console.log('🌐 [TELEGRAM PASIF] API Response Status:', response.status, response.statusText);
-
-            if (!response.ok) {
-                console.error('❌ [TELEGRAM PASIF] API Hatası!', response.status);
-                const text = await response.text();
-                console.error('   - Response body:', text);
-                return;
-            }
-
-            const result = await response.json();
-            console.log('✅ [TELEGRAM PASIF] ✨ BAŞARILI ✨', result);
-
+            await this.sendAlarmNotificationToEdge('passive', payload);
         } catch (error) {
             console.error('❌ [TELEGRAM PASIF] 🔴 KRITIK HATA 🔴:', error.message);
-            console.error('   - Stack:', error.stack);
         }
     }
 
@@ -2578,59 +2257,30 @@ ${pnlEmoji} Kar/Zarar: *${pnl}%*
         if (!this.supabase || !this.userId) return;
 
         try {
-            const { data: userSettings } = await this.supabase
-                .from('user_settings')
-                .select('telegram_username, notifications_enabled')
-                .eq('user_id', this.userId)
-                .single();
-
-            if (!userSettings || !userSettings.notifications_enabled || !userSettings.telegram_username) {
-                return;
-            }
-
             let message = '';
-            
-            // PRICE_LEVEL alarmları
+
             if (alarm.type === 'PRICE_LEVEL') {
                 const targetPrice = alarm.targetPrice || alarm.price || alarm.target;
                 if (!targetPrice) return;
-                
-                message = `
-🚫 *${alarm.symbol}* - Alarm Kapatıldı
-
-🎯 Hedef Fiyat: *$${Number(targetPrice).toFixed(2)}*
-⏰ Zaman: ${new Date().toLocaleString('tr-TR')}
-                `.trim();
-            } 
-            // ACTIVE_TRADE alarmları
-            else if (alarm.type === 'ACTIVE_TRADE') {
+                message = `🚫 *${alarm.symbol}* - Alarm Kapatıldı`;
+            } else if (alarm.type === 'ACTIVE_TRADE') {
                 const directionEmoji = alarm.direction === 'LONG' ? '📈' : '📉';
-                message = `
-${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
-
-🚫 Alarm kapatıldı
-⏰ Zaman: ${new Date().toLocaleString('tr-TR')}
-                `.trim();
+                message = `${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi`;
             } else {
                 return;
             }
 
-            const chatId = userSettings.telegram_username;
+            const payload = {
+                type: alarm.type,
+                symbol: alarm.symbol,
+                direction: alarm.direction,
+                marketType: alarm.marketType || alarm.market_type,
+                timeframe: alarm.timeframe,
+                reason: reason,
+                note: message
+            };
 
-            await fetch(
-                'https://jcrbhekrphxodxhkuzju.supabase.co/functions/v1/dynamic-responder',
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        telegramUsername: chatId,
-                        botToken: resolvedBotToken,
-                        message: message,
-                        parse_mode: 'Markdown'
-                    })
-                }
-            );
-            
+            await this.sendAlarmNotificationToEdge('ended', payload);
             console.log('✅ Alarm kapatıldı, Telegram\'a gönderildi');
 
         } catch (error) {
@@ -2647,6 +2297,7 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
         // Supabase'e de kaydet (eğer client varsa)
         if (this.supabase && this.userId) {
             try {
+                let hadError = false;
                 for (const alarm of this.alarms) {
                     const autoTradeEnabled = alarm.autoTradeEnabled || alarm.auto_trade_enabled || false;
                     const baseData = {
@@ -2699,6 +2350,7 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                             .maybeSingle();
 
                         if (updateError || !updated?.id) {
+                            hadError = true;
                             const { data: inserted, error: insertError } = await this.supabase
                                 .from('alarms')
                                 .insert(payload)
@@ -2706,6 +2358,8 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                                 .maybeSingle();
                             if (!insertError && inserted?.id) {
                                 alarm.id = String(inserted.id);
+                            } else if (insertError) {
+                                hadError = true;
                             }
                         }
                     } else {
@@ -2716,17 +2370,27 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                             .maybeSingle();
                         if (!insertError && inserted?.id) {
                             alarm.id = String(inserted.id);
+                        } else if (insertError) {
+                            hadError = true;
                         }
                     }
                 }
 
+                if (hadError) {
+                    console.error('❌ Alarmlar kismi kaydedildi, hata var');
+                    return false;
+                }
+
                 console.log('💾 Alarmlar alarms tablosuna kaydedildi');
                 await this.loadAlarms();
+                return true;
             } catch (error) {
                 console.error('❌ Supabase kayıt hatası:', error);
+                return false;
             }
         } else {
             console.log('⚠️ Supabase client veya userId yok, sadece localStorage kaydedildi');
+            return true;
         }
     }
     

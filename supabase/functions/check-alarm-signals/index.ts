@@ -1974,6 +1974,57 @@ async function sendTelegramNotification(userId: string, message: string): Promis
   }
 }
 
+async function buildAlarmNotificationMessage(notificationType: string, alarm: any): Promise<string> {
+  const type = String(notificationType || "").toLowerCase();
+  const symbol = String(alarm?.symbol || "").toUpperCase();
+  if (!symbol) return "";
+
+  const marketType = normalizeMarketType(alarm?.marketType || alarm?.market_type || alarm?.market || "spot");
+  const timeframe = String(alarm?.timeframe || "1h");
+  const precision = await getSymbolPricePrecision(symbol, marketType);
+  const pricePrecision = Number.isFinite(precision) ? Number(precision) : 6;
+  const formatPrice = (value: any) => Number.isFinite(Number(value))
+    ? formatPriceWithPrecision(Number(value), pricePrecision)
+    : "?";
+
+  const directionRaw = String(alarm?.direction || "LONG").toUpperCase();
+  const direction = directionRaw === "SHORT" ? "SHORT" : "LONG";
+  const directionTR = direction === "SHORT" ? "🔴 SHORT" : "🟢 LONG";
+
+  const entryPrice = alarm?.entryPrice ?? alarm?.entry_price ?? alarm?.entry;
+  const takeProfit = alarm?.takeProfit ?? alarm?.take_profit;
+  const stopLoss = alarm?.stopLoss ?? alarm?.stop_loss;
+  const currentPrice = alarm?.currentPrice ?? alarm?.closePrice ?? alarm?.price;
+  const targetPrice = alarm?.targetPrice ?? alarm?.target_price ?? alarm?.target;
+  const condition = String(alarm?.condition || "");
+  const triggerReason = String(alarm?.triggerReason || alarm?.reason || "");
+  const timestamp = alarm?.signal_timestamp || alarm?.timestamp || new Date().toISOString();
+  const formattedDate = formatTurkeyDateTime(timestamp);
+
+  if (type === "created") {
+    if (Number.isFinite(Number(targetPrice))) {
+      const conditionText = condition === "below" ? "⬇️" : "⬆️";
+      return `🔔 <b>ALARM OLUŞTURULDU</b> 🔔\n\n💰 Çift: <b>${escapeHtml(symbol)}</b>\n${conditionText} Hedef: <b>$${escapeHtml(formatPrice(targetPrice))}</b>\n⏰ Zaman: <b>${escapeHtml(formattedDate)}</b>`;
+    }
+    return `🔔 <b>ALARM OLUŞTURULDU</b> 🔔\n\n💰 Çift: <b>${escapeHtml(symbol)}</b>\n📊 Piyasa: <b>${escapeHtml(String(marketType).toUpperCase())}</b> | Zaman: <b>${escapeHtml(timeframe)}</b>\n⏰ Zaman: <b>${escapeHtml(formattedDate)}</b>`;
+  }
+
+  if (type === "passive") {
+    return `⏹️ <b>ALARM PASİF</b>\n\n💰 Çift: <b>${escapeHtml(symbol)}</b>\n⏰ Zaman: <b>${escapeHtml(formattedDate)}</b>`;
+  }
+
+  if (type === "ended") {
+    return `🚫 <b>ALARM KAPATILDI</b>\n\n💰 Çift: <b>${escapeHtml(symbol)}</b>\n⏰ Zaman: <b>${escapeHtml(formattedDate)}</b>`;
+  }
+
+  // trigger / default
+  if (String(alarm?.type || "").toUpperCase() === "PRICE_LEVEL" && Number.isFinite(Number(targetPrice))) {
+    return `🚨 <b>${escapeHtml(symbol)}</b> Alarm Tetiklendi\n\n🎯 Hedef: <b>$${escapeHtml(formatPrice(targetPrice))}</b>\n💹 Fiyat: <b>$${escapeHtml(formatPrice(currentPrice))}</b>\n⏰ Zaman: <b>${escapeHtml(formattedDate)}</b>`;
+  }
+
+  return `🔔 <b>ALARM AKTİVE!</b> 🔔\n\n💰 Çift: <b>${escapeHtml(symbol)}</b>\n🎯 ${escapeHtml(directionTR)}\n📊 Piyasa: <b>${escapeHtml(String(marketType).toUpperCase())}</b> | Zaman: <b>${escapeHtml(timeframe)}</b>\n💹 Fiyat: <b>$${escapeHtml(formatPrice(entryPrice))}</b>\n🎯 Hedefler:\n  TP: <b>$${escapeHtml(formatPrice(takeProfit))}</b>\n  SL: <b>$${escapeHtml(formatPrice(stopLoss))}</b>\n⏰ Zaman: <b>${escapeHtml(formattedDate)}</b>\n${triggerReason ? `\n${escapeHtml(triggerReason)}` : ""}`;
+}
+
 async function updateActiveSignalTelegramStatus(
   signalId: string | number,
   status: "QUEUED" | "SENT" | "FAILED" | "SKIPPED",
@@ -3172,6 +3223,8 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
 
   if (existing?.id) {
     console.log(`⚠️ Duplicate signal attempt: ${newSignal.symbol} ${newSignal.signal_direction}`);
+    const duplicateMessage = `⚠️ <b>AKTIF SİNYAL VAR</b>\n\n💰 Çift: <b>${escapeHtml(newSignal.symbol)}</b>\n🎯 Yön: <b>${escapeHtml(newSignal.signal_direction)}</b>\n⏰ Zaman: <b>${escapeHtml(formatTurkeyDateTime(newSignal.signal_timestamp))}</b>`;
+    await sendTelegramNotification(newSignal.user_id, duplicateMessage);
     return { inserted: false, duplicate: true };
   }
 
@@ -3278,18 +3331,6 @@ serve(async (req: any) => {
     });
   }
 
-  // ✅ Auth guard (optional - enforced only if CRON_SECRET is set)
-  if (cronSecret) {
-    const auth = req.headers.get("authorization") || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-    if (token !== cronSecret) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-  }
-
   try {
     console.log("🚀 [CRON] Starting alarm signals check");
 
@@ -3299,6 +3340,51 @@ serve(async (req: any) => {
       body = await req.json();
     } catch {
       body = null;
+    }
+
+    body = body || {};
+    const authHeader = req.headers.get("authorization") || req.headers.get("Authorization") || "";
+    const authToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+
+    if (body?.action === "alarm_notification") {
+      if (!authToken) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: authData, error: authError } = await supabase.auth.getUser(authToken);
+      if (authError || !authData?.user?.id) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const message = await buildAlarmNotificationMessage(body?.notification_type, body?.alarm || {});
+      if (!message) {
+        return new Response(JSON.stringify({ ok: false, error: "Empty message" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const sendResult = await sendTelegramNotification(authData.user.id, message);
+      return new Response(JSON.stringify(sendResult), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ✅ Auth guard (optional - enforced only if CRON_SECRET is set)
+    if (cronSecret) {
+      if (authToken !== cronSecret) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     console.log("📥 [DEBUG] Request body:", JSON.stringify(body, null, 2));
