@@ -2665,6 +2665,7 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         const marketType = normalizeMarketType(
           signal.market_type || signal.marketType || signal.market || alarmData?.market_type || "spot"
         );
+        let effectiveMarketType: "spot" | "futures" = marketType;
 
         let shouldClose = false;
         let closeReason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "" = "";
@@ -2706,7 +2707,11 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         const timeframe = String(signal.timeframe || "1h");
         const timeframeMinutes = timeframeToMinutes(timeframe);
         const timeframeMs = timeframeMinutes * 60 * 1000;
-        const klines = await getKlines(symbol, marketType, timeframe, 2);
+        let klines = await getKlines(symbol, effectiveMarketType, timeframe, 2);
+        if ((!klines || klines.length < 2) && effectiveMarketType === "spot") {
+          effectiveMarketType = "futures";
+          klines = await getKlines(symbol, effectiveMarketType, timeframe, 2);
+        }
         if (klines && klines.length >= 2) {
           const lastClosed = klines[klines.length - 2];
           const currentBar = klines[klines.length - 1];
@@ -2719,7 +2724,7 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           let barHigh = highCandidates.length ? Math.max(...highCandidates) : NaN;
           let barLow = lowCandidates.length ? Math.min(...lowCandidates) : NaN;
 
-          const currentPrice = await getCurrentPrice(symbol, marketType);
+          const currentPrice = await getCurrentPrice(symbol, effectiveMarketType);
           if (Number.isFinite(currentPrice)) {
             barHigh = Number.isFinite(barHigh) ? Math.max(barHigh, currentPrice) : currentPrice;
             barLow = Number.isFinite(barLow) ? Math.min(barLow, currentPrice) : currentPrice;
@@ -2732,11 +2737,11 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
               if (hitSl && hitTp) {
                 const lastClosedStart = Number(lastClosed?.[0]);
                 const lastClosedEnd = Number(lastClosed?.[6]) || (Number.isFinite(timeframeMs) ? lastClosedStart + timeframeMs : lastClosedStart);
-                let resolved = await resolveFirstTouch(symbol, marketType, timeframe, lastClosedStart, lastClosedEnd, direction, takeProfit, stopLoss);
+                let resolved = await resolveFirstTouch(symbol, effectiveMarketType, timeframe, lastClosedStart, lastClosedEnd, direction, takeProfit, stopLoss);
                 if (!resolved && Number.isFinite(Number(currentBar?.[0]))) {
                   const currentStart = Number(currentBar?.[0]);
                   const currentEnd = Math.min(Date.now(), Number.isFinite(timeframeMs) ? currentStart + timeframeMs : Date.now());
-                  resolved = await resolveFirstTouch(symbol, marketType, timeframe, currentStart, currentEnd, direction, takeProfit, stopLoss);
+                  resolved = await resolveFirstTouch(symbol, effectiveMarketType, timeframe, currentStart, currentEnd, direction, takeProfit, stopLoss);
                 }
                 closeReason = resolved || resolveSameCandleHit(Number(lastClosed?.[1]), takeProfit, stopLoss);
                 shouldClose = true;
@@ -2756,11 +2761,11 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
               if (hitSl && hitTp) {
                 const lastClosedStart = Number(lastClosed?.[0]);
                 const lastClosedEnd = Number(lastClosed?.[6]) || (Number.isFinite(timeframeMs) ? lastClosedStart + timeframeMs : lastClosedStart);
-                let resolved = await resolveFirstTouch(symbol, marketType, timeframe, lastClosedStart, lastClosedEnd, direction, takeProfit, stopLoss);
+                let resolved = await resolveFirstTouch(symbol, effectiveMarketType, timeframe, lastClosedStart, lastClosedEnd, direction, takeProfit, stopLoss);
                 if (!resolved && Number.isFinite(Number(currentBar?.[0]))) {
                   const currentStart = Number(currentBar?.[0]);
                   const currentEnd = Math.min(Date.now(), Number.isFinite(timeframeMs) ? currentStart + timeframeMs : Date.now());
-                  resolved = await resolveFirstTouch(symbol, marketType, timeframe, currentStart, currentEnd, direction, takeProfit, stopLoss);
+                  resolved = await resolveFirstTouch(symbol, effectiveMarketType, timeframe, currentStart, currentEnd, direction, takeProfit, stopLoss);
                 }
                 closeReason = resolved || resolveSameCandleHit(Number(lastClosed?.[1]), takeProfit, stopLoss);
                 shouldClose = true;
@@ -2777,7 +2782,7 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
             }
           }
         } else {
-          const currentPrice = await getCurrentPrice(symbol, marketType);
+          const currentPrice = await getCurrentPrice(symbol, effectiveMarketType);
           if (Number.isFinite(currentPrice)) {
             if (direction === "LONG") {
               if (currentPrice <= stopLoss) {

@@ -2596,7 +2596,7 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                         user_id: this.userId,
                         symbol: alarm.symbol || 'BTCUSDT',
                         timeframe: alarm.timeframe || '1h',
-                        market_type: alarm.marketType || 'spot',
+                        market_type: resolveMarketType(alarm.marketType || alarm.market_type || alarm.market),
                         type: 'user_alarm',
                         is_active: alarm.active !== false,
                         telegram_enabled: true,
