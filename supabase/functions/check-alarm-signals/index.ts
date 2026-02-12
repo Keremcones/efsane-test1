@@ -248,6 +248,22 @@ async function getCurrentPrice(symbol: string, marketType: "spot" | "futures"): 
   }
 }
 
+async function getCurrentPriceFresh(symbol: string, marketType: "spot" | "futures"): Promise<number | null> {
+  try {
+    const klines = await getKlines(symbol, marketType, "1m", 2, 3, true);
+    if (!klines || klines.length === 0) {
+      console.error(`❌ price fetch failed for ${symbol}: klines unavailable`);
+      return null;
+    }
+    const lastKline = klines[klines.length - 1];
+    const p = Number(lastKline?.[4]);
+    return Number.isFinite(p) ? p : null;
+  } catch (e) {
+    console.error(`❌ price fetch error for ${symbol}:`, e);
+    return null;
+  }
+}
+
 async function getFuturesMarkPrice(symbol: string): Promise<number | null> {
   try {
     const url = `https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`;
@@ -2496,6 +2512,29 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
           console.log(`⏹️ Skipping signal send for ${alarm.symbol}: outside current bar (${Math.round((sendNowMs - lastOpenMs) / 1000)}s)`);
           return;
         }
+
+        try {
+          const { data: lastSignal } = await supabase
+            .from("active_signals")
+            .select("id, status, close_reason, closed_at, signal_timestamp")
+            .eq("user_id", alarm.user_id)
+            .eq("alarm_id", alarm.id)
+            .order("signal_timestamp", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          const lastSignalMs = lastSignal?.signal_timestamp
+            ? Date.parse(String(lastSignal.signal_timestamp))
+            : NaN;
+          if (Number.isFinite(lastSignalMs) && lastSignalMs >= lastOpenMs) {
+            console.log(`⏹️ Skipping ${alarm.symbol}: last signal already in this bar (alarm ${alarm.id})`);
+            return;
+          }
+
+        } catch (e) {
+          console.warn(`⚠️ Failed to check last signal for ${alarm.symbol}:`, e);
+        }
+
         try {
           await supabase
             .from("alarms")
