@@ -816,7 +816,9 @@ async function hasOpenFuturesPosition(apiKey: string, apiSecret: string, symbol:
   }
 
   const data = await response.json();
-  const position = Array.isArray(data) ? data[0] : data;
+  const upperSymbol = String(symbol || "").toUpperCase();
+  const positions = Array.isArray(data) ? data : [data];
+  const position = positions.find((p: any) => String(p?.symbol || "").toUpperCase() === upperSymbol);
   const positionAmt = Number(position?.positionAmt || 0);
   return Math.abs(positionAmt) > 0;
 }
@@ -2819,10 +2821,10 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         const timeframe = String(signal.timeframe || "1h");
         const timeframeMinutes = timeframeToMinutes(timeframe);
         const timeframeMs = timeframeMinutes * 60 * 1000;
-        let klines = await getKlines(symbol, effectiveMarketType, timeframe, 2);
+        let klines = await getKlines(symbol, effectiveMarketType, timeframe, 2, 2, true);
         if ((!klines || klines.length < 2) && effectiveMarketType === "spot") {
           effectiveMarketType = "futures";
-          klines = await getKlines(symbol, effectiveMarketType, timeframe, 2);
+          klines = await getKlines(symbol, effectiveMarketType, timeframe, 2, 2, true);
         }
         if (klines && klines.length >= 2) {
           const lastClosed = klines[klines.length - 2];
@@ -2836,7 +2838,7 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           let barHigh = highCandidates.length ? Math.max(...highCandidates) : NaN;
           let barLow = lowCandidates.length ? Math.min(...lowCandidates) : NaN;
 
-          const currentPrice = await getCurrentPrice(symbol, effectiveMarketType);
+          const currentPrice = await getCurrentPriceFresh(symbol, effectiveMarketType);
           if (Number.isFinite(currentPrice)) {
             barHigh = Number.isFinite(barHigh) ? Math.max(barHigh, currentPrice) : currentPrice;
             barLow = Number.isFinite(barLow) ? Math.min(barLow, currentPrice) : currentPrice;
@@ -2894,7 +2896,7 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
             }
           }
         } else {
-          const currentPrice = await getCurrentPrice(symbol, effectiveMarketType);
+          const currentPrice = await getCurrentPriceFresh(symbol, effectiveMarketType);
           if (Number.isFinite(currentPrice)) {
             if (direction === "LONG") {
               if (currentPrice <= stopLoss) {
@@ -3164,11 +3166,50 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
     created_at: newSignal.created_at
   };
 
-  const { error: insertError } = await supabase.from("active_signals").insert(activeSignalData);
+  const { data: insertedSignal, error: insertError } = await supabase
+    .from("active_signals")
+    .insert(activeSignalData)
+    .select("id")
+    .single();
 
   if (insertError) {
     console.error("❌ insertError:", insertError);
     throw new Error("Failed to insert new signal");
+  }
+
+  if (insertedSignal?.id) {
+    await updateActiveSignalTelegramStatus(insertedSignal.id, "QUEUED", null);
+    console.log(`📨 Telegram queued for inserted signal ${insertedSignal.id} (${newSignal.symbol})`);
+
+    const pricePrecision = await getSymbolPricePrecision(newSignal.symbol, newSignal.market_type || "spot");
+    const directionTR = newSignal.signal_direction === "SHORT" ? "🔴 SHORT" : "🟢 LONG";
+    const safeSymbol = escapeHtml(newSignal.symbol);
+    const safeDirection = escapeHtml(directionTR);
+    const safeMarketType = escapeHtml(String(newSignal.market_type || "spot").toUpperCase());
+    const safeTimeframe = escapeHtml(String(newSignal.timeframe || "1h"));
+    const safeEntry = escapeHtml(formatPriceWithPrecision(newSignal.entry_price, pricePrecision));
+    const safeTp = escapeHtml(formatPriceWithPrecision(newSignal.take_profit, pricePrecision));
+    const safeSl = escapeHtml(formatPriceWithPrecision(newSignal.stop_loss, pricePrecision));
+    const safeDate = escapeHtml(formatTurkeyDateTime(newSignal.signal_timestamp));
+
+    const telegramMessage = `
+🔔 <b>ALARM AKTİVE!</b> 🔔
+
+💰 Çift: <b>${safeSymbol}</b>
+🎯 ${safeDirection} Sinyali Tespit Edildi!
+
+📊 Piyasa: <b>${safeMarketType}</b> | Zaman: <b>${safeTimeframe}</b>
+💹 Fiyat: <b>$${safeEntry}</b>
+
+🎯 Hedefler:
+  TP: <b>$${safeTp}</b> (<b>+${newSignal.tp_percent}%</b>)
+  SL: <b>$${safeSl}</b> (<b>-${newSignal.sl_percent}%</b>)
+
+⏰ Zaman: <b>${safeDate}</b>
+`;
+
+    const sendResult = await sendTelegramNotification(newSignal.user_id, telegramMessage);
+    await updateActiveSignalTelegramStatus(insertedSignal.id, sendResult.status, sendResult.error ?? null);
   }
 
   return { inserted: true, duplicate: false };

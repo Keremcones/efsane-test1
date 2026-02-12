@@ -2271,6 +2271,21 @@ ${profitEmoji} Kar/Zarar: *${profit}%*
             }
 
             const chatId = userSettings.telegram_username;
+            const resolvedBotToken = (typeof TELEGRAM_BOT_TOKEN !== 'undefined' && TELEGRAM_BOT_TOKEN)
+                ? TELEGRAM_BOT_TOKEN
+                : (window.TELEGRAM_BOT_TOKEN || '');
+
+            if (!resolvedBotToken) {
+                return;
+            }
+            const resolvedBotToken = (typeof TELEGRAM_BOT_TOKEN !== 'undefined' && TELEGRAM_BOT_TOKEN)
+                ? TELEGRAM_BOT_TOKEN
+                : (window.TELEGRAM_BOT_TOKEN || '');
+
+            if (!resolvedBotToken) {
+                console.warn('⚠️ [TELEGRAM] Bot token yok, bildirim gonderilmedi');
+                return;
+            }
 
             console.log('📤 [TELEGRAM] Mesaj hazırlanıyor:', { 
                 chatId,
@@ -2288,7 +2303,7 @@ ${profitEmoji} Kar/Zarar: *${profit}%*
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         telegramUsername: chatId,
-                        botToken: TELEGRAM_BOT_TOKEN,
+                        botToken: resolvedBotToken,
                         message: messageText,
                         parse_mode: 'Markdown'
                     })
@@ -2372,10 +2387,19 @@ ${profitEmoji} Kar/Zarar: *${profit}%*
 
             const chatId = userSettings.telegram_username;
 
+            const resolvedBotToken = (typeof TELEGRAM_BOT_TOKEN !== 'undefined' && TELEGRAM_BOT_TOKEN)
+                ? TELEGRAM_BOT_TOKEN
+                : (window.TELEGRAM_BOT_TOKEN || '');
+
+            if (!resolvedBotToken) {
+                console.warn('⚠️ Telegram bot token yok, alarm olusturma bildirimi gonderilmedi');
+                return;
+            }
+
             console.log('📤 Telegram mesajı gönderiliyor:', {
                 chatId,
                 messageLength: messageText.length,
-                botTokenExists: !!TELEGRAM_BOT_TOKEN
+                botTokenExists: !!resolvedBotToken
             });
 
             const response = await fetch(
@@ -2385,7 +2409,7 @@ ${profitEmoji} Kar/Zarar: *${profit}%*
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         telegramUsername: chatId,
-                        botToken: TELEGRAM_BOT_TOKEN,
+                        botToken: resolvedBotToken,
                         message: messageText,
                         parse_mode: 'Markdown'
                     })
@@ -2510,10 +2534,19 @@ ${pnlEmoji} Kar/Zarar: *${pnl}%*
 
             const chatId = userSettings.telegram_username;
 
+            const resolvedBotToken = (typeof TELEGRAM_BOT_TOKEN !== 'undefined' && TELEGRAM_BOT_TOKEN)
+                ? TELEGRAM_BOT_TOKEN
+                : (window.TELEGRAM_BOT_TOKEN || '');
+
+            if (!resolvedBotToken) {
+                console.warn('⚠️ [TELEGRAM PASIF] Bot token yok, bildirim gonderilmedi');
+                return;
+            }
+
             console.log('📤 [TELEGRAM PASIF] Telegram mesajı gönderiliyor...', {
                 chatId,
                 messageLength: messageText.length,
-                botTokenExists: !!TELEGRAM_BOT_TOKEN
+                botTokenExists: !!resolvedBotToken
             });
 
             const response = await fetch(
@@ -2523,7 +2556,7 @@ ${pnlEmoji} Kar/Zarar: *${pnl}%*
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         telegramUsername: chatId,
-                        botToken: TELEGRAM_BOT_TOKEN,
+                        botToken: resolvedBotToken,
                         message: messageText,
                         parse_mode: 'Markdown'
                     })
@@ -2598,7 +2631,7 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         telegramUsername: chatId,
-                        botToken: TELEGRAM_BOT_TOKEN,
+                        botToken: resolvedBotToken,
                         message: message,
                         parse_mode: 'Markdown'
                     })
@@ -2662,7 +2695,7 @@ ${directionEmoji} *${alarm.symbol}* - ${alarm.direction} İşlem Silindi
                     }
 
                     const alarmIdNum = Number(alarm.id);
-                    if (Number.isFinite(alarmIdNum)) {
+                    if (Number.isInteger(alarmIdNum)) {
                         const { data: updated, error: updateError } = await this.supabase
                             .from('alarms')
                             .update(payload)
