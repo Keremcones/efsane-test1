@@ -725,6 +725,15 @@ function escapeTelegram(text: string): string {
     .replace(/>/g, "&gt;");
 }
 
+function escapeHtml(text: string): string {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 async function setFuturesMarginType(apiKey: string, apiSecret: string, symbol: string, marginType: "CROSS" | "ISOLATED"): Promise<void> {
   const timestamp = Date.now();
   const queryString = `symbol=${symbol}&marginType=${marginType}&timestamp=${timestamp}`;
@@ -839,6 +848,8 @@ type UserBinanceKeys = {
   spot_enabled?: boolean | null;
 };
 
+const userBinanceCache: Record<string, UserBinanceKeys | null> = {};
+
 async function fetchUserBinanceKeys(userId: string): Promise<UserBinanceKeys | null> {
   const { data, error } = await supabase
     .from("user_binance_keys")
@@ -851,6 +862,23 @@ async function fetchUserBinanceKeys(userId: string): Promise<UserBinanceKeys | n
   }
 
   return data as UserBinanceKeys;
+}
+
+async function getUserBinanceSettings(userId: string): Promise<UserBinanceKeys | null> {
+  if (!userId) return null;
+  if (userBinanceCache[userId] !== undefined) return userBinanceCache[userId];
+  const settings = await fetchUserBinanceKeys(userId);
+  userBinanceCache[userId] = settings;
+  return settings;
+}
+
+async function resolveAutoTradeEnabled(alarm: any, marketType: "spot" | "futures"): Promise<boolean> {
+  if (alarm?.auto_trade_enabled === true) return true;
+  const userKeys = await getUserBinanceSettings(String(alarm?.user_id || ""));
+  if (!userKeys?.auto_trade_enabled) return false;
+  if (marketType === "futures") return userKeys.futures_enabled === true;
+  if (marketType === "spot") return userKeys.spot_enabled === true;
+  return false;
 }
 
 async function executeAutoTrade(
@@ -1907,19 +1935,29 @@ async function sendTelegramNotification(userId: string, message: string): Promis
 
     const botUrl = `https://api.telegram.org/bot${telegramBotToken}/sendMessage`;
 
+    const payload = JSON.stringify({
+      chat_id: chatId,
+      text: message,
+      parse_mode: "HTML",
+    });
+
     const resp = await fetch(botUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: message,
-        parse_mode: "HTML",
-      }),
+      body: payload,
     });
 
     if (!resp.ok) {
       console.error("❌ Telegram send failed:", resp.status, await resp.text());
-      return;
+      const retryResp = await fetch(botUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+      });
+      if (!retryResp.ok) {
+        console.error("❌ Telegram retry failed:", retryResp.status, await retryResp.text());
+        return;
+      }
     }
 
     console.log(`✅ Telegram message sent to user ${userId}`);
@@ -2096,7 +2134,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         const symbol = String(alarm.symbol || "").toUpperCase();
         const signalKey = `${alarm.user_id}:${String(alarm.id || "")}`;
         const symbolKey = `${alarm.user_id}:${symbol}`;
-        const autoTradeEnabled = alarm.auto_trade_enabled === true;
+        const autoTradeEnabled = await resolveAutoTradeEnabled(alarm, alarmMarketType);
 
         if (autoTradeEnabled && openTradeSymbols.has(symbolKey)) {
           console.log(`⏹️ Skipping user_alarm for ${symbol}: ACTIVE_TRADE in progress (user: ${alarm.user_id})`);
@@ -2441,7 +2479,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         // 🚀 AUTO TRADE EXECUTION
         let tradeResult = { success: false, message: "Auto-trade not triggered" } as { success: boolean; message: string; orderId?: string; blockedByOpenPosition?: boolean };
         let tradeNotificationText = "";
-        const autoTradeEnabled = alarm.auto_trade_enabled === true;
+        const autoTradeEnabled = await resolveAutoTradeEnabled(alarm, alarmMarketType);
 
         if (autoTradeEnabled && !alarm.binance_order_id) {
           tradeResult = await executeAutoTrade(
@@ -2451,11 +2489,11 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             entryPrice,
             tpPrice,
             slPrice,
-            normalizeMarketType(alarm.market_type || "spot")
+            alarmMarketType
           );
 
           if (tradeResult.success) {
-            tradeNotificationText = `\n\n🤖 <b>OTOMATİK İŞLEM:</b>\n${tradeResult.message}`;
+            tradeNotificationText = `\n\n🤖 <b>OTOMATİK İŞLEM:</b>\n${escapeHtml(tradeResult.message)}`;
             if (tradeResult.orderId) {
               await supabase
                 .from("alarms")
@@ -2467,13 +2505,13 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
             tradeResult.message !== "Futures auto-trade not enabled" &&
             tradeResult.message !== "Spot auto-trade not enabled"
           ) {
-            tradeNotificationText = `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${tradeResult.message}`;
+            tradeNotificationText = `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${escapeHtml(tradeResult.message)}`;
           }
         }
 
         if (!tradeNotificationText) {
           tradeNotificationText = autoTradeEnabled
-            ? `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${tradeResult.message}`
+            ? `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${escapeHtml(tradeResult.message)}`
             : `\n\nℹ️ <b>Otomatik işlem:</b> Kapalı`;
         }
 
@@ -2501,23 +2539,34 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
         const userConfidenceThreshold = Number(alarm.confidence_score || 70);
         const signalAnalysis = generateSignalScoreAligned(alarmIndicators, userConfidenceThreshold);
 
+        const safeSymbol = escapeHtml(symbol);
+        const safeDirection = escapeHtml(directionTR);
+        const safeMarketType = escapeHtml(marketType);
+        const safeTimeframe = escapeHtml(timeframe);
+        const safePrice = escapeHtml(formatPriceWithPrecision(triggerPrice, decimals));
+        const safeConfidence = escapeHtml(String(userConfidenceThreshold));
+        const safeSignalScore = escapeHtml(String(signalAnalysis.score));
+        const safeTpPrice = escapeHtml(formatPriceWithPrecision(tpPrice, decimals));
+        const safeSlPrice = escapeHtml(formatPriceWithPrecision(slPrice, decimals));
+        const safeDate = escapeHtml(formattedDateTime);
+
         let telegramMessage = `
 🔔 <b>ALARM AKTİVE!</b> 🔔
 
-💰 Çift: <b>${symbol}</b>
-🎯 ${directionTR} Sinyali Tespit Edildi!
+💰 Çift: <b>${safeSymbol}</b>
+🎯 ${safeDirection} Sinyali Tespit Edildi!
 
-📊 Piyasa: <b>${marketType}</b> | Zaman: <b>${timeframe}</b>
-💹 Fiyat: <b>$${formatPriceWithPrecision(triggerPrice, decimals)}</b>
+📊 Piyasa: <b>${safeMarketType}</b> | Zaman: <b>${safeTimeframe}</b>
+💹 Fiyat: <b>$${safePrice}</b>
 
-📈 Sinyal: Güven: <b>${userConfidenceThreshold}%</b>
-📊 Gelen Sinyalin Güveni: <b>${signalAnalysis.score}%</b>
+📈 Sinyal: Güven: <b>${safeConfidence}%</b>
+📊 Gelen Sinyalin Güveni: <b>${safeSignalScore}%</b>
 
 🎯 Hedefler:
-  TP: <b>$${formatPriceWithPrecision(tpPrice, decimals)}</b> (<b>+${tpPercent}%</b>)
-  SL: <b>$${formatPriceWithPrecision(slPrice, decimals)}</b> (<b>-${slPercent}%</b>)
+  TP: <b>$${safeTpPrice}</b> (<b>+${tpPercent}%</b>)
+  SL: <b>$${safeSlPrice}</b> (<b>-${slPercent}%</b>)
 
-⏰ Zaman: <b>${formattedDateTime}</b>
+⏰ Zaman: <b>${safeDate}</b>
 ${tradeNotificationText}
 
 <i>Not:</i> Otomatik al-sat işlemleri market fiyatından anlık alındığı için, sinyalin giriş fiyatına göre farklılık gösterebilir.
@@ -3317,14 +3366,21 @@ serve(async (req: any) => {
         normalizeMarketType(signal.market_type || "spot")
       );
 
+      const safeSymbol = escapeHtml(String(signal.symbol || ""));
+      const safeDirection = escapeHtml(String(signal.direction || ""));
+      const safePrice = escapeHtml(formatPriceWithPrecision(signal.price, precision));
+      const safePnL = escapeHtml(signal.profitLoss !== undefined
+        ? (signal.profitLoss >= 0 ? "+" : "") + signal.profitLoss.toFixed(2) + "%"
+        : "N/A");
+
       const telegramMessage = `
 🔔 <b>İŞLEM KAPANDI</b> 🔔
 
-📊 Coin: <b>${signal.symbol}</b>
-📈 İşlem Yönü: <b>${signal.direction}</b>
+📊 Coin: <b>${safeSymbol}</b>
+📈 İşlem Yönü: <b>${safeDirection}</b>
 ${emoji} ${statusMessage}
-💰 Kapanış Fiyatı: <b>$${formatPriceWithPrecision(signal.price, precision)}</b>
-    📈 Kar/Zarar: <b>${signal.profitLoss !== undefined ? (signal.profitLoss >= 0 ? '+' : '') + signal.profitLoss.toFixed(2) + '%' : 'N/A'}</b>
+💰 Kapanış Fiyatı: <b>$${safePrice}</b>
+    📈 Kar/Zarar: <b>${safePnL}</b>
 `;
 
       return sendTelegramNotification(signal.user_id, telegramMessage);
