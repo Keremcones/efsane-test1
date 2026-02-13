@@ -263,11 +263,16 @@
             display: flex;
             gap: 16px;
             align-items: center;
+            min-width: 0;
         }
 
         .user-email {
             color: var(--text-secondary);
             font-size: 0.9rem;
+            max-width: 140px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .user-role-badge {
@@ -1392,6 +1397,7 @@
             .mini-chart-container { max-height: 280px; padding: 14px; overflow: hidden; }
             .mini-chart { height: 240px; }
             .chart-container { height: 300px; }
+            .user-email { display: none; }
         }
         
         @media (max-width: 480px) {
