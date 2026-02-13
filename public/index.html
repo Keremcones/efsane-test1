@@ -192,8 +192,13 @@
             align-items: center;
             position: sticky;
             top: 0;
+            left: 0;
+            right: 0;
+            width: 100%;
+            box-sizing: border-box;
             z-index: 100;
             backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
             box-shadow: 0 10px 28px rgba(86, 110, 170, 0.2);
             min-height: 72px;
         }
@@ -263,16 +268,11 @@
             display: flex;
             gap: 16px;
             align-items: center;
-            min-width: 0;
         }
 
         .user-email {
             color: var(--text-secondary);
             font-size: 0.9rem;
-            max-width: 140px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
         }
 
         .user-role-badge {
@@ -1397,7 +1397,6 @@
             .mini-chart-container { max-height: 280px; padding: 14px; overflow: hidden; }
             .mini-chart { height: 240px; }
             .chart-container { height: 300px; }
-            .user-email { display: none; }
         }
         
         @media (max-width: 480px) {
