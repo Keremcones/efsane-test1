@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v2-20260211';
+const CACHE_VERSION = 'v3-20260214-navbar-fix';
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 const PRECACHE_URLS = [
   '/',
@@ -39,6 +39,25 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(STATIC_CACHE).then((cache) => cache.put(request, copy));
+          return response;
+        })
+        .catch(() => caches.match(request))
+    );
+    return;
+  }
+
+  const isAppShellAsset =
+    url.pathname.endsWith('.js') ||
+    url.pathname.endsWith('.css') ||
+    url.pathname.endsWith('.html') ||
+    url.pathname.endsWith('.json');
+
+  if (isAppShellAsset) {
     event.respondWith(
       fetch(request)
         .then((response) => {

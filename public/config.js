@@ -183,7 +183,7 @@ console.error = function (...args) {
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+        navigator.serviceWorker.register('/service-worker.js?v=20260214e').catch(() => {});
     });
 }
 /* Updated Sun Jan 25 02:35:41 +03 2026 */
