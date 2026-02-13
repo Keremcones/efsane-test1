@@ -150,11 +150,21 @@ const ALL_TICKER_TTL = 15000; // 15 seconds
 // Request throttling & queueing (prevent rate limiting)
 // =====================
 let lastRequestTime = 0;
-const MIN_REQUEST_INTERVAL = 10000; // 10000ms (10s) minimum between ALL requests - CRITICAL for Binance
+const MIN_REQUEST_INTERVAL = 1000; // 1000ms (1s) minimum between ALL requests
 let requestQueue: Array<{ url: string; options?: any; resolve: Function; reject: Function }> = [];
 let isProcessingQueue = false;
 let requestCount = 0;
 let binanceRequestCount = 0;
+const endpointStats: Record<string, { count: number; totalMs: number }> = {};
+
+function getEndpointKey(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.hostname}${u.pathname}`;
+  } catch {
+    return url.split("?")[0];
+  }
+}
 
 function trackRequest(url: string) {
   requestCount += 1;
@@ -187,7 +197,18 @@ async function processRequestQueue() {
         controller.abort();
       }, 5000);
       
+      const startMs = Date.now();
       const response = await fetch(url, { ...options, signal: controller.signal });
+      const durationMs = Date.now() - startMs;
+      const endpointKey = getEndpointKey(url);
+      if (!endpointStats[endpointKey]) {
+        endpointStats[endpointKey] = { count: 0, totalMs: 0 };
+      }
+      endpointStats[endpointKey].count += 1;
+      endpointStats[endpointKey].totalMs += durationMs;
+      if (/binance\.(com|vision)/i.test(url) && durationMs >= 3000) {
+        console.warn(`⏱️ Slow Binance request (${durationMs}ms): ${endpointKey}`);
+      }
       clearTimeout(timeoutId);
       resolve(response);
     } catch (e) {
@@ -4178,6 +4199,12 @@ ${emoji} ${statusMessage}
 
     const elapsedMs = Date.now() - requestStartMs;
     console.log(`📊 Request counts: total=${requestCount - startRequestCount}, binance=${binanceRequestCount - startBinanceCount}`);
+    const endpointSummary = Object.entries(endpointStats)
+      .map(([key, stat]) => `${key}=${stat.count} (${Math.round(stat.totalMs / Math.max(1, stat.count))}ms avg)`)
+      .join(" | ");
+    if (endpointSummary) {
+      console.log(`📊 Endpoint stats: ${endpointSummary}`);
+    }
     console.log(`⏱️ Request duration: ${elapsedMs}ms`);
 
     return new Response(
@@ -4195,6 +4222,12 @@ ${emoji} ${statusMessage}
     console.error("❌ Fatal error:", e);
     const elapsedMs = Date.now() - requestStartMs;
     console.log(`📊 Request counts (error): total=${requestCount - startRequestCount}, binance=${binanceRequestCount - startBinanceCount}`);
+    const endpointSummary = Object.entries(endpointStats)
+      .map(([key, stat]) => `${key}=${stat.count} (${Math.round(stat.totalMs / Math.max(1, stat.count))}ms avg)`)
+      .join(" | ");
+    if (endpointSummary) {
+      console.log(`📊 Endpoint stats (error): ${endpointSummary}`);
+    }
     console.log(`⏱️ Request duration (error): ${elapsedMs}ms`);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
       status: 500,
