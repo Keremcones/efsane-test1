@@ -241,8 +241,13 @@ const MAX_REQUEST_RUNTIME_MS = 30000; // keep below Edge 60s timeout
 const HARD_TIMEOUT_MS = 25000; // emergency hard stop
 const MAX_ALARMS_PER_CRON = 30; // hard cap per cron
 const MAX_CLOSE_CHECKS_PER_CRON = 10; // emergency close-only cap
-const DISABLE_ALARM_PROCESSING = true; // temporary: close-only mode
+const DISABLE_ALARM_PROCESSING = false; // temporary: close-only mode
 const CLOSE_NEAR_TARGET_PCT = 0.3; // only run heavy checks when near TP/SL
+
+function isJsonResponse(response: Response): boolean {
+  const contentType = response.headers.get("content-type") || "";
+  return contentType.includes("application/json");
+}
 
 const symbolInfoCache: Record<string, { timestamp: number; data: any }> = {};
 const SYMBOL_INFO_TTL = 10 * 60 * 1000;
@@ -1054,6 +1059,11 @@ async function hasOpenFuturesAlgoOrders(apiKey: string, apiSecret: string, symbo
     return false;
   }
 
+  if (!isJsonResponse(response)) {
+    console.warn("⚠️ Binance futures algo orders non-JSON response, skipping.");
+    return false;
+  }
+
   const data = await response.json();
   return Array.isArray(data) && data.length > 0;
 }
@@ -1140,6 +1150,11 @@ async function getOpenFuturesAlgoOrdersAll(apiKey: string, apiSecret: string): P
 
   if (!response.ok) {
     console.warn("⚠️ Binance futures algo orders (all) failed:", await response.text());
+    return [];
+  }
+
+  if (!isJsonResponse(response)) {
+    console.warn("⚠️ Binance futures algo orders (all) non-JSON response, skipping.");
     return [];
   }
 
@@ -3289,6 +3304,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<ClosedSignal[]
     const spotOpenOrdersCache = new Map<string, any[]>();
     const spotBalancesCache = new Map<string, Record<string, number>>();
     const userKeysMap = new Map<string, UserBinanceKeys>();
+    const userFetchCounts = new Map<string, { positionRisk: number; openOrders: number; algoOrders: number; spotOpenOrders: number; spotBalances: number }>();
 
     const userIds = Array.from(new Set(signals.map(signal => String(signal?.user_id || "")).filter(Boolean)));
     const hasFuturesSignals = signals.some(signal => normalizeMarketType(signal.market_type || signal.marketType || signal.market) === "futures");
@@ -3301,21 +3317,28 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<ClosedSignal[]
       const apiKey = keys.api_key;
       const apiSecret = keys.api_secret;
       const prefetches: Promise<void>[] = [];
+      userFetchCounts.set(userId, { positionRisk: 0, openOrders: 0, algoOrders: 0, spotOpenOrders: 0, spotBalances: 0 });
 
       if (hasFuturesSignals) {
         if (!futuresPositionsCache.has(apiKey)) {
           prefetches.push(getFuturesPositionsAll(apiKey, apiSecret).then((data) => {
             futuresPositionsCache.set(apiKey, data);
+            const counts = userFetchCounts.get(userId);
+            if (counts) counts.positionRisk += 1;
           }));
         }
         if (!futuresOpenOrdersCache.has(apiKey)) {
           prefetches.push(getOpenFuturesOrdersAll(apiKey, apiSecret).then((data) => {
             futuresOpenOrdersCache.set(apiKey, data);
+            const counts = userFetchCounts.get(userId);
+            if (counts) counts.openOrders += 1;
           }));
         }
         if (!futuresAlgoOrdersCache.has(apiKey)) {
           prefetches.push(getOpenFuturesAlgoOrdersAll(apiKey, apiSecret).then((data) => {
             futuresAlgoOrdersCache.set(apiKey, data);
+            const counts = userFetchCounts.get(userId);
+            if (counts) counts.algoOrders += 1;
           }));
         }
       }
@@ -3324,17 +3347,29 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<ClosedSignal[]
         if (!spotOpenOrdersCache.has(apiKey)) {
           prefetches.push(getOpenSpotOrdersAll(apiKey, apiSecret).then((data) => {
             spotOpenOrdersCache.set(apiKey, data);
+            const counts = userFetchCounts.get(userId);
+            if (counts) counts.spotOpenOrders += 1;
           }));
         }
         if (!spotBalancesCache.has(apiKey)) {
           prefetches.push(getSpotBalancesAll(apiKey, apiSecret).then((data) => {
             spotBalancesCache.set(apiKey, data);
+            const counts = userFetchCounts.get(userId);
+            if (counts) counts.spotBalances += 1;
           }));
         }
       }
 
       await Promise.all(prefetches);
     }));
+
+    console.log(`👤 uniqueUsers=${userIds.length}`);
+    for (const userId of userIds) {
+      const counts = userFetchCounts.get(userId);
+      if (counts) {
+        console.log(`👤 user ${userId}: positionRisk=${counts.positionRisk} openOrders=${counts.openOrders} algoOrders=${counts.algoOrders} spotOpenOrders=${counts.spotOpenOrders} spotBalances=${counts.spotBalances}`);
+      }
+    }
 
     const alarmIds = Array.from(
       new Set(
@@ -3418,6 +3453,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<ClosedSignal[]
               console.warn(`⚠️ Failed to re-place TP/SL for ${futuresSymbol}:`, e);
             }
           }
+          console.log(`⏳ Skip reason ${futuresSymbol}: position=${hasOpen} openOrders=${hasOrders} algoOrders=${hasAlgoOrders}`);
           return true;
         }
 
@@ -3439,7 +3475,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<ClosedSignal[]
           hasBalance = !(qtyBelow && notionalBelow);
         }
         if (hasOpenOrders || hasBalance) {
-          console.log(`⏳ Spot still open for ${spotSymbol}: orders=${hasOpenOrders} balance=${hasBalance}`);
+          console.log(`⏳ Skip reason ${spotSymbol}: position=${hasBalance} openOrders=${hasOpenOrders} algoOrders=false`);
           return true;
         }
         return false;
