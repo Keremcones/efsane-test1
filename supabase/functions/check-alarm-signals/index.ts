@@ -153,6 +153,8 @@ const allTickerCache: Record<"spot" | "futures", { timestamp: number; prices: Re
   futures: { timestamp: 0, prices: {} },
 };
 const ALL_TICKER_TTL = 15000; // 15 seconds
+const markPriceCache: { timestamp: number; prices: Record<string, number> } = { timestamp: 0, prices: {} };
+const MARK_PRICE_TTL = 15000; // 15 seconds
 
 // =====================
 // Request throttling & queueing (prevent rate limiting)
@@ -404,6 +406,35 @@ async function getFuturesMarkPrice(symbol: string): Promise<number | null> {
     console.error("❌ mark price fetch error:", e);
     return null;
   }
+}
+
+async function getAllFuturesMarkPrices(forceFresh: boolean): Promise<Record<string, number>> {
+  const now = Date.now();
+  if (!forceFresh && (now - markPriceCache.timestamp) < MARK_PRICE_TTL) {
+    return markPriceCache.prices;
+  }
+  if (binanceBanUntil && now < binanceBanUntil) {
+    return markPriceCache.prices;
+  }
+
+  const url = "https://fapi.binance.com/fapi/v1/premiumIndex";
+  const res = await throttledFetch(url);
+  if (!res.ok) {
+    console.error("❌ mark price batch fetch failed:", await res.text());
+    return markPriceCache.prices;
+  }
+  const data = await res.json();
+  const prices = Array.isArray(data)
+    ? data.reduce((acc: Record<string, number>, row: any) => {
+        const sym = String(row?.symbol || "").toUpperCase();
+        const p = Number(row?.markPrice);
+        if (sym && Number.isFinite(p)) acc[sym] = p;
+        return acc;
+      }, {})
+    : {};
+  markPriceCache.timestamp = now;
+  markPriceCache.prices = prices;
+  return prices;
 }
 
 // =====================
@@ -3421,6 +3452,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
 
     const spotTickerMap = await getAllTickerPrices("spot", true);
     const futuresTickerMap = await getAllTickerPrices("futures", true);
+    const futuresMarkPriceMap = await getAllFuturesMarkPrices(true);
     const futuresPositionsCache = new Map<string, any[]>();
     const futuresOpenOrdersCache = new Map<string, any[]>();
     const futuresAlgoOrdersCache = new Map<string, any[]>();
@@ -3678,26 +3710,39 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
         let closeReason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "TP_HIT_NO_POSITION" | "SL_HIT_NO_POSITION" | "" = "";
         let closePrice: number | null = null;
 
-        const quickPrice = effectiveMarketType === "futures"
-          ? futuresTickerMap[String(symbol).toUpperCase()]
-          : spotTickerMap[String(symbol).toUpperCase()];
-        if (Number.isFinite(quickPrice)) {
+        const symbolKey = String(symbol).toUpperCase();
+        const lastPrice = effectiveMarketType === "futures"
+          ? futuresTickerMap[symbolKey]
+          : spotTickerMap[symbolKey];
+        let markPrice: number | undefined;
+        let priceForClose = lastPrice;
+        if (effectiveMarketType === "futures") {
+          markPrice = futuresMarkPriceMap[symbolKey];
+          if (Number.isFinite(markPrice)) {
+            priceForClose = markPrice;
+          } else if (Number.isFinite(lastPrice)) {
+            console.warn(`⚠️ markPrice unavailable, fallback to lastPrice for ${symbol}`);
+          }
+          console.log(`🔎 Close price source: ${JSON.stringify({ symbol, lastPrice, markPrice, priceUsed: "markPrice" })}`);
+        }
+
+        if (Number.isFinite(priceForClose)) {
           if (direction === "LONG") {
-            if (quickPrice >= takeProfit) {
+            if (priceForClose >= takeProfit) {
               shouldClose = true;
               closeReason = "TP_HIT";
               closePrice = takeProfit;
-            } else if (quickPrice <= stopLoss) {
+            } else if (priceForClose <= stopLoss) {
               shouldClose = true;
               closeReason = "SL_HIT";
               closePrice = stopLoss;
             }
           } else {
-            if (quickPrice <= takeProfit) {
+            if (priceForClose <= takeProfit) {
               shouldClose = true;
               closeReason = "TP_HIT";
               closePrice = takeProfit;
-            } else if (quickPrice >= stopLoss) {
+            } else if (priceForClose >= stopLoss) {
               shouldClose = true;
               closeReason = "SL_HIT";
               closePrice = stopLoss;
@@ -3737,11 +3782,15 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
           continue;
         }
 
-        const shouldRunHeavyChecks = !Number.isFinite(quickPrice)
-          || (Math.min(Math.abs(Number(quickPrice) - takeProfit), Math.abs(Number(quickPrice) - stopLoss))
-            / Math.max(1e-8, Math.abs(Number(quickPrice)))) * 100 <= CLOSE_NEAR_TARGET_PCT;
+        const shouldRunHeavyChecks = !Number.isFinite(priceForClose)
+          || (Math.min(Math.abs(Number(priceForClose) - takeProfit), Math.abs(Number(priceForClose) - stopLoss))
+            / Math.max(1e-8, Math.abs(Number(priceForClose)))) * 100 <= CLOSE_NEAR_TARGET_PCT;
 
         if (!shouldClose && !shouldRunHeavyChecks) {
+          continue;
+        }
+
+        if (effectiveMarketType === "futures" && !shouldClose) {
           continue;
         }
 
@@ -3793,8 +3842,9 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
             let barLow = lowCandidates.length ? Math.min(...lowCandidates) : NaN;
 
             let currentPrice = await getCurrentPriceFresh(symbol, effectiveMarketType);
-            if (!Number.isFinite(currentPrice) && effectiveMarketType === "futures") {
-              currentPrice = await getFuturesMarkPrice(symbol);
+            if (effectiveMarketType === "futures") {
+              const markFallback = futuresMarkPriceMap[String(symbol).toUpperCase()];
+              if (Number.isFinite(markFallback)) currentPrice = markFallback;
             }
             if (Number.isFinite(currentPrice)) {
               barHigh = Number.isFinite(barHigh) ? Math.max(barHigh, currentPrice) : currentPrice;
@@ -3854,8 +3904,9 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
             }
           } else {
             let currentPrice = await getCurrentPriceFresh(symbol, effectiveMarketType);
-            if (!Number.isFinite(currentPrice) && effectiveMarketType === "futures") {
-              currentPrice = await getFuturesMarkPrice(symbol);
+            if (effectiveMarketType === "futures") {
+              const markFallback = futuresMarkPriceMap[String(symbol).toUpperCase()];
+              if (Number.isFinite(markFallback)) currentPrice = markFallback;
             }
             if (Number.isFinite(currentPrice)) {
               if (direction === "LONG") {
