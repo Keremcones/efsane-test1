@@ -140,6 +140,11 @@ let binanceBanUntil = 0;
 // Cache prices to avoid redundant API calls
 const priceCache: Record<string, { price: number; timestamp: number }> = {};
 const PRICE_CACHE_TTL = 15000; // 15 seconds - reduce API pressure
+const allTickerCache: Record<"spot" | "futures", { timestamp: number; prices: Record<string, number> }> = {
+  spot: { timestamp: 0, prices: {} },
+  futures: { timestamp: 0, prices: {} },
+};
+const ALL_TICKER_TTL = 15000; // 15 seconds
 
 // =====================
 // Request throttling & queueing (prevent rate limiting)
@@ -313,6 +318,37 @@ async function getTickerPrice(symbol: string, marketType: "spot" | "futures", fo
   if (!Number.isFinite(p)) return null;
   priceCache[cacheKey] = { price: p, timestamp: now };
   return p;
+}
+
+async function getAllTickerPrices(marketType: "spot" | "futures", forceFresh: boolean): Promise<Record<string, number>> {
+  const now = Date.now();
+  const cached = allTickerCache[marketType];
+  if (!forceFresh && cached && (now - cached.timestamp) < ALL_TICKER_TTL) {
+    return cached.prices;
+  }
+
+  if (binanceBanUntil && now < binanceBanUntil) {
+    return cached?.prices || {};
+  }
+
+  const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
+  const url = `${base}/ticker/price`;
+  const res = await throttledFetch(url);
+  if (!res.ok) {
+    console.error(`❌ all ticker fetch failed for ${marketType}:`, await res.text());
+    return cached?.prices || {};
+  }
+  const data = await res.json();
+  const prices = Array.isArray(data)
+    ? data.reduce((acc: Record<string, number>, item: any) => {
+        const sym = String(item?.symbol || "").toUpperCase();
+        const p = Number(item?.price);
+        if (sym && Number.isFinite(p)) acc[sym] = p;
+        return acc;
+      }, {})
+    : {};
+  allTickerCache[marketType] = { timestamp: now, prices };
+  return prices;
 }
 
 async function getFuturesMarkPrice(symbol: string): Promise<number | null> {
@@ -922,6 +958,63 @@ async function hasOpenFuturesOrders(apiKey: string, apiSecret: string, symbol: s
 
   const data = await response.json();
   return Array.isArray(data) && data.length > 0;
+}
+
+async function getOpenFuturesOrdersAll(apiKey: string, apiSecret: string): Promise<any[]> {
+  const timestamp = Date.now();
+  const queryString = `timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v1/openOrders?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    console.error("❌ Binance futures open orders (all) failed:", await response.text());
+    return [];
+  }
+
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
+}
+
+async function getOpenSpotOrdersAll(apiKey: string, apiSecret: string): Promise<any[]> {
+  const timestamp = Date.now();
+  const queryString = `timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://api.binance.com/api/v3/openOrders?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    console.error("❌ Binance spot open orders (all) failed:", await response.text());
+    return [];
+  }
+
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
+}
+
+async function getFuturesPositionsAll(apiKey: string, apiSecret: string): Promise<any[]> {
+  const timestamp = Date.now();
+  const queryString = `timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v2/positionRisk?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    console.error("❌ Binance futures positionRisk (all) failed:", await response.text());
+    return [];
+  }
+
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
 }
 
 async function hasOpenFuturesAlgoOrders(apiKey: string, apiSecret: string, symbol: string): Promise<boolean> {
@@ -3121,6 +3214,12 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<ClosedSignal[]
       console.warn("⚠️ RUNEUSDT not found in active_signals list for close check");
     }
 
+    const spotTickerMap = await getAllTickerPrices("spot", false);
+    const futuresTickerMap = await getAllTickerPrices("futures", false);
+    const futuresPositionsCache = new Map<string, any[]>();
+    const futuresOpenOrdersCache = new Map<string, any[]>();
+    const spotOpenOrdersCache = new Map<string, any[]>();
+
     const alarmIds = Array.from(
       new Set(
         signals
@@ -3166,9 +3265,22 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<ClosedSignal[]
 
         if (marketType === "futures") {
           const futuresSymbol = String(signal?.symbol || "");
-          const hasOpen = await hasOpenFuturesPosition(userKeys.api_key, userKeys.api_secret, futuresSymbol);
+          let positions = futuresPositionsCache.get(userKeys.api_key);
+          if (!positions) {
+            positions = await getFuturesPositionsAll(userKeys.api_key, userKeys.api_secret);
+            futuresPositionsCache.set(userKeys.api_key, positions);
+          }
+          const upperSymbol = futuresSymbol.toUpperCase();
+          const position = positions.find((p: any) => String(p?.symbol || "").toUpperCase() === upperSymbol);
+          const positionAmt = Number(position?.positionAmt || 0);
+          const hasOpen = Math.abs(positionAmt) > 0;
           if (!hasOpen) return false;
-          const hasOrders = await hasOpenFuturesOrders(userKeys.api_key, userKeys.api_secret, futuresSymbol);
+          let openOrders = futuresOpenOrdersCache.get(userKeys.api_key);
+          if (!openOrders) {
+            openOrders = await getOpenFuturesOrdersAll(userKeys.api_key, userKeys.api_secret);
+            futuresOpenOrdersCache.set(userKeys.api_key, openOrders);
+          }
+          const hasOrders = openOrders.some((o: any) => String(o?.symbol || "").toUpperCase() === upperSymbol);
           const hasAlgoOrders = await hasOpenFuturesAlgoOrders(userKeys.api_key, userKeys.api_secret, futuresSymbol);
           if (!hasOrders && !hasAlgoOrders) {
             try {
@@ -3196,7 +3308,12 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<ClosedSignal[]
         }
 
         const spotSymbol = String(signal?.symbol || "");
-        const hasOpenOrders = await hasOpenSpotOrders(userKeys.api_key, userKeys.api_secret, spotSymbol);
+        let spotOrders = spotOpenOrdersCache.get(userKeys.api_key);
+        if (!spotOrders) {
+          spotOrders = await getOpenSpotOrdersAll(userKeys.api_key, userKeys.api_secret);
+          spotOpenOrdersCache.set(userKeys.api_key, spotOrders);
+        }
+        const hasOpenOrders = spotOrders.some((o: any) => String(o?.symbol || "").toUpperCase() === String(spotSymbol).toUpperCase());
         const hasBalance = await isSpotPositionOpen(userKeys.api_key, userKeys.api_secret, spotSymbol);
         if (hasOpenOrders || hasBalance) {
           console.log(`⏳ Spot still open for ${spotSymbol}: orders=${hasOpenOrders} balance=${hasBalance}`);
@@ -3247,7 +3364,9 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<ClosedSignal[]
         let closeReason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "" = "";
         let closePrice: number | null = null;
 
-        const quickPrice = await getTickerPrice(symbol, effectiveMarketType, false);
+        const quickPrice = effectiveMarketType === "futures"
+          ? futuresTickerMap[String(symbol).toUpperCase()]
+          : spotTickerMap[String(symbol).toUpperCase()];
         if (Number.isFinite(quickPrice)) {
           if (direction === "LONG") {
             if (quickPrice >= takeProfit) {
