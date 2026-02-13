@@ -2204,6 +2204,7 @@
         let supabaseClient = null;
         let alarmSystem = null;
         let activeSignalsSubscription = null;
+        let activeSignalsSubscriptionUserId = null;
         let alarmSignalsRefreshTimer = null;
         
         const { createClient } = window.supabase;
@@ -2387,12 +2388,17 @@
             console.log('Real-time subscription: localStorage + Supabase pull mode kullanılıyor');
         }
 
-        function subscribeToActiveSignalChanges() {
+        async function subscribeToActiveSignalChanges() {
             if (!supabaseClient || !currentUser?.id || !window.REALTIME_ENABLED) return;
-            stopActiveSignalChanges();
+
+            if (activeSignalsSubscription && activeSignalsSubscriptionUserId === currentUser.id) {
+                return;
+            }
+
+            await stopActiveSignalChanges();
 
             activeSignalsSubscription = supabaseClient
-                .channel('active_signals_changes')
+                .channel(`active_signals_changes_${currentUser.id}`)
                 .on('postgres_changes', {
                     event: '*',
                     schema: 'public',
@@ -2405,12 +2411,19 @@
                 .subscribe((status) => {
                     console.log('📡 Active signals subscription status:', status);
                 });
+
+            activeSignalsSubscriptionUserId = currentUser.id;
         }
 
-        function stopActiveSignalChanges() {
+        async function stopActiveSignalChanges() {
             if (activeSignalsSubscription) {
-                supabaseClient.removeChannel(activeSignalsSubscription);
+                try {
+                    await supabaseClient.removeChannel(activeSignalsSubscription);
+                } catch (e) {
+                    console.warn('Realtime channel cleanup warning:', e?.message || e);
+                }
                 activeSignalsSubscription = null;
+                activeSignalsSubscriptionUserId = null;
             }
         }
 
