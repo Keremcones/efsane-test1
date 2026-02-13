@@ -3215,9 +3215,23 @@ async function checkAndTriggerUserAlarms(
         const direction = detectedSignal?.direction || "LONG";
         const directionTR = direction === "LONG" ? "🟢 LONG" : "🔴 SHORT";
 
-        const entryPrice = Number.isFinite(triggerPrice)
-          ? triggerPrice
-          : fallbackTrigger;
+        const computedEntryPrice = Number(detectedSignal?.entry_price);
+        const entryPrice = Number.isFinite(computedEntryPrice)
+          ? computedEntryPrice
+          : (Number.isFinite(triggerPrice)
+            ? Number(triggerPrice)
+            : (Number.isFinite(fallbackTrigger) ? Number(fallbackTrigger) : NaN));
+
+        if (!Number.isFinite(entryPrice) || entryPrice <= 0) {
+          console.warn(`⚠️ Skipping active_signals insert for ${symbol}: invalid entry_price`, {
+            triggerPrice,
+            fallbackTrigger,
+            computedEntryPrice,
+            alarmId: alarm.id,
+            userId: alarm.user_id
+          });
+          return;
+        }
         
         const decimals = alarmPricePrecision;
         
