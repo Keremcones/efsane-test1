@@ -1072,16 +1072,8 @@
             const container = document.getElementById('backtestResults');
             if (!container) return;
 
-            if (window.BINANCE_BLOCKED === true) {
-                container.innerHTML = '<div class="empty-state" id="winnersEmpty">Binance verisine erişilemiyor (CORS/451). VPN deneyin veya daha sonra tekrar deneyin.</div>';
-                return;
-            }
-
             if (!list.length) {
-                const blocked = window.BINANCE_BLOCKED === true;
-                const message = blocked
-                    ? 'Binance verisine erişilemiyor (CORS/451). VPN deneyin veya daha sonra tekrar deneyin.'
-                    : 'Bu ayarlarda sonuç bulunamadı.';
+                const message = 'Bu ayarlarda sonuç bulunamadı.';
                 container.innerHTML = `<div class="empty-state" id="winnersEmpty">${message}</div>`;
                 return;
             }
