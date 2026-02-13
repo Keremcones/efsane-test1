@@ -17,7 +17,7 @@
     ];
     const SPOT_PATH = '/api/v3';
     const FUTURES_PATH = '/fapi/v1';
-    const PROXY_BASES = [];
+    const PROXY_BASES = ['/api/cors-proxy?url='];
     const SPOT_BASE_KEY = 'binanceSpotBase';
     const FUTURES_BASE_KEY = 'binanceFuturesBase';
     const FORCE_PROXY_ALWAYS = false;
@@ -55,7 +55,7 @@
     }
 
     function shouldForceProxy() {
-        return FORCE_PROXY_ALWAYS;
+        return FORCE_PROXY_ALWAYS || window.BINANCE_BLOCKED === true;
     }
 
     function getCachedBase(storageKey) {
@@ -214,6 +214,11 @@
                         const message = String(error && error.message ? error.message : '');
                         if (error?.name === 'TypeError' || message.includes('Failed to fetch') || message.includes('NetworkError')) {
                             setBinanceBlocked(true);
+                            if (allowForceProxy) {
+                                const proxyError = new Error('force_proxy');
+                                proxyError.forceProxy = true;
+                                throw proxyError;
+                            }
                         }
                     }
                     if (error && error.forceProxy) {
