@@ -5476,9 +5476,14 @@
                 createdAt: new Date().toISOString()
             };
 
-            await alarmSystem.addAlarm(alarm);
-            loadAlarms();
-            showUpdateToast(autoTradeEnabled ? 'Alarm kuruldu! Otomatik trade aktif.' : 'Alarm kuruldu! Telegram\'da bildirim alacaksınız', 'success');
+            try {
+                await alarmSystem.addAlarm(alarm);
+                loadAlarms();
+                showUpdateToast(autoTradeEnabled ? 'Alarm kuruldu! Otomatik trade aktif.' : 'Alarm kuruldu! Telegram\'da bildirim alacaksınız', 'success');
+            } catch (error) {
+                const message = error?.message || 'Alarm oluşturulamadı.';
+                showUpdateToast(message, 'warning');
+            }
         }
 
         async function updateAutoTradeNotice() {

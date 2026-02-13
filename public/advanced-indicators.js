@@ -1871,6 +1871,71 @@ class AlarmSystem {
             this.startRealtimeSubscription();
         }
     }
+
+    getLocalActiveAlarmCount() {
+        return this.alarms.filter(alarm => alarm.active !== false).length;
+    }
+
+    async getAlarmLimitInfo() {
+        const fallback = {
+            limit: null,
+            activeCount: this.getLocalActiveAlarmCount()
+        };
+
+        if (!this.supabase || !this.userId) {
+            return fallback;
+        }
+
+        try {
+            const { data: profile, error: profileError } = await this.supabase
+                .from('user_profiles')
+                .select('membership_type, is_admin, max_alarm_count')
+                .eq('id', this.userId)
+                .maybeSingle();
+
+            if (profileError) {
+                console.warn('⚠️ Alarm limiti profili okunamadı:', profileError.message || profileError);
+                return fallback;
+            }
+
+            const isAdmin = !!profile?.is_admin;
+            const rawOverride = Number(profile?.max_alarm_count);
+            const hasOverride = Number.isInteger(rawOverride) && rawOverride > 0;
+            const membershipType = String(profile?.membership_type || 'standard').toLowerCase();
+
+            let limit = null;
+            if (!isAdmin) {
+                if (hasOverride) {
+                    limit = rawOverride;
+                } else if (membershipType === 'plus' || membershipType === 'premium') {
+                    limit = 3;
+                }
+            }
+
+            const { count, error: countError } = await this.supabase
+                .from('alarms')
+                .select('id', { count: 'exact', head: true })
+                .eq('user_id', this.userId)
+                .eq('type', 'user_alarm')
+                .eq('is_active', true);
+
+            if (countError) {
+                console.warn('⚠️ Aktif alarm sayısı okunamadı:', countError.message || countError);
+                return {
+                    limit,
+                    activeCount: fallback.activeCount
+                };
+            }
+
+            return {
+                limit,
+                activeCount: Number(count || 0)
+            };
+        } catch (error) {
+            console.warn('⚠️ Alarm limit kontrolü hata verdi:', error);
+            return fallback;
+        }
+    }
     
     async addAlarm(symbolOrAlarm, targetPrice, condition, type = 'price') {
         // Eğer ilk parametre object ise (yeni format)
@@ -1897,6 +1962,11 @@ class AlarmSystem {
                 triggered: false,
                 triggeredAt: null
             };
+        }
+
+        const { limit, activeCount } = await this.getAlarmLimitInfo();
+        if (Number.isInteger(limit) && activeCount >= limit) {
+            throw new Error(`Maksimum aktif alarm limitiniz doldu (${limit}).`);
         }
         
         this.alarms.push(alarm);

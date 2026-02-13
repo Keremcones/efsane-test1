@@ -1017,6 +1017,17 @@
             flex-wrap: wrap;
         }
 
+        .admin-limit-input {
+            width: 80px;
+            padding: 6px 8px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
         .admin-role-chip {
             display: inline-flex;
             align-items: center;
@@ -2024,7 +2035,7 @@
 
             const { data: users, error } = await supabaseClient
                 .from('user_profiles')
-                .select('id, email, membership_type, is_admin')
+                .select('id, email, membership_type, is_admin, max_alarm_count')
                 .order('email', { ascending: true });
 
             if (error) {
@@ -2063,6 +2074,10 @@
                     const role = u.is_admin
                         ? 'admin'
                         : (u.membership_type === 'premium' ? 'premium' : (u.membership_type === 'plus' ? 'plus' : 'free'));
+                    const hasConfiguredLimit = Number.isInteger(Number(u.max_alarm_count)) && Number(u.max_alarm_count) > 0;
+                    const defaultLimit = (u.membership_type === 'plus' || u.membership_type === 'premium') ? 3 : '';
+                    const alarmLimitValue = hasConfiguredLimit ? Number(u.max_alarm_count) : defaultLimit;
+                    const alarmLimitDisabled = u.is_admin || (u.membership_type !== 'plus' && u.membership_type !== 'premium');
                     return `
                         <div class="admin-user-row" data-user-id="${u.id}">
                             <div class="admin-user-email">${u.email || u.id}</div>
@@ -2078,6 +2093,17 @@
                                 </label>
                                 <label class="admin-role-chip">
                                     <input type="radio" name="role-${u.id}" data-role="admin" ${role === 'admin' ? 'checked' : ''} /> Admin
+                                </label>
+                                <label class="admin-role-chip">
+                                    Alarm Limiti
+                                    <input
+                                        type="number"
+                                        class="admin-limit-input"
+                                        data-max-alarm-count="1"
+                                        min="1"
+                                        value="${alarmLimitValue}"
+                                        ${alarmLimitDisabled ? 'disabled' : ''}
+                                    />
                                 </label>
                             </div>
                         </div>
@@ -2104,7 +2130,7 @@
                 };
             }
 
-            listEl.addEventListener('change', async (event) => {
+            listEl.onchange = async (event) => {
                 const target = event.target;
                 if (!(target instanceof HTMLInputElement)) return;
                 const row = target.closest('.admin-user-row');
@@ -2112,17 +2138,46 @@
                 const userId = row.getAttribute('data-user-id');
                 if (!userId) return;
 
+                if (target.dataset.maxAlarmCount === '1') {
+                    const parsedLimit = Number.parseInt(target.value, 10);
+                    if (!Number.isInteger(parsedLimit) || parsedLimit < 1) {
+                        showNotification('Alarm limiti en az 1 olmalı', 'error');
+                        return;
+                    }
+
+                    const { error: limitError } = await supabaseClient
+                        .from('user_profiles')
+                        .update({
+                            max_alarm_count: parsedLimit,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('id', userId);
+
+                    if (limitError) {
+                        showNotification('Alarm limiti güncellenemedi: ' + limitError.message, 'error');
+                    } else {
+                        showNotification('Alarm limiti güncellendi', 'success');
+                    }
+                    return;
+                }
+
                 const selectedRole = target.dataset.role || 'free';
                 const membershipType = selectedRole === 'premium'
                     ? 'premium'
                     : (selectedRole === 'plus' ? 'plus' : 'standard');
                 const isAdmin = selectedRole === 'admin';
+                const existingLimitInput = row.querySelector('input[data-max-alarm-count="1"]');
+                const existingLimit = Number.parseInt(existingLimitInput?.value || '', 10);
+                const maxAlarmCount = (selectedRole === 'plus' || selectedRole === 'premium')
+                    ? (Number.isInteger(existingLimit) && existingLimit > 0 ? existingLimit : 3)
+                    : null;
 
                 const { error: updateError } = await supabaseClient
                     .from('user_profiles')
                     .update({
                         membership_type: membershipType,
                         is_admin: isAdmin,
+                        max_alarm_count: maxAlarmCount,
                         updated_at: new Date().toISOString()
                     })
                     .eq('id', userId);
@@ -2131,16 +2186,15 @@
                     showNotification('Güncelleme başarısız: ' + updateError.message, 'error');
                 } else {
                     showNotification('Kullanıcı rolü güncellendi', 'success');
+                    await loadAdminUserList();
                     if (currentUser && userId === currentUser.id) {
                         const adminSection = document.getElementById('adminUsersSection');
-                        if (isAdmin) {
-                            await loadAdminUserList();
-                        } else if (adminSection) {
+                        if (!isAdmin && adminSection) {
                             adminSection.style.display = 'none';
                         }
                     }
                 }
-            }, { passive: true });
+            };
         }
 
         // Profil Ayarlarını Kaydet
