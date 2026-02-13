@@ -1909,6 +1909,8 @@ class AlarmSystem {
                     limit = rawOverride;
                 } else if (membershipType === 'plus' || membershipType === 'premium') {
                     limit = 3;
+                } else {
+                    limit = 0;
                 }
             }
 

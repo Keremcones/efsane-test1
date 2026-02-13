@@ -2076,7 +2076,7 @@
                         ? 'admin'
                         : (normalizedMembership === 'premium' ? 'premium' : (normalizedMembership === 'plus' ? 'plus' : 'free'));
                     const hasConfiguredLimit = Number.isInteger(Number(u.max_alarm_count)) && Number(u.max_alarm_count) > 0;
-                    const defaultLimit = 3;
+                    const defaultLimit = (normalizedMembership === 'plus' || normalizedMembership === 'premium') ? 3 : 0;
                     const alarmLimitValue = hasConfiguredLimit ? Number(u.max_alarm_count) : defaultLimit;
                     const alarmLimitDisabled = u.is_admin || (normalizedMembership !== 'plus' && normalizedMembership !== 'premium');
                     return `
