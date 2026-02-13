@@ -242,6 +242,7 @@ const HARD_TIMEOUT_MS = 25000; // emergency hard stop
 const MAX_ALARMS_PER_CRON = 30; // hard cap per cron
 const MAX_CLOSE_CHECKS_PER_CRON = 10; // emergency close-only cap
 const DISABLE_ALARM_PROCESSING = true; // temporary: close-only mode
+const CLOSE_NEAR_TARGET_PCT = 0.3; // only run heavy checks when near TP/SL
 
 const symbolInfoCache: Record<string, { timestamp: number; data: any }> = {};
 const SYMBOL_INFO_TTL = 10 * 60 * 1000;
@@ -987,7 +988,7 @@ async function getOpenFuturesOrdersAll(apiKey: string, apiSecret: string): Promi
   const signature = await createBinanceSignature(queryString, apiSecret);
   const url = `https://fapi.binance.com/fapi/v1/openOrders?${queryString}&signature=${signature}`;
 
-  const response = await fetch(url, {
+  const response = await throttledFetch(url, {
     headers: { "X-MBX-APIKEY": apiKey }
   });
 
@@ -1006,7 +1007,7 @@ async function getOpenSpotOrdersAll(apiKey: string, apiSecret: string): Promise<
   const signature = await createBinanceSignature(queryString, apiSecret);
   const url = `https://api.binance.com/api/v3/openOrders?${queryString}&signature=${signature}`;
 
-  const response = await fetch(url, {
+  const response = await throttledFetch(url, {
     headers: { "X-MBX-APIKEY": apiKey }
   });
 
@@ -1025,7 +1026,7 @@ async function getFuturesPositionsAll(apiKey: string, apiSecret: string): Promis
   const signature = await createBinanceSignature(queryString, apiSecret);
   const url = `https://fapi.binance.com/fapi/v2/positionRisk?${queryString}&signature=${signature}`;
 
-  const response = await fetch(url, {
+  const response = await throttledFetch(url, {
     headers: { "X-MBX-APIKEY": apiKey }
   });
 
@@ -1044,7 +1045,7 @@ async function hasOpenFuturesAlgoOrders(apiKey: string, apiSecret: string, symbo
   const signature = await createBinanceSignature(queryString, apiSecret);
   const url = `https://fapi.binance.com/fapi/v1/algoOpenOrders?${queryString}&signature=${signature}`;
 
-  const response = await fetch(url, {
+  const response = await throttledFetch(url, {
     headers: { "X-MBX-APIKEY": apiKey }
   });
 
@@ -1063,7 +1064,7 @@ async function hasOpenSpotOrders(apiKey: string, apiSecret: string, symbol: stri
   const signature = await createBinanceSignature(queryString, apiSecret);
   const url = `https://api.binance.com/api/v3/openOrders?${queryString}&signature=${signature}`;
 
-  const response = await fetch(url, {
+  const response = await throttledFetch(url, {
     headers: { "X-MBX-APIKEY": apiKey }
   });
 
@@ -1093,7 +1094,7 @@ async function getSpotAssetBalance(apiKey: string, apiSecret: string, asset: str
   const signature = await createBinanceSignature(queryString, apiSecret);
   const url = `https://api.binance.com/api/v3/account?${queryString}&signature=${signature}`;
 
-  const response = await fetch(url, {
+  const response = await throttledFetch(url, {
     headers: { "X-MBX-APIKEY": apiKey }
   });
 
@@ -1125,6 +1126,51 @@ async function isSpotPositionOpen(apiKey: string, apiSecret: string, symbol: str
   if (qtyBelow && notionalBelow) return false;
 
   return true;
+}
+
+async function getOpenFuturesAlgoOrdersAll(apiKey: string, apiSecret: string): Promise<any[]> {
+  const timestamp = Date.now();
+  const queryString = `timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v1/algoOpenOrders?${queryString}&signature=${signature}`;
+
+  const response = await throttledFetch(url, {
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    console.warn("⚠️ Binance futures algo orders (all) failed:", await response.text());
+    return [];
+  }
+
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
+}
+
+async function getSpotBalancesAll(apiKey: string, apiSecret: string): Promise<Record<string, number>> {
+  const timestamp = Date.now();
+  const queryString = `timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://api.binance.com/api/v3/account?${queryString}&signature=${signature}`;
+
+  const response = await throttledFetch(url, {
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    console.error("❌ Binance spot balances (all) failed:", await response.text());
+    return {};
+  }
+
+  const data = await response.json();
+  const balances = Array.isArray(data?.balances) ? data.balances : [];
+  return balances.reduce((acc: Record<string, number>, row: any) => {
+    const asset = String(row?.asset || "").toUpperCase();
+    const free = Number(row?.free || 0);
+    const locked = Number(row?.locked || 0);
+    if (asset) acc[asset] = free + locked;
+    return acc;
+  }, {});
 }
 
 type UserBinanceKeys = {
@@ -3235,11 +3281,60 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<ClosedSignal[]
       console.warn("⚠️ RUNEUSDT not found in active_signals list for close check");
     }
 
-    const spotTickerMap = await getAllTickerPrices("spot", false);
-    const futuresTickerMap = await getAllTickerPrices("futures", false);
+    const spotTickerMap = await getAllTickerPrices("spot", true);
+    const futuresTickerMap = await getAllTickerPrices("futures", true);
     const futuresPositionsCache = new Map<string, any[]>();
     const futuresOpenOrdersCache = new Map<string, any[]>();
+    const futuresAlgoOrdersCache = new Map<string, any[]>();
     const spotOpenOrdersCache = new Map<string, any[]>();
+    const spotBalancesCache = new Map<string, Record<string, number>>();
+    const userKeysMap = new Map<string, UserBinanceKeys>();
+
+    const userIds = Array.from(new Set(signals.map(signal => String(signal?.user_id || "")).filter(Boolean)));
+    const hasFuturesSignals = signals.some(signal => normalizeMarketType(signal.market_type || signal.marketType || signal.market) === "futures");
+    const hasSpotSignals = signals.some(signal => normalizeMarketType(signal.market_type || signal.marketType || signal.market) === "spot");
+
+    await Promise.all(userIds.map(async (userId) => {
+      const keys = await getUserBinanceSettings(userId);
+      if (!keys?.api_key || !keys?.api_secret) return;
+      userKeysMap.set(userId, keys);
+      const apiKey = keys.api_key;
+      const apiSecret = keys.api_secret;
+      const prefetches: Promise<void>[] = [];
+
+      if (hasFuturesSignals) {
+        if (!futuresPositionsCache.has(apiKey)) {
+          prefetches.push(getFuturesPositionsAll(apiKey, apiSecret).then((data) => {
+            futuresPositionsCache.set(apiKey, data);
+          }));
+        }
+        if (!futuresOpenOrdersCache.has(apiKey)) {
+          prefetches.push(getOpenFuturesOrdersAll(apiKey, apiSecret).then((data) => {
+            futuresOpenOrdersCache.set(apiKey, data);
+          }));
+        }
+        if (!futuresAlgoOrdersCache.has(apiKey)) {
+          prefetches.push(getOpenFuturesAlgoOrdersAll(apiKey, apiSecret).then((data) => {
+            futuresAlgoOrdersCache.set(apiKey, data);
+          }));
+        }
+      }
+
+      if (hasSpotSignals) {
+        if (!spotOpenOrdersCache.has(apiKey)) {
+          prefetches.push(getOpenSpotOrdersAll(apiKey, apiSecret).then((data) => {
+            spotOpenOrdersCache.set(apiKey, data);
+          }));
+        }
+        if (!spotBalancesCache.has(apiKey)) {
+          prefetches.push(getSpotBalancesAll(apiKey, apiSecret).then((data) => {
+            spotBalancesCache.set(apiKey, data);
+          }));
+        }
+      }
+
+      await Promise.all(prefetches);
+    }));
 
     const alarmIds = Array.from(
       new Set(
@@ -3281,28 +3376,26 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<ClosedSignal[]
         const autoTradeEnabled = await resolveAutoTradeEnabled(alarmPayload, marketType);
         if (!autoTradeEnabled) return false;
 
-        const userKeys = await getUserBinanceSettings(String(signal?.user_id || ""));
+        const userId = String(signal?.user_id || "");
+        let userKeys = userKeysMap.get(userId);
+        if (!userKeys) {
+          userKeys = await getUserBinanceSettings(userId) || undefined;
+          if (userKeys) userKeysMap.set(userId, userKeys);
+        }
         if (!userKeys?.api_key || !userKeys?.api_secret) return false;
 
         if (marketType === "futures") {
           const futuresSymbol = String(signal?.symbol || "");
-          let positions = futuresPositionsCache.get(userKeys.api_key);
-          if (!positions) {
-            positions = await getFuturesPositionsAll(userKeys.api_key, userKeys.api_secret);
-            futuresPositionsCache.set(userKeys.api_key, positions);
-          }
+          let positions = futuresPositionsCache.get(userKeys.api_key) || [];
           const upperSymbol = futuresSymbol.toUpperCase();
           const position = positions.find((p: any) => String(p?.symbol || "").toUpperCase() === upperSymbol);
           const positionAmt = Number(position?.positionAmt || 0);
           const hasOpen = Math.abs(positionAmt) > 0;
           if (!hasOpen) return false;
-          let openOrders = futuresOpenOrdersCache.get(userKeys.api_key);
-          if (!openOrders) {
-            openOrders = await getOpenFuturesOrdersAll(userKeys.api_key, userKeys.api_secret);
-            futuresOpenOrdersCache.set(userKeys.api_key, openOrders);
-          }
+          let openOrders = futuresOpenOrdersCache.get(userKeys.api_key) || [];
           const hasOrders = openOrders.some((o: any) => String(o?.symbol || "").toUpperCase() === upperSymbol);
-          const hasAlgoOrders = await hasOpenFuturesAlgoOrders(userKeys.api_key, userKeys.api_secret, futuresSymbol);
+          let algoOrders = futuresAlgoOrdersCache.get(userKeys.api_key) || [];
+          const hasAlgoOrders = algoOrders.some((o: any) => String(o?.symbol || "").toUpperCase() === upperSymbol);
           if (!hasOrders && !hasAlgoOrders) {
             try {
               const symbolInfo = await getSymbolInfo(futuresSymbol, "futures");
@@ -3329,13 +3422,22 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<ClosedSignal[]
         }
 
         const spotSymbol = String(signal?.symbol || "");
-        let spotOrders = spotOpenOrdersCache.get(userKeys.api_key);
-        if (!spotOrders) {
-          spotOrders = await getOpenSpotOrdersAll(userKeys.api_key, userKeys.api_secret);
-          spotOpenOrdersCache.set(userKeys.api_key, spotOrders);
-        }
+        let spotOrders = spotOpenOrdersCache.get(userKeys.api_key) || [];
         const hasOpenOrders = spotOrders.some((o: any) => String(o?.symbol || "").toUpperCase() === String(spotSymbol).toUpperCase());
-        const hasBalance = await isSpotPositionOpen(userKeys.api_key, userKeys.api_secret, spotSymbol);
+        const baseAsset = resolveSpotBaseAsset(spotSymbol);
+        const balances = spotBalancesCache.get(userKeys.api_key) || {};
+        const balance = Number(balances[String(baseAsset).toUpperCase()] || 0);
+        let hasBalance = false;
+        if (Number.isFinite(balance) && balance > 0) {
+          const info = await getSymbolInfo(spotSymbol, "spot");
+          const minQty = Number(info?.minQty || 0);
+          const price = spotTickerMap[String(spotSymbol).toUpperCase()];
+          const notional = Number.isFinite(price) ? price * balance : NaN;
+          const minNotional = 5;
+          const qtyBelow = Number.isFinite(minQty) && minQty > 0 ? balance < minQty : false;
+          const notionalBelow = Number.isFinite(notional) ? notional < minNotional : true;
+          hasBalance = !(qtyBelow && notionalBelow);
+        }
         if (hasOpenOrders || hasBalance) {
           console.log(`⏳ Spot still open for ${spotSymbol}: orders=${hasOpenOrders} balance=${hasBalance}`);
           return true;
@@ -3441,6 +3543,14 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<ClosedSignal[]
             market_type: signal.market_type || signal.marketType || signal.market,
             profitLoss: 0,
           });
+          continue;
+        }
+
+        const shouldRunHeavyChecks = !Number.isFinite(quickPrice)
+          || (Math.min(Math.abs(Number(quickPrice) - takeProfit), Math.abs(Number(quickPrice) - stopLoss))
+            / Math.max(1e-8, Math.abs(Number(quickPrice)))) * 100 <= CLOSE_NEAR_TARGET_PCT;
+
+        if (!shouldClose && !shouldRunHeavyChecks) {
           continue;
         }
 
