@@ -20,7 +20,7 @@
     const PROXY_BASES = ['/api/cors-proxy?url='];
     const SPOT_BASE_KEY = 'binanceSpotBase';
     const FUTURES_BASE_KEY = 'binanceFuturesBase';
-    const FORCE_PROXY_ALWAYS = false;
+    const FORCE_PROXY_ALWAYS = true;
 
     const statusState = {
         mode: 'offline',
@@ -163,17 +163,26 @@
         }
     }
 
-    function withJsonAccept(options) {
-        const headers = new Headers(options?.headers || {});
+    function sanitizeRequestOptions(options) {
+        const sanitized = { ...(options || {}) };
+        const headers = new Headers(sanitized.headers || {});
+        headers.delete('cache-control');
+        headers.delete('pragma');
+        headers.delete('expires');
+        headers.delete('user-agent');
         if (!headers.has('Accept')) {
             headers.set('Accept', 'application/json');
         }
-        return { ...options, headers };
+        sanitized.headers = headers;
+        if ('cache' in sanitized) {
+            delete sanitized.cache;
+        }
+        return sanitized;
     }
 
     async function tryUrls(urls, options, retries, timeoutMs, allowForceProxy) {
         let lastError = null;
-        const requestOptions = withJsonAccept(options || {});
+        const requestOptions = sanitizeRequestOptions(options || {});
         for (const url of urls) {
             const checkUrl = extractTargetUrl(url);
             for (let attempt = 0; attempt < retries; attempt++) {
