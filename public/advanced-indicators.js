@@ -1130,7 +1130,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
     try {
         // Son 999 kapanmış bar'ı al with retry & rate limiting
         const klinesPath = `/klines?symbol=${symbol}&interval=${timeframe}&limit=${neededKlines}`;
-        const response = await binanceFetchPath(marketType, klinesPath, {}, { retries: 3, timeoutMs: 30000 });
+        const response = await binanceFetchPath(marketType, klinesPath, {}, { retries: 1, timeoutMs: 12000 });
         const klines = await response.json();
         const trimmedKlines = Array.isArray(klines) ? klines.slice(-1000) : [];
         const serverNowMs = await resolveBinanceServerTimeMs(marketType);

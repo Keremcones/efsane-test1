@@ -211,6 +211,9 @@
                     if (res.status === 451 || res.status === 403) {
                         setBinanceBlocked(true);
                     }
+                    if (res.status === 451 && url.includes('/api/cors-proxy?url=')) {
+                        throw new Error('HTTP 451');
+                    }
                     if (allowForceProxy && shouldForceProxyStatus(res.status)) {
                         const error = new Error('force_proxy');
                         error.forceProxy = true;
