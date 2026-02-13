@@ -3289,7 +3289,7 @@ type ClosedSignal = {
   id: string | number;
   symbol: string;
   direction: "LONG" | "SHORT";
-  close_reason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "NOT_FILLED";
+  close_reason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "NOT_FILLED" | "TP_HIT_NO_POSITION" | "SL_HIT_NO_POSITION";
   price: number;
   user_id: string;
   profitLoss?: number;
@@ -3494,6 +3494,36 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
       }
     }
 
+    const getFuturesCloseState = async (
+      signal: any,
+      alarmData: { user_id: string; auto_trade_enabled?: boolean | null } | null
+    ): Promise<{ position: boolean; openOrders: boolean; algoOrders: boolean; canCheck: boolean }> => {
+      if (binanceBanUntil && Date.now() < binanceBanUntil) {
+        return { position: false, openOrders: false, algoOrders: false, canCheck: false };
+      }
+      const alarmPayload = alarmData || { user_id: String(signal?.user_id || "") };
+      const autoTradeEnabled = await resolveAutoTradeEnabled(alarmPayload, "futures");
+      if (!autoTradeEnabled) return { position: false, openOrders: false, algoOrders: false, canCheck: false };
+
+      const userId = String(signal?.user_id || "");
+      const userKeys = userKeysMap.get(userId);
+      if (!userKeys?.api_key) return { position: false, openOrders: false, algoOrders: false, canCheck: false };
+
+      const futuresSymbol = String(signal?.symbol || "");
+      const upperSymbol = futuresSymbol.toUpperCase();
+      const positions = futuresPositionsCache.get(userKeys.api_key) || [];
+      const positionRow = positions.find((p: any) => String(p?.symbol || "").toUpperCase() === upperSymbol);
+      const positionAmt = Number(positionRow?.positionAmt || 0);
+      const position = Math.abs(positionAmt) > 0;
+
+      const openOrders = (futuresOpenOrdersCache.get(userKeys.api_key) || [])
+        .some((o: any) => String(o?.symbol || "").toUpperCase() === upperSymbol);
+      const algoOrders = (futuresAlgoOrdersCache.get(userKeys.api_key) || [])
+        .some((o: any) => String(o?.symbol || "").toUpperCase() === upperSymbol);
+
+      return { position, openOrders, algoOrders, canCheck: true };
+    };
+
     const alarmIds = Array.from(
       new Set(
         signals
@@ -3645,7 +3675,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
         let effectiveMarketType: "spot" | "futures" = marketType;
 
         let shouldClose = false;
-        let closeReason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "" = "";
+        let closeReason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "TP_HIT_NO_POSITION" | "SL_HIT_NO_POSITION" | "" = "";
         let closePrice: number | null = null;
 
         const quickPrice = effectiveMarketType === "futures"
@@ -3854,6 +3884,18 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
         }
 
         if (!shouldClose || !closeReason) continue;
+
+        if (effectiveMarketType === "futures" && (closeReason === "TP_HIT" || closeReason === "SL_HIT")) {
+          const state = await getFuturesCloseState(signal, alarmData);
+          if (state.canCheck) {
+            const tpHit = closeReason === "TP_HIT";
+            const slHit = closeReason === "SL_HIT";
+            console.log(`🧩 TP/SL reconciliation ${JSON.stringify({ symbol, tpHit, slHit, position: state.position, openOrders: state.openOrders, algoOrders: state.algoOrders })}`);
+            if ((tpHit || slHit) && !state.position && !state.openOrders && !state.algoOrders) {
+              closeReason = tpHit ? "TP_HIT_NO_POSITION" : "SL_HIT_NO_POSITION";
+            }
+          }
+        }
 
         const skipClose = await shouldSkipCloseForBinance(signal, alarmData, effectiveMarketType);
         if (skipClose) {
