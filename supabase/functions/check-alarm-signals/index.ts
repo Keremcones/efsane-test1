@@ -3957,7 +3957,6 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
 
         if (!shouldClose || !closeReason) continue;
 
-        const createdAtMs = Date.parse(String(signal.created_at || ""));
         const ageSeconds = Number.isFinite(createdAtMs)
           ? Math.max(0, Math.floor((Date.now() - createdAtMs) / 1000))
           : 0;
