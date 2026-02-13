@@ -34,6 +34,50 @@ const BINANCE_FUTURES_API_BASE = "https://fapi.binance.com/fapi/v1";
 // Exchange info cache (tick size / price precision)
 const exchangeInfoCache: Record<string, { timestamp: number; symbols: Record<string, any> }> = {};
 const EXCHANGE_INFO_TTL = 10 * 60 * 1000; // 10 minutes
+const exchangeInfoInFlight: Record<"spot" | "futures", Promise<void> | null> = { spot: null, futures: null };
+let requestMetrics = { klinesFetched: 0, klinesSkippedByProximity: 0, exchangeInfoFetches: 0 };
+
+async function ensureExchangeInfo(marketType: "spot" | "futures"): Promise<void> {
+  const cacheKey = marketType;
+  const now = Date.now();
+  const cached = exchangeInfoCache[cacheKey];
+  if (cached && (now - cached.timestamp) < EXCHANGE_INFO_TTL) {
+    return;
+  }
+  if (binanceBanUntil && now < binanceBanUntil) {
+    return;
+  }
+  if (exchangeInfoInFlight[cacheKey]) {
+    await exchangeInfoInFlight[cacheKey];
+    return;
+  }
+
+  exchangeInfoInFlight[cacheKey] = (async () => {
+    requestMetrics.exchangeInfoFetches += 1;
+    const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
+    const url = `${base}/exchangeInfo`;
+    const res = await throttledFetch(url);
+    if (!res.ok) return;
+    const data = await res.json();
+    const symbols = (data?.symbols || []).reduce((acc: Record<string, any>, item: any) => {
+      const priceFilter = (item.filters || []).find((f: any) => f.filterType === "PRICE_FILTER");
+      const tickSize = priceFilter?.tickSize;
+      const tickDecimals = tickSize ? getTickSizeDecimals(String(tickSize)) : null;
+      const pricePrecision = typeof item.pricePrecision === "number" ? item.pricePrecision : null;
+      const resolvedPrecisionCandidates = [pricePrecision, tickDecimals].filter((value) => Number.isFinite(value)) as number[];
+      const resolvedPrecision = resolvedPrecisionCandidates.length
+        ? Math.max(...resolvedPrecisionCandidates)
+        : null;
+      acc[String(item.symbol)] = { pricePrecision: resolvedPrecision, tickSize: tickSize ? Number(tickSize) : null };
+      return acc;
+    }, {});
+    exchangeInfoCache[cacheKey] = { timestamp: now, symbols };
+  })().finally(() => {
+    exchangeInfoInFlight[cacheKey] = null;
+  });
+
+  await exchangeInfoInFlight[cacheKey];
+}
 
 function getTickSizeDecimals(tickSize: string): number {
   if (!tickSize || !tickSize.includes(".")) return 0;
@@ -54,27 +98,9 @@ async function getSymbolPricePrecision(symbol: string, marketType: "spot" | "fut
   if (binanceBanUntil && now < binanceBanUntil) {
     return null;
   }
-
-  const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
-  const url = `${base}/exchangeInfo`;
-  const res = await throttledFetch(url);
-  if (!res.ok) return null;
-  const data = await res.json();
-  const symbols = (data?.symbols || []).reduce((acc: Record<string, any>, item: any) => {
-    const priceFilter = (item.filters || []).find((f: any) => f.filterType === "PRICE_FILTER");
-    const tickSize = priceFilter?.tickSize;
-    const tickDecimals = tickSize ? getTickSizeDecimals(String(tickSize)) : null;
-    const pricePrecision = typeof item.pricePrecision === "number" ? item.pricePrecision : null;
-    const resolvedPrecisionCandidates = [pricePrecision, tickDecimals].filter((value) => Number.isFinite(value)) as number[];
-    const resolvedPrecision = resolvedPrecisionCandidates.length
-      ? Math.max(...resolvedPrecisionCandidates)
-      : null;
-    acc[String(item.symbol)] = { pricePrecision: resolvedPrecision, tickSize: tickSize ? Number(tickSize) : null };
-    return acc;
-  }, {});
-
-  exchangeInfoCache[cacheKey] = { timestamp: now, symbols };
-  const info = symbols?.[symbol];
+  await ensureExchangeInfo(marketType);
+  const refreshed = exchangeInfoCache[cacheKey];
+  const info = refreshed?.symbols?.[symbol];
   return info ? info.pricePrecision ?? null : null;
 }
 
@@ -90,27 +116,9 @@ async function getSymbolTickSize(symbol: string, marketType: "spot" | "futures")
   if (binanceBanUntil && now < binanceBanUntil) {
     return null;
   }
-
-  const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
-  const url = `${base}/exchangeInfo`;
-  const res = await throttledFetch(url);
-  if (!res.ok) return null;
-  const data = await res.json();
-  const symbols = (data?.symbols || []).reduce((acc: Record<string, any>, item: any) => {
-    const priceFilter = (item.filters || []).find((f: any) => f.filterType === "PRICE_FILTER");
-    const tickSize = priceFilter?.tickSize;
-    const tickDecimals = tickSize ? getTickSizeDecimals(String(tickSize)) : null;
-    const pricePrecision = typeof item.pricePrecision === "number" ? item.pricePrecision : null;
-    const resolvedPrecisionCandidates = [pricePrecision, tickDecimals].filter((value) => Number.isFinite(value)) as number[];
-    const resolvedPrecision = resolvedPrecisionCandidates.length
-      ? Math.max(...resolvedPrecisionCandidates)
-      : null;
-    acc[String(item.symbol)] = { pricePrecision: resolvedPrecision, tickSize: tickSize ? Number(tickSize) : null };
-    return acc;
-  }, {});
-
-  exchangeInfoCache[cacheKey] = { timestamp: now, symbols };
-  const info = symbols?.[symbol];
+  await ensureExchangeInfo(marketType);
+  const refreshed = exchangeInfoCache[cacheKey];
+  const info = refreshed?.symbols?.[symbol];
   return info && Number.isFinite(info.tickSize) ? Number(info.tickSize) : null;
 }
 
@@ -243,6 +251,8 @@ const MAX_ALARMS_PER_CRON = 30; // hard cap per cron
 const MAX_CLOSE_CHECKS_PER_CRON = 10; // emergency close-only cap
 const DISABLE_ALARM_PROCESSING = false; // temporary: close-only mode
 const CLOSE_NEAR_TARGET_PCT = 0.3; // only run heavy checks when near TP/SL
+const MAX_KLINES_PER_INVOCATION = 3; // limit klines per cron
+const TRIGGER_NEAR_TARGET_PCT = 0.1; // skip indicator klines if far from targets
 
 function isJsonResponse(response: Response): boolean {
   const contentType = response.headers.get("content-type") || "";
@@ -1942,6 +1952,7 @@ async function getKlines(
       }
       
       const klines = await res.json();
+      requestMetrics.klinesFetched += 1;
       // Cache the klines
       klinesCache[cacheKey] = { data: klines, timestamp: now };
       return klines;
@@ -1982,6 +1993,7 @@ async function getKlinesRange(
         console.error(`❌ klines range fetch failed for ${symbol}:`, res.status, errorText);
         return null;
       }
+      requestMetrics.klinesFetched += 1;
       return await res.json();
     } catch (e) {
       console.error(`❌ klines range fetch error for ${symbol} (attempt ${attempt + 1}):`, e);
@@ -2568,7 +2580,11 @@ type TriggerCheckStats = {
   skippedActive: number;
 };
 
-async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Promise<TriggerCheckStats> {
+async function checkAndTriggerUserAlarms(
+  alarms: any[],
+  deadlineMs?: number,
+  tickerMaps?: { spot: Record<string, number>; futures: Record<string, number> }
+): Promise<TriggerCheckStats> {
   console.log(`🔥 checkAndTriggerUserAlarms called with ${alarms?.length || 0} alarms`);
   
   if (!alarms || alarms.length === 0) {
@@ -2657,40 +2673,38 @@ async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Pr
         ? await getSymbolTickSize(alarmSymbol, alarmMarketType)
         : null;
 
-      const indicators = await calculateIndicators(
-        alarmSymbol,
-        alarmMarketType,
-        String(alarm.timeframe || "1h")
-      );
-
-      if (!indicators) {
-        console.log(`⚠️ No indicators calculated for ${alarm.symbol}`);
-        return;
-      }
-
-      const alarmIndicators = indicators;
-
-      if (!alarmIndicators) {
-        console.log(`⚠️ Alarm indicators unavailable for ${alarm.symbol}`);
-        return;
-      }
-
+      let indicators: TechnicalIndicators | null = null;
+      let alarmIndicators: TechnicalIndicators | null = null;
       let shouldTrigger = false;
       let triggerMessage = "";
       let detectedSignal = null;
-      const lastOpenMs = Number(indicators.lastOpenTimestamp || 0);
-      const lastOpenIso = lastOpenMs ? new Date(lastOpenMs).toISOString() : new Date().toISOString();
-      const triggerPrice = Number.isFinite(Number(indicators.openPrice))
-        ? Number(indicators.openPrice)
-        : Number(indicators.price);
+
+      const tickerPrice = alarmMarketType === "futures"
+        ? tickerMaps?.futures?.[alarmSymbol]
+        : tickerMaps?.spot?.[alarmSymbol];
       const nowMs = Date.now();
       const timeframeMinutes = timeframeToMinutes(String(alarm.timeframe || "1h"));
       const timeframeMs = timeframeMinutes * 60 * 1000;
-      const barStartMs = Number.isFinite(lastOpenMs) ? lastOpenMs : 0;
+      const barStartMs = Math.floor(nowMs / timeframeMs) * timeframeMs;
       const barEndMs = barStartMs + (Number.isFinite(timeframeMs) && timeframeMs > 0 ? timeframeMs : 60 * 60 * 1000);
       const isWithinOpenWindow = nowMs >= barStartMs && nowMs < barEndMs;
       const lastSignalTs = alarm.signal_timestamp || alarm.signalTimestamp;
       const lastSignalMs = lastSignalTs ? Date.parse(String(lastSignalTs)) : NaN;
+      const lastOpenIso = new Date(barStartMs).toISOString();
+      const fallbackTrigger = Number(alarm.entry_price || alarm.entryPrice || alarm.entry || NaN);
+      const triggerPrice = Number.isFinite(Number(tickerPrice))
+        ? Number(tickerPrice)
+        : fallbackTrigger;
+      let lastOpenMs = barStartMs;
+
+      const isNearTargets = (price: number, targets: number[]): boolean => {
+        if (!Number.isFinite(price) || targets.length === 0) return true;
+        return targets.some((t) => {
+          if (!Number.isFinite(t)) return false;
+          const pct = (Math.abs(price - t) / Math.max(1e-8, Math.abs(price))) * 100;
+          return pct <= TRIGGER_NEAR_TARGET_PCT;
+        });
+      };
 
       // STRATEGY 1: USER_ALARM (user-defined signals with TP/SL)
       if (alarm.type === "user_alarm") {
@@ -2710,6 +2724,34 @@ async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Pr
           console.log(`⏹️ Skipping user_alarm for ${symbol}: signal already active for this alarm (user: ${alarm.user_id})`);
           stats.skippedActive += 1;
         } else {
+          const proximityTargets = [
+            Number(alarm.target_price || alarm.targetPrice || NaN),
+            Number(alarm.entry_price || alarm.entryPrice || alarm.entry || NaN)
+          ].filter((v) => Number.isFinite(v));
+          if (!isNearTargets(triggerPrice, proximityTargets)) {
+            requestMetrics.klinesSkippedByProximity += 1;
+            return;
+          }
+          if (requestMetrics.klinesFetched >= MAX_KLINES_PER_INVOCATION) {
+            requestMetrics.klinesSkippedByProximity += 1;
+            return;
+          }
+
+          if (!alarmIndicators) {
+            indicators = await calculateIndicators(
+              alarmSymbol,
+              alarmMarketType,
+              String(alarm.timeframe || "1h")
+            );
+            if (!indicators) {
+              console.log(`⚠️ No indicators calculated for ${alarm.symbol}`);
+              return;
+            }
+            alarmIndicators = indicators;
+            if (Number.isFinite(indicators.lastOpenTimestamp)) {
+              lastOpenMs = Number(indicators.lastOpenTimestamp);
+            }
+          }
           stats.triggersChecked += 1;
           const tpPercent = Number(alarm.tp_percent || 5);
           const slPercent = Number(alarm.sl_percent || 3);
@@ -2853,6 +2895,34 @@ async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Pr
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: signal already active for this alarm (user: ${alarm.user_id})`);
           stats.skippedActive += 1;
         } else {
+          const proximityTargets = [
+            Number(alarm.target_price || alarm.targetPrice || NaN),
+            Number(alarm.entry_price || alarm.entryPrice || alarm.entry || NaN)
+          ].filter((v) => Number.isFinite(v));
+          if (!isNearTargets(triggerPrice, proximityTargets)) {
+            requestMetrics.klinesSkippedByProximity += 1;
+            return;
+          }
+          if (requestMetrics.klinesFetched >= MAX_KLINES_PER_INVOCATION) {
+            requestMetrics.klinesSkippedByProximity += 1;
+            return;
+          }
+
+          if (!alarmIndicators) {
+            indicators = await calculateIndicators(
+              alarmSymbol,
+              alarmMarketType,
+              String(alarm.timeframe || "1h")
+            );
+            if (!indicators) {
+              console.log(`⚠️ No indicators calculated for ${alarm.symbol}`);
+              return;
+            }
+            alarmIndicators = indicators;
+            if (Number.isFinite(indicators.lastOpenTimestamp)) {
+              lastOpenMs = Number(indicators.lastOpenTimestamp);
+            }
+          }
           stats.triggersChecked += 1;
           const userConfidenceThreshold = Number(alarm.confidence_score || 70);
           const signal = generateSignalScoreAligned(alarmIndicators, userConfidenceThreshold);
@@ -3002,7 +3072,7 @@ async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Pr
 
         const entryPrice = Number.isFinite(triggerPrice)
           ? triggerPrice
-          : Number(indicators.closes?.[indicators.closes.length - 1] ?? indicators.price);
+          : fallbackTrigger;
         
         const decimals = alarmPricePrecision;
         
@@ -3134,11 +3204,13 @@ async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Pr
           }
         }
         
-        const formattedDateTime = formatTurkeyDateTime(indicators.lastOpenTimestamp);
+        const formattedDateTime = formatTurkeyDateTime(lastOpenMs);
 
         // Get signal analysis score for market strength
         const userConfidenceThreshold = Number(alarm.confidence_score || 70);
-        const signalAnalysis = generateSignalScoreAligned(alarmIndicators, userConfidenceThreshold);
+        const signalAnalysis = alarmIndicators
+          ? generateSignalScoreAligned(alarmIndicators, userConfidenceThreshold)
+          : { score: userConfidenceThreshold };
 
         const safeSymbol = escapeHtml(symbol);
         const safeDirection = escapeHtml(directionTR);
@@ -4098,6 +4170,7 @@ serve(async (req: any) => {
   const hardDeadlineMs = requestStartMs + HARD_TIMEOUT_MS;
   const startRequestCount = requestCount;
   const startBinanceCount = binanceRequestCount;
+  requestMetrics = { klinesFetched: 0, klinesSkippedByProximity: 0, exchangeInfoFetches: 0 };
   let closeStats: CloseCheckStats = { closesChecked: 0, closed: 0 };
   let triggerStats: TriggerCheckStats = { alarmsProcessed: 0, triggersChecked: 0, triggered: 0, skippedActive: 0 };
   // CORS headers
@@ -4354,7 +4427,8 @@ serve(async (req: any) => {
       console.warn("⚠️ Alarm processing disabled (close-only mode)");
     } else if (alarms && alarms.length > 0) {
       const deadlineMs = requestStartMs + MAX_REQUEST_RUNTIME_MS;
-      triggerStats = await checkAndTriggerUserAlarms(alarms, deadlineMs);
+      const tickerMaps = { spot: allTickerCache.spot.prices, futures: allTickerCache.futures.prices };
+      triggerStats = await checkAndTriggerUserAlarms(alarms, deadlineMs, tickerMaps);
     }
 
     // ✅ Notify - 🚀 PARALLELIZED
@@ -4409,6 +4483,7 @@ ${emoji} ${statusMessage}
     if (endpointSummary) {
       console.log(`📊 Endpoint stats: ${endpointSummary}`);
     }
+    console.log(`📊 Klines stats: fetched=${requestMetrics.klinesFetched} skippedByProximity=${requestMetrics.klinesSkippedByProximity} exchangeInfoFetches=${requestMetrics.exchangeInfoFetches}`);
     console.log(`✅ Summary: alarmsProcessed=${triggerStats.alarmsProcessed} closesChecked=${closeStats.closesChecked} closed=${closeStats.closed} triggersChecked=${triggerStats.triggersChecked} triggered=${triggerStats.triggered} skippedActive=${triggerStats.skippedActive}`);
     console.log(`⏱️ Request duration: ${elapsedMs}ms`);
 
@@ -4433,6 +4508,7 @@ ${emoji} ${statusMessage}
     if (endpointSummary) {
       console.log(`📊 Endpoint stats (error): ${endpointSummary}`);
     }
+    console.log(`📊 Klines stats (error): fetched=${requestMetrics.klinesFetched} skippedByProximity=${requestMetrics.klinesSkippedByProximity} exchangeInfoFetches=${requestMetrics.exchangeInfoFetches}`);
     console.log(`✅ Summary: alarmsProcessed=${triggerStats.alarmsProcessed} closesChecked=${closeStats.closesChecked} closed=${closeStats.closed} triggersChecked=${triggerStats.triggersChecked} triggered=${triggerStats.triggered} skippedActive=${triggerStats.skippedActive}`);
     console.log(`⏱️ Request duration (error): ${elapsedMs}ms`);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
