@@ -250,7 +250,7 @@ const INDICATOR_KLINES_LIMIT = 300; // reduce per-alarm klines load
 const MAX_REQUEST_RUNTIME_MS = 30000; // keep below Edge 60s timeout
 const HARD_TIMEOUT_MS = 25000; // emergency hard stop
 const MAX_ALARMS_PER_CRON = 30; // hard cap per cron
-const MAX_CLOSE_CHECKS_PER_CRON = 10; // emergency close-only cap
+const MAX_CLOSE_CHECKS_PER_CRON = 300; // safety cap for large backlogs
 const DISABLE_ALARM_PROCESSING = false; // temporary: close-only mode
 const CLOSE_NEAR_TARGET_PCT = 0.3; // only run heavy checks when near TP/SL
 const MAX_KLINES_PER_INVOCATION = 3; // limit klines per cron
@@ -2654,10 +2654,10 @@ async function checkAndTriggerUserAlarms(
   console.log(`📌 Open ACTIVE_TRADE count: ${openTradeSymbols.size}`);
 
   // 🔴 ÖNEMLI: Fetch all open auto_signal sinyalleri - spam'ı engelle
-    const { data: openAutoSignals, error: openAutoSignalsError } = await supabase
-      .from("active_signals")
-      .select("user_id, symbol, status, alarm_id, direction")
-      .eq("status", "ACTIVE")
+      const { data: openAutoSignals, error: openAutoSignalsError } = await supabase
+        .from("active_signals")
+        .select("user_id, symbol, status, alarm_id, direction")
+        .in("status", ["ACTIVE", "active"])
 
   const openSignalKeys = new Set();
   const openSignalSymbols = new Set();
@@ -3429,14 +3429,20 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
     const { data: rawSignals, error: signalsError } = await supabase
       .from("active_signals")
       .select("*")
-      .eq("status", "ACTIVE");
+      .in("status", ["ACTIVE", "active"]);
 
     if (signalsError) {
       console.error("❌ Error fetching signals:", signalsError);
       return { closedSignals: [], stats: { closesChecked: 0, closed: 0 } };
     }
 
-    let signals = rawSignals || [];
+    let signals = (rawSignals || []).slice().sort((a: any, b: any) => {
+      const aTs = Date.parse(String(a?.created_at || a?.signal_timestamp || ""));
+      const bTs = Date.parse(String(b?.created_at || b?.signal_timestamp || ""));
+      const aSafe = Number.isFinite(aTs) ? aTs : Number.MAX_SAFE_INTEGER;
+      const bSafe = Number.isFinite(bTs) ? bTs : Number.MAX_SAFE_INTEGER;
+      return aSafe - bSafe;
+    });
     if (!signals || signals.length === 0) {
       return { closedSignals: [], stats: { closesChecked: 0, closed: 0 } };
     }
@@ -3783,7 +3789,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
               closed_at: new Date().toISOString()
             })
             .eq("id", signal.id)
-            .eq("status", "ACTIVE");
+            .in("status", ["ACTIVE", "active"]);
 
           if (updateResult.error) {
             console.error(`❌ updateError for signal ${signal.id}:`, updateResult.error);
@@ -4012,7 +4018,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
             closed_at: new Date().toISOString()
           })
           .eq("id", signal.id)
-          .eq("status", "ACTIVE")
+          .in("status", ["ACTIVE", "active"])
           .select("id");
 
         if (updateResult.error) {

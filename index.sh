@@ -1,28 +1,56 @@
-      if (shouldTrigger && triggerMessage) {
-        const symbol = String(alarm.symbol || "").toUpperCase();
-        const marketType = String(alarm.market_type || "spot").toLowerCase() === "futures" ? "Futures" : "Spot";
-        const timeframe = String(alarm.timeframe || "1h");
-        const tpPercent = Number(alarm.tp_percent || 5);
-        const slPercent = Number(alarm.sl_percent || 3);
-        const directionTR = detectedSignal?.direction === "LONG" ? "LONG" : detectedSignal?.direction === "SHORT" ? "SHORT" : "UNKNOWN";
-        const telegramMessage = `
-🔔 ALARM AKTİVE! 🔔
+#!/usr/bin/env bash
+set -euo pipefail
 
-💰 Çift: ${symbol}
-🎯 ${directionTR} Sinyali Tespit Edildi!
+PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+cd "$PROJECT_DIR"
 
-📊 Piyasa:
-   • Tip: ${marketType}
-   • Zaman: ${timeframe}
-   • Fiyat: $${indicators.price.toFixed(2)}
+PROJECT_REF="${SUPABASE_PROJECT_REF:-jcrbhekrphxodxhkuzju}"
+FUNCTION_NAME="check-alarm-signals"
 
-🎯 Sinyal:
-   • Güven: ${detectedSignal?.score || 0}%
-   • TP (Kar Al): ${tpPercent}%
-   • SL (Stop Loss): ${slPercent}%
-⏰ Zaman: ${new Date().toLocaleString("tr-TR")}
-`;
+usage() {
+   cat <<'EOF'
+Kullanım: ./index.sh <komut>
 
-        telegramPromises.push(sendTelegramNotification(alarm.user_id, telegramMessage));
-        console.log(`✅ User alarm triggered for ${symbol}: ${triggerMessage}`);
-      }
+Komutlar:
+   status   Git ve temel dosya durumu
+   deploy   Edge function deploy
+   logs     Edge function son logları
+   help     Bu yardımı göster
+EOF
+}
+
+require_cmd() {
+   command -v "$1" >/dev/null 2>&1 || {
+      echo "❌ Eksik komut: $1" >&2
+      exit 1
+   }
+}
+
+cmd_status() {
+   echo "📍 Proje: $PROJECT_DIR"
+   git status --short || true
+   echo "\n📄 Kritik dosyalar:"
+   ls -1 supabase/functions/check-alarm-signals/index.ts index.sh 2>/dev/null || true
+}
+
+cmd_deploy() {
+   require_cmd supabase
+   supabase functions deploy "$FUNCTION_NAME" --project-ref "$PROJECT_REF"
+}
+
+cmd_logs() {
+   require_cmd supabase
+   supabase functions logs "$FUNCTION_NAME" --project-ref "$PROJECT_REF"
+}
+
+case "${1:-help}" in
+   status) cmd_status ;;
+   deploy) cmd_deploy ;;
+   logs) cmd_logs ;;
+   help|-h|--help) usage ;;
+   *)
+      echo "❌ Bilinmeyen komut: $1" >&2
+      usage
+      exit 1
+      ;;
+esac
