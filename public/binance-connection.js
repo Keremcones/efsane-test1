@@ -5,8 +5,7 @@
         'api1.binance.com',
         'api2.binance.com',
         'api3.binance.com',
-        'api4.binance.com',
-        'data-api.binance.vision'
+        'api4.binance.com'
     ];
     const FUTURES_HOSTS = [
         'fapi.binance.com',
@@ -20,7 +19,7 @@
     const PROXY_BASES = ['/api/cors-proxy?url='];
     const SPOT_BASE_KEY = 'binanceSpotBase';
     const FUTURES_BASE_KEY = 'binanceFuturesBase';
-    const FORCE_PROXY_ALWAYS = true;
+    const FORCE_PROXY_ALWAYS = false;
 
     const statusState = {
         mode: 'offline',
@@ -55,7 +54,7 @@
     }
 
     function shouldForceProxy() {
-        return FORCE_PROXY_ALWAYS || window.BINANCE_BLOCKED === true;
+        return FORCE_PROXY_ALWAYS;
     }
 
     function getCachedBase(storageKey) {
