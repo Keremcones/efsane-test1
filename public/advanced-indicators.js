@@ -28,27 +28,20 @@ function getBinanceApiBaseForMarketType(marketType) {
 async function binanceFetchPath(marketType, path, options = {}, opts = {}) {
     const normalized = resolveMarketType(marketType);
     const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-    const method = String(options.method || 'GET').toUpperCase();
     const headers = new Headers(options.headers || {});
     const requestOptions = {
         ...options,
         headers
     };
 
-    let finalPath = normalizedPath;
-    if (method === 'GET') {
-        const cacheBust = `_ts=${Date.now()}`;
-        finalPath += (finalPath.includes('?') ? '&' : '?') + cacheBust;
-    }
-
     if (window.BinanceAPI) {
         const fetchFn = normalized === 'futures'
             ? window.BinanceAPI.futuresFetch
             : window.BinanceAPI.spotFetch;
-        return fetchFn(finalPath, requestOptions, opts);
+        return fetchFn(normalizedPath, requestOptions, opts);
     }
     const base = getBinanceApiBaseForMarketType(normalized);
-    return fetch(`${base}${finalPath}`, requestOptions);
+    return fetch(`${base}${normalizedPath}`, requestOptions);
 }
 
 const exchangeInfoCache = {};
