@@ -1919,7 +1919,7 @@ class AlarmSystem {
                 .select('id', { count: 'exact', head: true })
                 .eq('user_id', this.userId)
                 .eq('type', 'user_alarm')
-                .eq('is_active', true);
+                .or('is_active.eq.true,is_active.is.null');
 
             if (countError) {
                 console.warn('⚠️ Aktif alarm sayısı okunamadı:', countError.message || countError);
