@@ -975,12 +975,16 @@
             border: 1px solid rgba(56, 232, 255, 0.12);
             border-radius: 12px;
             background: rgba(12, 18, 30, 0.7);
+            min-width: 0;
         }
 
         .admin-user-email {
             font-size: 0.85rem;
             color: var(--text-primary);
             font-weight: 600;
+            min-width: 0;
+            overflow-wrap: anywhere;
+            word-break: break-word;
         }
 
         .admin-role-controls {
@@ -988,6 +992,7 @@
             gap: 10px;
             align-items: center;
             flex-wrap: wrap;
+            min-width: 0;
         }
 
         .admin-limit-input {
@@ -1284,11 +1289,70 @@
 
         @media (max-width: 600px) {
             .container {
-                padding: 20px 16px;
+                max-width: 100%;
+                padding: 16px 12px 28px;
+                overflow-x: hidden;
+            }
+
+            .profile-col,
+            .profile-section,
+            .membership-card,
+            .admin-list,
+            .admin-user-row,
+            .admin-role-controls,
+            .admin-user-email {
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
             }
 
             .navbar {
                 padding: 12px 16px;
+            }
+
+            .profile-hero {
+                padding: 16px;
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .profile-section {
+                padding: 16px;
+            }
+
+            .membership-card {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 14px;
+            }
+
+            .membership-action {
+                width: 100%;
+                text-align: left;
+            }
+
+            .admin-user-row {
+                align-items: flex-start;
+                flex-wrap: wrap;
+            }
+
+            .admin-role-controls {
+                width: 100%;
+                justify-content: flex-start;
+            }
+
+            .admin-search,
+            .admin-announcement-actions .btn-primary,
+            .button-group .btn,
+            .admin-limit-input,
+            .notification {
+                min-width: 0;
+            }
+
+            .notification {
+                width: calc(100vw - 24px);
+                right: 12px;
+                max-width: calc(100vw - 24px);
             }
         }
 
