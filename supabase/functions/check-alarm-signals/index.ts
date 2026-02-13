@@ -3232,8 +3232,10 @@ async function checkAndTriggerUserAlarms(
         let tradeResult = { success: false, message: "Auto-trade not triggered" } as { success: boolean; message: string; orderId?: string; blockedByOpenPosition?: boolean };
         let tradeNotificationText = "";
         const autoTradeEnabled = await resolveAutoTradeEnabled(alarm, alarmMarketType);
+        let autoTradeAttempted = false;
 
         if (autoTradeEnabled && !alarm.binance_order_id) {
+          autoTradeAttempted = true;
           tradeResult = await executeAutoTrade(
             alarm.user_id,
             symbol,
@@ -3267,8 +3269,8 @@ async function checkAndTriggerUserAlarms(
             : `\n\nℹ️ <b>Otomatik işlem:</b> Kapalı`;
         }
 
-        const limitNotFilled = autoTradeEnabled && !tradeResult.success && /limit emir dolmadi/i.test(tradeResult.message || "");
-        if (limitNotFilled && insertedSignalId) {
+        const autoTradeOpenFailed = autoTradeAttempted && !tradeResult.success;
+        if (autoTradeOpenFailed && insertedSignalId) {
           try {
             await supabase
               .from("active_signals")
@@ -3281,7 +3283,7 @@ async function checkAndTriggerUserAlarms(
               .eq("id", insertedSignalId)
                 .in("status", ACTIVE_SIGNAL_STATUSES);
           } catch (e) {
-            console.warn(`⚠️ Failed to close signal after limit not filled for ${symbol}:`, e);
+            console.warn(`⚠️ Failed to close signal after auto-trade open failure for ${symbol}:`, e);
           }
         }
         
