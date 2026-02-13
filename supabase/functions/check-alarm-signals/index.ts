@@ -3320,7 +3320,7 @@ type ClosedSignal = {
   id: string | number;
   symbol: string;
   direction: "LONG" | "SHORT";
-  close_reason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "NOT_FILLED" | "TP_HIT_NO_POSITION" | "SL_HIT_NO_POSITION";
+  close_reason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "NOT_FILLED" | "TP_HIT_NO_POSITION" | "SL_HIT_NO_POSITION" | "ORPHAN_ACTIVE_NO_TRADE";
   price: number;
   user_id: string;
   profitLoss?: number;
@@ -3582,6 +3582,27 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
       });
     }
 
+    const activeTradeSet = new Set<string>();
+    try {
+      const { data: activeTrades, error: activeTradeError } = await supabase
+        .from("alarms")
+        .select("user_id, symbol")
+        .eq("type", "ACTIVE_TRADE")
+        .eq("status", "ACTIVE");
+
+      if (activeTradeError) {
+        console.error("❌ Error fetching ACTIVE_TRADE alarms for orphan check:", activeTradeError);
+      }
+
+      (activeTrades || []).forEach((row: any) => {
+        const userId = String(row?.user_id || "");
+        const symbol = String(row?.symbol || "").toUpperCase();
+        if (userId && symbol) activeTradeSet.add(`${userId}:${symbol}`);
+      });
+    } catch (e) {
+      console.warn("⚠️ ACTIVE_TRADE lookup failed for orphan check:", e);
+    }
+
     const shouldSkipCloseForBinance = async (
       signal: any,
       alarmData: { user_id: string; auto_trade_enabled?: boolean | null } | null,
@@ -3707,7 +3728,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
         let effectiveMarketType: "spot" | "futures" = marketType;
 
         let shouldClose = false;
-        let closeReason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "TP_HIT_NO_POSITION" | "SL_HIT_NO_POSITION" | "" = "";
+        let closeReason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "TP_HIT_NO_POSITION" | "SL_HIT_NO_POSITION" | "ORPHAN_ACTIVE_NO_TRADE" | "" = "";
         let closePrice: number | null = null;
 
         const symbolKey = String(symbol).toUpperCase();
@@ -3936,6 +3957,19 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
 
         if (!shouldClose || !closeReason) continue;
 
+        const createdAtMs = Date.parse(String(signal.created_at || ""));
+        const ageSeconds = Number.isFinite(createdAtMs)
+          ? Math.max(0, Math.floor((Date.now() - createdAtMs) / 1000))
+          : 0;
+        const hasActiveTrade = activeTradeSet.has(`${String(signal?.user_id || "")}:${String(symbol).toUpperCase()}`);
+        const tpHit = closeReason === "TP_HIT";
+        const slHit = closeReason === "SL_HIT";
+        if ((tpHit || slHit) && !hasActiveTrade && ageSeconds > 300) {
+          console.log(`🧹 Orphan cleanup: ${JSON.stringify({ signalId: signal.id, symbol, ageSeconds, tpHit, slHit, hasActiveTrade: false })}`);
+          closeReason = "ORPHAN_ACTIVE_NO_TRADE";
+          closePrice = tpHit ? takeProfit : stopLoss;
+        }
+
         if (effectiveMarketType === "futures" && (closeReason === "TP_HIT" || closeReason === "SL_HIT")) {
           const state = await getFuturesCloseState(signal, alarmData);
           if (state.canCheck) {
@@ -3948,10 +3982,12 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
           }
         }
 
-        const skipClose = await shouldSkipCloseForBinance(signal, alarmData, effectiveMarketType);
-        if (skipClose) {
-          console.log(`⏳ Skipping close for ${signal.symbol}: Binance position/orders still open`);
-          continue;
+        if (closeReason !== "ORPHAN_ACTIVE_NO_TRADE") {
+          const skipClose = await shouldSkipCloseForBinance(signal, alarmData, effectiveMarketType);
+          if (skipClose) {
+            console.log(`⏳ Skipping close for ${signal.symbol}: Binance position/orders still open`);
+            continue;
+          }
         }
 
         const effectiveClosePrice = Number.isFinite(closePrice) ? Number(closePrice) : Number(signal.entry_price);
