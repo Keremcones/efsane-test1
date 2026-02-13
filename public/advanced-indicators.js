@@ -37,9 +37,6 @@ async function binanceFetchPath(marketType, path, options = {}, opts = {}) {
 
     let finalPath = normalizedPath;
     if (method === 'GET') {
-        headers.set('Cache-Control', 'no-cache');
-        headers.set('Pragma', 'no-cache');
-        requestOptions.cache = 'no-store';
         const cacheBust = `_ts=${Date.now()}`;
         finalPath += (finalPath.includes('?') ? '&' : '?') + cacheBust;
     }

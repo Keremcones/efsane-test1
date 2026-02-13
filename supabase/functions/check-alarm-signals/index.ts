@@ -2903,7 +2903,31 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
       });
     }
 
-    const shouldSkipCloseForBinance = async () => false;
+    const shouldSkipCloseForBinance = async (
+      signal: any,
+      alarmData: { user_id: string; auto_trade_enabled?: boolean | null } | null,
+      marketType: "spot" | "futures"
+    ): Promise<boolean> => {
+      try {
+        const alarmPayload = alarmData || { user_id: String(signal?.user_id || "") };
+        const autoTradeEnabled = await resolveAutoTradeEnabled(alarmPayload, marketType);
+        if (!autoTradeEnabled) return false;
+
+        const userKeys = await getUserBinanceSettings(String(signal?.user_id || ""));
+        if (!userKeys?.api_key || !userKeys?.api_secret) return false;
+
+        if (marketType === "futures") {
+          const hasOpen = await hasOpenFuturesPosition(userKeys.api_key, userKeys.api_secret, String(signal?.symbol || ""));
+          return hasOpen;
+        }
+
+        const hasOpenOrders = await hasOpenSpotOrders(userKeys.api_key, userKeys.api_secret, String(signal?.symbol || ""));
+        return hasOpenOrders;
+      } catch (e) {
+        console.warn(`⚠️ Binance close verification failed for ${signal?.symbol || ""}:`, e);
+        return true;
+      }
+    };
 
     const closedSignals: ClosedSignal[] = [];
 
@@ -3109,6 +3133,12 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
 
         if (!shouldClose || !closeReason) continue;
 
+        const skipClose = await shouldSkipCloseForBinance(signal, alarmData, effectiveMarketType);
+        if (skipClose) {
+          console.log(`⏳ Skipping close for ${signal.symbol}: Binance position/orders still open`);
+          continue;
+        }
+
         const effectiveClosePrice = Number.isFinite(closePrice) ? Number(closePrice) : Number(signal.entry_price);
         const rawProfitLoss = direction === "LONG"
           ? ((effectiveClosePrice - Number(signal.entry_price)) / Number(signal.entry_price)) * 100
@@ -3132,10 +3162,17 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
             closed_at: new Date().toISOString()
           })
           .eq("id", signal.id)
-          .eq("status", "ACTIVE");
+          .eq("status", "ACTIVE")
+          .select("id");
 
         if (updateResult.error) {
           console.error(`❌ updateError for signal ${signal.id}:`, updateResult.error);
+          continue;
+        }
+
+        const updatedRows = Array.isArray(updateResult.data) ? updateResult.data.length : 0;
+        if (updatedRows === 0) {
+          console.log(`⏭️ Skip close notify for ${signal.symbol}: already closed by another run`);
           continue;
         }
 
