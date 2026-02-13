@@ -267,6 +267,37 @@ function isActiveLikeStatus(status: any): boolean {
   return normalized === "ACTIVE" || normalized === "" || !status;
 }
 
+function sanitizeRequestBodyForLog(input: any): any {
+  if (!input || typeof input !== "object") return input;
+  const clone: Record<string, any> = { ...input };
+  const sensitiveKeys = ["api_key", "api_secret", "password", "token", "authorization"];
+  for (const key of sensitiveKeys) {
+    if (key in clone && clone[key]) {
+      const raw = String(clone[key]);
+      clone[key] = raw.length > 8 ? `${raw.slice(0, 4)}****${raw.slice(-2)}` : "****";
+    }
+  }
+  if ("telegram_chat_id" in clone && clone.telegram_chat_id) {
+    const chat = String(clone.telegram_chat_id);
+    clone.telegram_chat_id = chat.length > 4 ? `${chat.slice(0, 2)}****${chat.slice(-2)}` : "****";
+  }
+  return clone;
+}
+
+function extractUserIdFromJwt(token: string): string | null {
+  try {
+    if (!token || token.split(".").length < 2) return null;
+    const payloadPart = token.split(".")[1]
+      .replace(/-/g, "+")
+      .replace(/_/g, "/");
+    const padded = payloadPart + "=".repeat((4 - (payloadPart.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded));
+    return payload?.sub ? String(payload.sub) : null;
+  } catch {
+    return null;
+  }
+}
+
 function isJsonResponse(response: Response): boolean {
   const contentType = response.headers.get("content-type") || "";
   return contentType.includes("application/json");
@@ -4462,23 +4493,19 @@ serve(async (req: any) => {
       }
     }
 
-    console.log("📥 [DEBUG] Request body:", JSON.stringify(body, null, 2));
+    console.log("📥 [DEBUG] Request body:", JSON.stringify(sanitizeRequestBodyForLog(body), null, 2));
     console.log("📥 [DEBUG] body?.user_id:", body?.user_id);
     console.log("📥 [DEBUG] typeof body?.user_id:", typeof body?.user_id);
     console.log("📥 [DEBUG] Boolean(body?.user_id):", Boolean(body?.user_id));
 
     // Try to get user_id from auth header if not in body
-    if (!body?.user_id) {
-      const authHeader = req.headers.get('Authorization');
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.slice(7);
-        try {
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          body.user_id = payload.sub;
-          console.log("📥 [DEBUG] Extracted user_id from JWT:", body.user_id);
-        } catch (e) {
-          console.log("📥 [DEBUG] Could not decode JWT token");
-        }
+    if (!body?.user_id && authToken) {
+      const extractedUserId = extractUserIdFromJwt(authToken);
+      if (extractedUserId) {
+        body.user_id = extractedUserId;
+        console.log("📥 [DEBUG] Extracted user_id from JWT:", body.user_id);
+      } else {
+        console.log("📥 [DEBUG] Could not decode JWT token");
       }
     }
 
