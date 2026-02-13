@@ -1,11 +1,4 @@
 {
-  "functions": {
-    "api/cors-proxy.js": {
-      "regions": [
-        "iad1"
-      ]
-    }
-  },
   "redirects": [
     {
       "source": "/",
