@@ -2071,13 +2071,14 @@
 
             const renderList = (list) => {
                 listEl.innerHTML = list.map(u => {
+                    const normalizedMembership = String(u.membership_type || 'standard').trim().toLowerCase();
                     const role = u.is_admin
                         ? 'admin'
-                        : (u.membership_type === 'premium' ? 'premium' : (u.membership_type === 'plus' ? 'plus' : 'free'));
+                        : (normalizedMembership === 'premium' ? 'premium' : (normalizedMembership === 'plus' ? 'plus' : 'free'));
                     const hasConfiguredLimit = Number.isInteger(Number(u.max_alarm_count)) && Number(u.max_alarm_count) > 0;
-                    const defaultLimit = (u.membership_type === 'plus' || u.membership_type === 'premium') ? 3 : '';
+                    const defaultLimit = 3;
                     const alarmLimitValue = hasConfiguredLimit ? Number(u.max_alarm_count) : defaultLimit;
-                    const alarmLimitDisabled = u.is_admin || (u.membership_type !== 'plus' && u.membership_type !== 'premium');
+                    const alarmLimitDisabled = u.is_admin || (normalizedMembership !== 'plus' && normalizedMembership !== 'premium');
                     return `
                         <div class="admin-user-row" data-user-id="${u.id}">
                             <div class="admin-user-email">${u.email || u.id}</div>
@@ -2101,6 +2102,7 @@
                                         class="admin-limit-input"
                                         data-max-alarm-count="1"
                                         min="1"
+                                        placeholder="3"
                                         value="${alarmLimitValue}"
                                         ${alarmLimitDisabled ? 'disabled' : ''}
                                     />
