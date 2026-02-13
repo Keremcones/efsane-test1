@@ -3382,6 +3382,14 @@ type CloseCheckStats = {
   closed: number;
 };
 
+function normalizeCloseReasonForDb(reason: string): "TP_HIT" | "SL_HIT" | "TIMEOUT" | "NOT_FILLED" {
+  if (reason === "TP_HIT" || reason === "TP_HIT_NO_POSITION") return "TP_HIT";
+  if (reason === "SL_HIT" || reason === "SL_HIT_NO_POSITION") return "SL_HIT";
+  if (reason === "NOT_FILLED") return "NOT_FILLED";
+  if (reason === "TIMEOUT" || reason === "ORPHAN_ACTIVE_NO_TRADE") return "TIMEOUT";
+  return "TIMEOUT";
+}
+
 function resolveSameCandleHit(
   open: number,
   takeProfit: number,
@@ -4064,11 +4072,13 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
           profitLoss = -Math.abs(slPercent);
         }
 
+        const closeReasonForDb = normalizeCloseReasonForDb(closeReason);
+
         const updateResult = await supabase
           .from("active_signals")
           .update({
             status: "CLOSED",
-            close_reason: closeReason,
+            close_reason: closeReasonForDb,
             profit_loss: profitLoss,
             closed_at: new Date().toISOString()
           })
@@ -4104,7 +4114,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
           id: signal.id,
           symbol,
           direction,
-          close_reason: closeReason,
+          close_reason: closeReasonForDb,
           price: Number.isFinite(closePrice) ? Number(closePrice) : Number(signal.entry_price),
           user_id: signal.user_id,
           market_type: signal.market_type || signal.marketType || signal.market,
