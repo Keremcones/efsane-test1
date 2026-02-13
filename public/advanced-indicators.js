@@ -2467,6 +2467,13 @@ class AlarmSystem {
                     .eq('type', 'user_alarm');
                 
                 if (error) throw error;
+
+                if (Array.isArray(data) && data.length === 0) {
+                    this.alarms = [];
+                    localStorage.removeItem('crypto_alarms');
+                    console.log('📥 alarms tablosunda kayıt yok, local alarm cache temizlendi');
+                    return;
+                }
                 
                 if (data && data.length > 0) {
                     this.alarms = data.map(item => {
