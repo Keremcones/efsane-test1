@@ -694,7 +694,7 @@ async function placeFuturesMarketOrder(
   symbol: string,
   side: "BUY" | "SELL",
   quantity: number
-): Promise<{ success: boolean; orderId?: string; error?: string }> {
+): Promise<{ success: boolean; orderId?: string; error?: string; actualSymbol?: string }> {
   const timestamp = Date.now();
   const queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
   const signature = await createBinanceSignature(queryString, apiSecret);
@@ -710,7 +710,18 @@ async function placeFuturesMarketOrder(
     return { success: false, error: data?.msg || "Order failed" };
   }
 
-  return { success: true, orderId: String(data.orderId) };
+  const requestedSymbol = String(symbol || "").toUpperCase();
+  const actualSymbol = String(data?.symbol || "").toUpperCase();
+  if (actualSymbol && requestedSymbol && actualSymbol !== requestedSymbol) {
+    console.error("❌ Futures order symbol mismatch", {
+      requestedSymbol,
+      actualSymbol,
+      orderId: data?.orderId,
+    });
+    return { success: false, error: `Order symbol mismatch: requested ${requestedSymbol}, got ${actualSymbol}`, actualSymbol };
+  }
+
+  return { success: true, orderId: String(data.orderId), actualSymbol };
 }
 
 async function placeFuturesLimitOrder(
@@ -720,7 +731,7 @@ async function placeFuturesLimitOrder(
   side: "BUY" | "SELL",
   quantity: number,
   price: string
-): Promise<{ success: boolean; orderId?: string; error?: string }> {
+): Promise<{ success: boolean; orderId?: string; error?: string; actualSymbol?: string }> {
   const timestamp = Date.now();
   const queryString = `symbol=${symbol}&side=${side}&type=LIMIT&timeInForce=GTC&quantity=${quantity}&price=${price}&timestamp=${timestamp}`;
   const signature = await createBinanceSignature(queryString, apiSecret);
@@ -736,7 +747,18 @@ async function placeFuturesLimitOrder(
     return { success: false, error: data?.msg || "Limit order failed" };
   }
 
-  return { success: true, orderId: String(data.orderId) };
+  const requestedSymbol = String(symbol || "").toUpperCase();
+  const actualSymbol = String(data?.symbol || "").toUpperCase();
+  if (actualSymbol && requestedSymbol && actualSymbol !== requestedSymbol) {
+    console.error("❌ Futures limit order symbol mismatch", {
+      requestedSymbol,
+      actualSymbol,
+      orderId: data?.orderId,
+    });
+    return { success: false, error: `Limit order symbol mismatch: requested ${requestedSymbol}, got ${actualSymbol}`, actualSymbol };
+  }
+
+  return { success: true, orderId: String(data.orderId), actualSymbol };
 }
 
 async function getFuturesOrderDetails(
@@ -794,13 +816,14 @@ async function openBinanceTrade(
   marketType: "spot" | "futures",
   options: OpenTradeOptions = {}
 ): Promise<{ success: boolean; orderId?: string; error?: string }> {
+  const requestedSymbol = String(symbol || "").toUpperCase();
   const timestamp = Date.now();
   const side = direction === "LONG" ? "BUY" : "SELL";
 
   if (marketType === "futures") {
     const orderType = normalizeFuturesEntryType(options.orderType);
     if (orderType === "LIMIT" && options.limitPrice) {
-      const limitOrder = await placeFuturesLimitOrder(apiKey, apiSecret, symbol, side, quantity, options.limitPrice);
+      const limitOrder = await placeFuturesLimitOrder(apiKey, apiSecret, requestedSymbol, side, quantity, options.limitPrice);
       if (!limitOrder.success || !limitOrder.orderId) {
         return { success: false, error: limitOrder.error || "Limit order failed" };
       }
@@ -810,7 +833,7 @@ async function openBinanceTrade(
       let executedQty = 0;
 
       while (Date.now() < deadline) {
-        const details = await getFuturesOrderDetails(apiKey, apiSecret, symbol, limitOrder.orderId);
+        const details = await getFuturesOrderDetails(apiKey, apiSecret, requestedSymbol, limitOrder.orderId);
         if (details.executedQty) {
           executedQty = details.executedQty;
         }
@@ -823,7 +846,7 @@ async function openBinanceTrade(
         await delay(LIMIT_ORDER_POLL_INTERVAL_MS);
       }
 
-      await cancelFuturesOrder(apiKey, apiSecret, symbol, limitOrder.orderId);
+      await cancelFuturesOrder(apiKey, apiSecret, requestedSymbol, limitOrder.orderId);
       if (executedQty > 0) {
         return { success: false, error: `Limit emir dolmadi. Kismi dolum: ${executedQty}. Pozisyonu kontrol et.` };
       }
@@ -831,10 +854,10 @@ async function openBinanceTrade(
       return { success: false, error: "Limit emir dolmadi. Islem acilmadi." };
     }
 
-    return placeFuturesMarketOrder(apiKey, apiSecret, symbol, side, quantity);
+    return placeFuturesMarketOrder(apiKey, apiSecret, requestedSymbol, side, quantity);
   }
 
-  const queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
+  const queryString = `symbol=${requestedSymbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
   const baseUrl = "https://api.binance.com/api/v3/order";
 
   const signature = await createBinanceSignature(queryString, apiSecret);
@@ -849,6 +872,16 @@ async function openBinanceTrade(
 
   if (!response.ok) {
     return { success: false, error: data?.msg || "Order failed" };
+  }
+
+  const actualSymbol = String(data?.symbol || "").toUpperCase();
+  if (actualSymbol && requestedSymbol && actualSymbol !== requestedSymbol) {
+    console.error("❌ Spot order symbol mismatch", {
+      requestedSymbol,
+      actualSymbol,
+      orderId: data?.orderId,
+    });
+    return { success: false, error: `Spot order symbol mismatch: requested ${requestedSymbol}, got ${actualSymbol}` };
   }
 
   return { success: true, orderId: String(data.orderId) };
