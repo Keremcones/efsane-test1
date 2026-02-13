@@ -51,6 +51,10 @@ async function getSymbolPricePrecision(symbol: string, marketType: "spot" | "fut
     if (info) return info.pricePrecision ?? null;
   }
 
+  if (binanceBanUntil && now < binanceBanUntil) {
+    return null;
+  }
+
   const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
   const url = `${base}/exchangeInfo`;
   const res = await throttledFetch(url);
@@ -81,6 +85,10 @@ async function getSymbolTickSize(symbol: string, marketType: "spot" | "futures")
   if (cached && (now - cached.timestamp) < EXCHANGE_INFO_TTL) {
     const info = cached.symbols?.[symbol];
     if (info && Number.isFinite(info.tickSize)) return Number(info.tickSize);
+  }
+
+  if (binanceBanUntil && now < binanceBanUntil) {
+    return null;
   }
 
   const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
@@ -137,7 +145,7 @@ const PRICE_CACHE_TTL = 15000; // 15 seconds - reduce API pressure
 // Request throttling & queueing (prevent rate limiting)
 // =====================
 let lastRequestTime = 0;
-const MIN_REQUEST_INTERVAL = 4000; // 4000ms (4s) minimum between ALL requests - CRITICAL for Binance
+const MIN_REQUEST_INTERVAL = 10000; // 10000ms (10s) minimum between ALL requests - CRITICAL for Binance
 let requestQueue: Array<{ url: string; options?: any; resolve: Function; reject: Function }> = [];
 let isProcessingQueue = false;
 let requestCount = 0;
@@ -279,6 +287,7 @@ async function getTickerPrice(symbol: string, marketType: "spot" | "futures", fo
   const cacheKey = `${symbol}:${marketType}:ticker`;
   const now = Date.now();
   if (binanceBanUntil && now < binanceBanUntil) {
+    if (priceCache[cacheKey]) return priceCache[cacheKey].price;
     console.warn(`⛔ Binance ban active. Skipping ticker for ${symbol}`);
     return null;
   }
@@ -380,6 +389,10 @@ async function getSymbolInfo(symbol: string, marketType: "spot" | "futures"): Pr
   const cached = symbolInfoCache[cacheKey];
   if (cached && (now - cached.timestamp) < SYMBOL_INFO_TTL) {
     return cached.data;
+  }
+
+  if (binanceBanUntil && now < binanceBanUntil) {
+    return null;
   }
 
   const baseUrl = marketType === "futures"
@@ -1675,6 +1688,7 @@ async function getKlines(
 
   if (binanceBanUntil && now < binanceBanUntil) {
     const waitMs = binanceBanUntil - now;
+    if (klinesCache[cacheKey]) return klinesCache[cacheKey].data;
     console.warn(`⛔ Binance ban active. Skipping klines for ${symbol} (wait ${(waitMs / 1000).toFixed(0)}s)`);
     return null;
   }
@@ -1759,6 +1773,10 @@ async function getKlinesRange(
   limit: number = 1000,
   retries: number = 2
 ): Promise<any[] | null> {
+  if (binanceBanUntil && Date.now() < binanceBanUntil) {
+    console.warn(`⛔ Binance ban active. Skipping klines range for ${symbol}`);
+    return null;
+  }
   const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
   const url = `${base}/klines?symbol=${symbol}&interval=${timeframe}&startTime=${startTimeMs}&endTime=${endTimeMs}&limit=${limit}`;
 
@@ -3128,6 +3146,10 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
       marketType: "spot" | "futures"
     ): Promise<boolean> => {
       try {
+        if (binanceBanUntil && Date.now() < binanceBanUntil) {
+          console.warn(`⛔ Binance ban active. Skipping close verification for ${signal?.symbol || ""}`);
+          return false;
+        }
         const alarmPayload = alarmData || { user_id: String(signal?.user_id || "") };
         const autoTradeEnabled = await resolveAutoTradeEnabled(alarmPayload, marketType);
         if (!autoTradeEnabled) return false;
