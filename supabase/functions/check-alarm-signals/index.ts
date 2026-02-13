@@ -255,6 +255,13 @@ const DISABLE_ALARM_PROCESSING = false; // temporary: close-only mode
 const CLOSE_NEAR_TARGET_PCT = 0.3; // only run heavy checks when near TP/SL
 const MAX_KLINES_PER_INVOCATION = 3; // limit klines per cron
 const TRIGGER_NEAR_TARGET_PCT = 0.1; // skip indicator klines if far from targets
+const ACTIVE_SIGNAL_STATUSES = ["ACTIVE", "active"];
+const ACTIVE_ALARM_STATUSES = ["ACTIVE", "active"];
+
+function isActiveLikeStatus(status: any): boolean {
+  const normalized = String(status || "").toUpperCase();
+  return normalized === "ACTIVE" || normalized === "" || !status;
+}
 
 function isJsonResponse(response: Response): boolean {
   const contentType = response.headers.get("content-type") || "";
@@ -2506,7 +2513,7 @@ async function retryFailedOpenTelegrams(): Promise<void> {
   const { data: signals, error } = await supabase
     .from("active_signals")
     .select("id, user_id, symbol, market_type, timeframe, direction, entry_price, take_profit, stop_loss, tp_percent, sl_percent, signal_timestamp, created_at, telegram_status, telegram_error")
-    .eq("status", "ACTIVE")
+    .in("status", ACTIVE_SIGNAL_STATUSES)
     .eq("telegram_status", "FAILED")
     .gte("created_at", since);
 
@@ -2633,7 +2640,7 @@ async function checkAndTriggerUserAlarms(
     .from("alarms")
     .select("user_id, symbol, status")
     .eq("type", "ACTIVE_TRADE")
-    .eq("status", "ACTIVE");
+    .in("status", ACTIVE_ALARM_STATUSES);
   
   if (activeTradeError) {
     console.error(`❌ Failed to fetch ACTIVE_TRADE alarms:`, activeTradeError);
@@ -3229,7 +3236,7 @@ async function checkAndTriggerUserAlarms(
                 closed_at: new Date().toISOString()
               })
               .eq("id", insertedSignalId)
-              .eq("status", "ACTIVE");
+                .in("status", ACTIVE_SIGNAL_STATUSES);
           } catch (e) {
             console.warn(`⚠️ Failed to close signal after limit not filled for ${symbol}:`, e);
           }
@@ -3429,7 +3436,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
     const { data: rawSignals, error: signalsError } = await supabase
       .from("active_signals")
       .select("*")
-      .in("status", ["ACTIVE", "active"]);
+      .in("status", ACTIVE_SIGNAL_STATUSES);
 
     if (signalsError) {
       console.error("❌ Error fetching signals:", signalsError);
@@ -3594,7 +3601,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
         .from("alarms")
         .select("user_id, symbol")
         .eq("type", "ACTIVE_TRADE")
-        .eq("status", "ACTIVE");
+        .in("status", ACTIVE_ALARM_STATUSES);
 
       if (activeTradeError) {
         console.error("❌ Error fetching ACTIVE_TRADE alarms for orphan check:", activeTradeError);
@@ -3789,7 +3796,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
               closed_at: new Date().toISOString()
             })
             .eq("id", signal.id)
-            .in("status", ["ACTIVE", "active"]);
+            .in("status", ACTIVE_SIGNAL_STATUSES);
 
           if (updateResult.error) {
             console.error(`❌ updateError for signal ${signal.id}:`, updateResult.error);
@@ -4018,7 +4025,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
             closed_at: new Date().toISOString()
           })
           .eq("id", signal.id)
-          .in("status", ["ACTIVE", "active"])
+          .in("status", ACTIVE_SIGNAL_STATUSES)
           .select("id");
 
         if (updateResult.error) {
@@ -4215,7 +4222,7 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
     .eq("user_id", newSignal.user_id)
     .eq("symbol", newSignal.symbol)
     .eq("direction", newSignal.signal_direction)
-    .eq("status", "ACTIVE")
+    .in("status", ACTIVE_SIGNAL_STATUSES)
     .maybeSingle();
 
   if (error) {
@@ -4504,10 +4511,7 @@ serve(async (req: any) => {
         .eq("is_active", true)
         .not("user_id", "is", null);
 
-      alarms = result.data?.filter((alarm: any) => {
-        const status = String(alarm.status || "").toUpperCase();
-        return status === "ACTIVE" || status === "" || !alarm.status;
-      });
+      alarms = result.data?.filter((alarm: any) => isActiveLikeStatus(alarm.status));
       alarmsError = result.error;
     } else {
       // Cron mode: get all active alarms
@@ -4519,24 +4523,9 @@ serve(async (req: any) => {
         .eq("type", "user_alarm")
         .eq("is_active", true);
 
-      console.log(`📥 [DEBUG] Raw query result: ${result.data?.length || 0} alarms returned`);
-      if (result.data?.length) {
-        result.data.forEach((a: any, idx: number) => {
-          console.log(`  [${idx}] id=${a.id}, symbol=${a.symbol}, status='${a.status}', is_active=${a.is_active}`);
-        });
-      }
-      if (result.error) {
-        console.error(`📥 [DEBUG] Query error:`, result.error);
-      }
-
-      alarms = result.data?.filter((alarm: any) => {
-        const status = String(alarm.status || "").toUpperCase();
-        const matches = status === "ACTIVE" || status === "" || !alarm.status;
-        console.log(`  📥 [DEBUG] Filter check - id=${alarm.id}, status='${alarm.status}', uppercase='${status}', matches=${matches}`);
-        return matches;
-      });
+      alarms = result.data?.filter((alarm: any) => isActiveLikeStatus(alarm.status));
       alarmsError = result.error;
-      console.log(`📥 [DEBUG] After filter: ${alarms?.length || 0} alarms match criteria`);
+      console.log(`📥 Cron alarms: raw=${result.data?.length || 0}, activeLike=${alarms?.length || 0}`);
     }
 
     if (alarmsError) {
