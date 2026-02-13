@@ -1399,7 +1399,7 @@
             .container { padding: 8px; }
             .card { padding: 12px; margin-bottom: 12px; }
             .tpsl-grid { grid-template-columns: 1fr !important; }
-            .navbar { padding: 8px 12px; }
+            .navbar { padding: 12px 16px; }
             .header h1 { font-size: 1.2rem; margin-bottom: 4px; }
             .header p { font-size: 0.8rem; }
             .price-display { font-size: 1.5rem; }
@@ -3100,40 +3100,20 @@
             }
         }
         
-        // Hamburger Menü Toggle
-        function toggleHamburgerMenu() {
-            const hamburgerBtn = document.getElementById('hamburgerBtn');
-            const menuPanel = document.getElementById('menuPanel');
-            
-            hamburgerBtn.classList.toggle('active');
-            menuPanel.classList.toggle('active');
-            
-            // Body scroll'u engelle
-            if (menuPanel.classList.contains('active')) {
-                document.body.style.overflow = 'hidden';
-            } else {
-                document.body.style.overflow = 'auto';
-            }
-        }
-        
-        function closeHamburgerMenu() {
-            const hamburgerBtn = document.getElementById('hamburgerBtn');
-            const menuPanel = document.getElementById('menuPanel');
-            
-            hamburgerBtn.classList.remove('active');
-            menuPanel.classList.remove('active');
-            document.body.style.overflow = 'auto';
-        }
-        
-        // Dışa tıklanırsa menüyü kapat
-        document.addEventListener('click', (event) => {
-            const menuPanel = document.getElementById('menuPanel');
-            const hamburgerBtn = document.getElementById('hamburgerBtn');
-            
-            if (!menuPanel.contains(event.target) && !hamburgerBtn.contains(event.target)) {
-                closeHamburgerMenu();
-            }
-        });
+        window.toggleHamburgerMenu = function() {
+            const panel = document.getElementById('menuPanel');
+            const btn = document.getElementById('hamburgerBtn');
+            if (!panel || !btn) return;
+            panel.classList.toggle('active');
+            btn.classList.toggle('active');
+        };
+
+        window.closeHamburgerMenu = function() {
+            const panel = document.getElementById('menuPanel');
+            const btn = document.getElementById('hamburgerBtn');
+            if (panel) panel.classList.remove('active');
+            if (btn) btn.classList.remove('active');
+        };
         
         // Çıkış
         async function logout() {

@@ -282,12 +282,6 @@
             color: var(--text-primary);
         }
 
-        .navbar-left {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-        }
-
         .hamburger-menu {
             display: flex;
             flex-direction: column;
@@ -443,25 +437,6 @@
             border-color: #f44336;
         }
 
-        .back-btn {
-            background: rgba(56, 232, 255, 0.08);
-            border: 1px solid rgba(56, 232, 255, 0.2);
-            color: var(--primary);
-            font-size: 20px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            padding: 8px 10px;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .back-btn:hover {
-            transform: translateX(-4px);
-            color: var(--secondary);
-        }
-
         .logo {
             text-decoration: none;
             display: flex;
@@ -486,9 +461,15 @@
             -webkit-text-fill-color: transparent;
         }
 
-        .user-email-header {
+        .user-menu {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .user-email {
             color: var(--text-secondary);
-            font-size: 14px;
+            font-size: 0.9rem;
         }
 
         .user-role-badge {
@@ -1323,24 +1304,17 @@
             .button-group {
                 flex-direction: column;
             }
-
-            .user-email-header {
-                display: none;
-            }
         }
     </style>
 </head>
 <body>
     <nav class="navbar">
-        <div class="navbar-left">
-            <button class="back-btn" onclick="window.goBack()"><i class="fa-solid fa-arrow-left"></i></button>
-            <a href="index.html" class="logo">
-                <img src="logo.svg" alt="Rolin Signal" class="logo-img" />
-                <span class="logo-text">Rolin Signal</span>
-            </a>
-        </div>
-        <div style="display: flex; gap: 10px; align-items: center;">
-            <div class="user-email-header" id="userEmailHeader">Loading...</div>
+        <a href="index.html" class="logo">
+            <img src="logo.svg" alt="Rolin Signal" class="logo-img" />
+            <span class="logo-text">Rolin Signal</span>
+        </a>
+        <div class="user-menu">
+            <span class="user-email" id="userEmail">Yükleniyor...</span>
             <span class="user-role-badge" id="userRoleBadge" style="display:none;"></span>
             <button class="hamburger-menu" id="hamburgerBtn" onclick="window.toggleHamburgerMenu()" title="Menü">
                 <span></span>
@@ -1743,7 +1717,8 @@
             try {
                 const isAdminByEmail = String(currentUser.email || '').toLowerCase() === ADMIN_EMAIL;
                 document.getElementById('profileEmail').value = currentUser.email;
-                document.getElementById('userEmailHeader').textContent = currentUser.email;
+                const userEmailEl = document.getElementById('userEmail') || document.getElementById('userEmailHeader');
+                if (userEmailEl) userEmailEl.textContent = currentUser.email;
 
                 const profilePayload = {
                     id: currentUser.id,
@@ -2730,7 +2705,8 @@
             }
 
             currentUser = session.user;
-            document.getElementById('userEmailHeader').textContent = currentUser.email;
+            const userEmailEl = document.getElementById('userEmail') || document.getElementById('userEmailHeader');
+            if (userEmailEl) userEmailEl.textContent = currentUser.email;
             const menuUserEmail = document.getElementById('menuUserEmail');
             if (menuUserEmail) {
                 menuUserEmail.textContent = currentUser.email;
