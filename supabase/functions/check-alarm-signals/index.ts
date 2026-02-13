@@ -4544,6 +4544,68 @@ serve(async (req: any) => {
       }
     }
 
+    if (body?.action === "health_check") {
+      const nowIso = new Date().toISOString();
+      const staleCutoffIso = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+      const oneHourAgoIso = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+      const [
+        activeSignalsCount,
+        staleActiveSignalsCount,
+        recentClosedCount,
+        failedOpenTelegramCount,
+        failedCloseTelegramCount,
+      ] = await Promise.all([
+        supabase
+          .from("active_signals")
+          .select("id", { count: "exact", head: true })
+          .in("status", ACTIVE_SIGNAL_STATUSES),
+        supabase
+          .from("active_signals")
+          .select("id", { count: "exact", head: true })
+          .in("status", ACTIVE_SIGNAL_STATUSES)
+          .lt("created_at", staleCutoffIso),
+        supabase
+          .from("active_signals")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "CLOSED")
+          .gte("closed_at", oneHourAgoIso),
+        supabase
+          .from("active_signals")
+          .select("id", { count: "exact", head: true })
+          .in("status", ACTIVE_SIGNAL_STATUSES)
+          .eq("telegram_status", "FAILED"),
+        supabase
+          .from("active_signals")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "CLOSED")
+          .eq("telegram_close_status", "FAILED")
+          .gte("closed_at", oneHourAgoIso),
+      ]);
+
+      return new Response(JSON.stringify({
+        success: true,
+        timestamp: nowIso,
+        health: {
+          active_signals: activeSignalsCount.count || 0,
+          stale_active_signals_30m: staleActiveSignalsCount.count || 0,
+          closed_last_1h: recentClosedCount.count || 0,
+          open_telegram_failed_active: failedOpenTelegramCount.count || 0,
+          close_telegram_failed_last_1h: failedCloseTelegramCount.count || 0,
+        },
+        runtime: {
+          binance_ban_active: binanceBanUntil > Date.now(),
+          binance_ban_remaining_sec: binanceBanUntil > Date.now() ? Math.ceil((binanceBanUntil - Date.now()) / 1000) : 0,
+          binance_time_offset_ms: binanceTimeOffsetMs,
+          algo_endpoint_cooldown_active: futuresAlgoEndpointBlockedUntil > Date.now(),
+          algo_endpoint_cooldown_remaining_sec: futuresAlgoEndpointBlockedUntil > Date.now() ? Math.ceil((futuresAlgoEndpointBlockedUntil - Date.now()) / 1000) : 0,
+        }
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
     // ✅ If request includes a new signal, insert it (with duplicate prevention)
     let insertResult = { inserted: false, duplicate: false };
     try {
