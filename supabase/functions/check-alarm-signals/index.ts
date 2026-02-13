@@ -1060,7 +1060,15 @@ async function hasOpenFuturesAlgoOrders(apiKey: string, apiSecret: string, symbo
   }
 
   if (!isJsonResponse(response)) {
-    console.warn("⚠️ Binance futures algo orders non-JSON response, skipping.");
+    const contentType = response.headers.get("content-type") || "";
+    const host = (() => {
+      try {
+        return new URL(response.url).host;
+      } catch {
+        return "unknown";
+      }
+    })();
+    console.warn(`⚠️ Binance futures algo orders non-JSON response, skipping. status=${response.status} content-type=${contentType} host=${host}`);
     return false;
   }
 
@@ -1154,7 +1162,15 @@ async function getOpenFuturesAlgoOrdersAll(apiKey: string, apiSecret: string): P
   }
 
   if (!isJsonResponse(response)) {
-    console.warn("⚠️ Binance futures algo orders (all) non-JSON response, skipping.");
+    const contentType = response.headers.get("content-type") || "";
+    const host = (() => {
+      try {
+        return new URL(response.url).host;
+      } catch {
+        return "unknown";
+      }
+    })();
+    console.warn(`⚠️ Binance futures algo orders (all) non-JSON response, skipping. status=${response.status} content-type=${contentType} host=${host}`);
     return [];
   }
 
@@ -2545,14 +2561,23 @@ function validateAlarm(alarm: any): boolean {
 // =====================
 // User alarm trigger logic (WITH SIGNAL GENERATION)
 // =====================
-async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Promise<void> {
+type TriggerCheckStats = {
+  alarmsProcessed: number;
+  triggersChecked: number;
+  triggered: number;
+  skippedActive: number;
+};
+
+async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Promise<TriggerCheckStats> {
   console.log(`🔥 checkAndTriggerUserAlarms called with ${alarms?.length || 0} alarms`);
   
-  if (!alarms || alarms.length === 0) return;
+  if (!alarms || alarms.length === 0) {
+    return { alarmsProcessed: 0, triggersChecked: 0, triggered: 0, skippedActive: 0 };
+  }
 
   if (binanceBanUntil && Date.now() < binanceBanUntil) {
     console.warn("⛔ Binance ban active. Skipping alarm trigger checks.");
-    return;
+    return { alarmsProcessed: 0, triggersChecked: 0, triggered: 0, skippedActive: 0 };
   }
 
   console.log(`🔍 Fetching existing ACTIVE_TRADE alarms...`);
@@ -2611,11 +2636,14 @@ async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Pr
     batches.push(alarms.slice(i, i + BATCH_SIZE));
   }
 
+  const stats: TriggerCheckStats = { alarmsProcessed: 0, triggersChecked: 0, triggered: 0, skippedActive: 0 };
+
   const processAlarm = async (alarm: any): Promise<void> => {
     try {
       if (deadlineMs && Date.now() >= deadlineMs) {
         return;
       }
+      stats.alarmsProcessed += 1;
       if (!validateAlarm(alarm)) {
         return;
       }
@@ -2673,13 +2701,16 @@ async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Pr
 
         if (autoTradeEnabled && openTradeSymbols.has(symbolKey)) {
           console.log(`⏹️ Skipping user_alarm for ${symbol}: ACTIVE_TRADE in progress (user: ${alarm.user_id})`);
+          stats.skippedActive += 1;
         } else if (!isWithinOpenWindow) {
           console.log(`⏹️ Skipping user_alarm for ${symbol}: outside current bar (${Math.round((nowMs - lastOpenMs) / 1000)}s)`);
         } else if (Number.isFinite(lastSignalMs) && lastSignalMs >= lastOpenMs) {
           console.log(`⏹️ Skipping user_alarm for ${symbol}: same bar already processed (alarm ${alarm.id})`);
         } else if (openSignalKeys.has(signalKey)) {
           console.log(`⏹️ Skipping user_alarm for ${symbol}: signal already active for this alarm (user: ${alarm.user_id})`);
+          stats.skippedActive += 1;
         } else {
+          stats.triggersChecked += 1;
           const tpPercent = Number(alarm.tp_percent || 5);
           const slPercent = Number(alarm.sl_percent || 3);
           const entryPrice = Number.isFinite(triggerPrice)
@@ -2699,6 +2730,7 @@ async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Pr
             const directionKey = `${alarm.user_id}:${symbol}:${signal.direction}`;
             if (openSignalDirections.has(directionKey)) {
               console.log(`⏹️ Skipping user_alarm for ${symbol}: same direction already active (user: ${alarm.user_id})`);
+              stats.skippedActive += 1;
               return;
             }
             shouldTrigger = true;
@@ -2758,9 +2790,11 @@ async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Pr
 
         if (openSignalKeys.has(signalKey)) {
           console.log(`⏹️ Skipping PRICE_LEVEL alarm for ${symbol}: signal already active for this alarm (user: ${alarm.user_id})`);
+          stats.skippedActive += 1;
         }
 
         if (Number.isFinite(targetPrice) && !openSignalKeys.has(signalKey)) {
+            stats.triggersChecked += 1;
             if (condition === "above" && triggerPrice >= targetPrice) {
             shouldTrigger = true;
               triggerMessage = `🚀 Price ${formatPriceWithPrecision(targetPrice, alarmPricePrecision)}$ reached! (Current: $${formatPriceWithPrecision(triggerPrice, alarmPricePrecision)})`;
@@ -2775,6 +2809,7 @@ async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Pr
             const directionKey = `${alarm.user_id}:${symbol}:${detectedSignal.direction}`;
             if (openSignalDirections.has(directionKey)) {
               console.log(`⏹️ Skipping PRICE_LEVEL alarm for ${symbol}: same direction already active (user: ${alarm.user_id})`);
+              stats.skippedActive += 1;
               shouldTrigger = false;
               detectedSignal = null;
             }
@@ -2792,6 +2827,7 @@ async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Pr
             const directionKey = `${alarm.user_id}:${symbol}:${detectedSignal.direction}`;
             if (openSignalDirections.has(directionKey)) {
               console.log(`⏹️ Skipping PRICE_LEVEL alarm for ${symbol}: same direction already active (user: ${alarm.user_id})`);
+              stats.skippedActive += 1;
               shouldTrigger = false;
               detectedSignal = null;
             }
@@ -2808,13 +2844,16 @@ async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Pr
 
         if (openTradeSymbols.has(symbolKey)) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: ACTIVE_TRADE in progress (user: ${alarm.user_id})`);
+          stats.skippedActive += 1;
         } else if (!isWithinOpenWindow) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: outside current bar (${Math.round((nowMs - lastOpenMs) / 1000)}s)`);
         } else if (Number.isFinite(lastSignalMs) && lastSignalMs >= lastOpenMs) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: same bar already processed (alarm ${alarm.id})`);
         } else if (openSignalKeys.has(signalKey)) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: signal already active for this alarm (user: ${alarm.user_id})`);
+          stats.skippedActive += 1;
         } else {
+          stats.triggersChecked += 1;
           const userConfidenceThreshold = Number(alarm.confidence_score || 70);
           const signal = generateSignalScoreAligned(alarmIndicators, userConfidenceThreshold);
           const directionFilter = String(alarm.direction_filter || "BOTH").toUpperCase();
@@ -2836,6 +2875,7 @@ async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Pr
             const directionKey = `${alarm.user_id}:${symbol}:${signal.direction}`;
             if (openSignalDirections.has(directionKey)) {
               console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: same direction already active (user: ${alarm.user_id})`);
+              stats.skippedActive += 1;
               return;
             }
             shouldTrigger = true;
@@ -2862,6 +2902,7 @@ async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Pr
         const stopLoss = Number(alarm.stop_loss || alarm.stopLoss);
 
         if (direction === "LONG" && Number.isFinite(entryPrice) && Number.isFinite(takeProfit) && Number.isFinite(stopLoss)) {
+          stats.triggersChecked += 1;
           if (triggerPrice >= takeProfit) {
             shouldTrigger = true;
             triggerMessage = `✅ LONG TP Hit! (Entry: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}, TP: $${formatPriceWithPrecision(takeProfit, alarmPricePrecision)}, Current: $${formatPriceWithPrecision(triggerPrice, alarmPricePrecision)})`;
@@ -2886,6 +2927,7 @@ async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Pr
             };
           }
         } else if (direction === "SHORT" && Number.isFinite(entryPrice) && Number.isFinite(takeProfit) && Number.isFinite(stopLoss)) {
+          stats.triggersChecked += 1;
           if (triggerPrice <= takeProfit) {
             shouldTrigger = true;
             triggerMessage = `✅ SHORT TP Hit! (Entry: $${formatPriceWithPrecision(entryPrice, alarmPricePrecision)}, TP: $${formatPriceWithPrecision(takeProfit, alarmPricePrecision)}, Current: $${formatPriceWithPrecision(triggerPrice, alarmPricePrecision)})`;
@@ -3023,6 +3065,7 @@ async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Pr
             openSignalSymbols.add(`${alarm.user_id}:${symbol}`);
             openSignalKeys.add(`${alarm.user_id}:${String(alarm.id || "")}`);
             openSignalDirections.add(`${alarm.user_id}:${symbol}:${direction}`);
+            stats.triggered += 1;
           }
         } catch (e) {
           console.error(`❌ Error creating signal for ${symbol}:`, e);
@@ -3168,6 +3211,7 @@ ${tradeNotificationText}
 
   // 🚀 PARALLELIZED: Send all Telegram messages in parallel
   await Promise.all(telegramPromises);
+  return stats;
 }
 type ClosedSignal = {
   id: string | number;
@@ -3178,6 +3222,11 @@ type ClosedSignal = {
   user_id: string;
   profitLoss?: number;
   market_type?: string;
+};
+
+type CloseCheckStats = {
+  closesChecked: number;
+  closed: number;
 };
 
 function resolveSameCandleHit(
@@ -3272,7 +3321,7 @@ async function resolveFirstTouchRange(
   return "";
 }
 
-async function checkAndCloseSignals(deadlineMs?: number): Promise<ClosedSignal[]> {
+async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignals: ClosedSignal[]; stats: CloseCheckStats }> {
   try {
     const { data: rawSignals, error: signalsError } = await supabase
       .from("active_signals")
@@ -3281,11 +3330,13 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<ClosedSignal[]
 
     if (signalsError) {
       console.error("❌ Error fetching signals:", signalsError);
-      return [];
+      return { closedSignals: [], stats: { closesChecked: 0, closed: 0 } };
     }
 
     let signals = rawSignals || [];
-    if (!signals || signals.length === 0) return [];
+    if (!signals || signals.length === 0) {
+      return { closedSignals: [], stats: { closesChecked: 0, closed: 0 } };
+    }
     if (signals.length > MAX_CLOSE_CHECKS_PER_CRON) {
       console.warn(`⚠️ Close check truncated: ${signals.length} -> ${MAX_CLOSE_CHECKS_PER_CRON}`);
       signals = signals.slice(0, MAX_CLOSE_CHECKS_PER_CRON);
@@ -3486,6 +3537,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<ClosedSignal[]
     };
 
     const closedSignals: ClosedSignal[] = [];
+    const stats: CloseCheckStats = { closesChecked: 0, closed: 0 };
 
     for (let idx = 0; idx < signals.length; idx++) {
       try {
@@ -3493,6 +3545,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<ClosedSignal[]
           throw new Error("Hard timeout reached during close checks");
         }
         const signal = signals[idx];
+        stats.closesChecked += 1;
         const symbol = String(signal.symbol || "");
         console.log(`🔎 Close check ${signal.id} ${symbol}`);
         const direction = (signal.condition || signal.direction) as "LONG" | "SHORT";
@@ -3796,15 +3849,16 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<ClosedSignal[]
           market_type: signal.market_type || signal.marketType || signal.market,
           profitLoss,
         });
+        stats.closed += 1;
       } catch (e) {
         console.error(`❌ Error checking signal ${signals[idx]?.id}:`, e);
       }
     }
 
-    return closedSignals;
+    return { closedSignals, stats };
   } catch (e) {
     console.error("❌ Error in checkAndCloseSignals:", e);
-    return [];
+    return { closedSignals: [], stats: { closesChecked: 0, closed: 0 } };
   }
 }
 
@@ -4044,6 +4098,8 @@ serve(async (req: any) => {
   const hardDeadlineMs = requestStartMs + HARD_TIMEOUT_MS;
   const startRequestCount = requestCount;
   const startBinanceCount = binanceRequestCount;
+  let closeStats: CloseCheckStats = { closesChecked: 0, closed: 0 };
+  let triggerStats: TriggerCheckStats = { alarmsProcessed: 0, triggersChecked: 0, triggered: 0, skippedActive: 0 };
   // CORS headers
   const origin = req.headers.get("origin") || "*";
   const corsHeaders = {
@@ -4290,13 +4346,15 @@ serve(async (req: any) => {
     console.log(`📊 Found ${alarms?.length || 0} active alarms${body?.user_id ? ' for user' : ' (cron mode)'}`);
 
     // ✅ Close signals that hit TP/SL (prioritize before heavy alarm scans)
-    const closedSignals = await checkAndCloseSignals(hardDeadlineMs);
+    const closeResult = await checkAndCloseSignals(hardDeadlineMs);
+    const closedSignals = closeResult.closedSignals;
+    closeStats = closeResult.stats;
 
     if (DISABLE_ALARM_PROCESSING) {
       console.warn("⚠️ Alarm processing disabled (close-only mode)");
     } else if (alarms && alarms.length > 0) {
       const deadlineMs = requestStartMs + MAX_REQUEST_RUNTIME_MS;
-      await checkAndTriggerUserAlarms(alarms, deadlineMs);
+      triggerStats = await checkAndTriggerUserAlarms(alarms, deadlineMs);
     }
 
     // ✅ Notify - 🚀 PARALLELIZED
@@ -4351,6 +4409,7 @@ ${emoji} ${statusMessage}
     if (endpointSummary) {
       console.log(`📊 Endpoint stats: ${endpointSummary}`);
     }
+    console.log(`✅ Summary: alarmsProcessed=${triggerStats.alarmsProcessed} closesChecked=${closeStats.closesChecked} closed=${closeStats.closed} triggersChecked=${triggerStats.triggersChecked} triggered=${triggerStats.triggered} skippedActive=${triggerStats.skippedActive}`);
     console.log(`⏱️ Request duration: ${elapsedMs}ms`);
 
     return new Response(
@@ -4374,6 +4433,7 @@ ${emoji} ${statusMessage}
     if (endpointSummary) {
       console.log(`📊 Endpoint stats (error): ${endpointSummary}`);
     }
+    console.log(`✅ Summary: alarmsProcessed=${triggerStats.alarmsProcessed} closesChecked=${closeStats.closesChecked} closed=${closeStats.closed} triggersChecked=${triggerStats.triggersChecked} triggered=${triggerStats.triggered} skippedActive=${triggerStats.skippedActive}`);
     console.log(`⏱️ Request duration (error): ${elapsedMs}ms`);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
       status: 500,
