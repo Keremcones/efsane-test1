@@ -2203,6 +2203,8 @@
         // Supabase Client'ini başlat
         let supabaseClient = null;
         let alarmSystem = null;
+        let activeSignalsSubscription = null;
+        let alarmSignalsRefreshTimer = null;
         
         const { createClient } = window.supabase;
         supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -2252,6 +2254,9 @@
                     
                     alarmSystem.setSupabaseClient(supabaseClient, currentUser.id, userSettings?.telegram_chat_id);
                     console.log(`Supabase ile bağlantı kuruldu - User: ${currentUser.email}`);
+                    loadAlarms();
+                    subscribeToActiveSignalChanges();
+                    startAlarmSignalsRefresh();
                 }
             } catch (error) {
                 console.log('Supabase auth hatası (offline mode açık):', error);
@@ -2285,9 +2290,13 @@
                 
                 // Supabase real-time subscription (cross-browser sync)
                 subscribeToAlarmChanges();
+                subscribeToActiveSignalChanges();
+                startAlarmSignalsRefresh();
             } else {
                 currentUser = null;
                 console.log('Kullanıcı çıkış yaptı');
+                stopActiveSignalChanges();
+                stopAlarmSignalsRefresh();
             }
         });
         
@@ -2376,6 +2385,48 @@
             // Real-time subscription Supabase RLS policy'siyle çakıştığı için devre dışı
             // Sistem zaten localStorage ve Supabase'den alarmları yükler
             console.log('Real-time subscription: localStorage + Supabase pull mode kullanılıyor');
+        }
+
+        function subscribeToActiveSignalChanges() {
+            if (!supabaseClient || !currentUser?.id || !window.REALTIME_ENABLED) return;
+            stopActiveSignalChanges();
+
+            activeSignalsSubscription = supabaseClient
+                .channel('active_signals_changes')
+                .on('postgres_changes', {
+                    event: '*',
+                    schema: 'public',
+                    table: 'active_signals',
+                    filter: `user_id=eq.${currentUser.id}`
+                }, (payload) => {
+                    console.log('📡 Active signal change:', payload.eventType, payload.new || payload.old);
+                    loadAlarms();
+                })
+                .subscribe((status) => {
+                    console.log('📡 Active signals subscription status:', status);
+                });
+        }
+
+        function stopActiveSignalChanges() {
+            if (activeSignalsSubscription) {
+                supabaseClient.removeChannel(activeSignalsSubscription);
+                activeSignalsSubscription = null;
+            }
+        }
+
+        function startAlarmSignalsRefresh() {
+            stopAlarmSignalsRefresh();
+            alarmSignalsRefreshTimer = setInterval(() => {
+                if (!currentUser?.id) return;
+                loadAlarms();
+            }, 3000);
+        }
+
+        function stopAlarmSignalsRefresh() {
+            if (alarmSignalsRefreshTimer) {
+                clearInterval(alarmSignalsRefreshTimer);
+                alarmSignalsRefreshTimer = null;
+            }
         }
         
         // RiskCalculator removed per user request

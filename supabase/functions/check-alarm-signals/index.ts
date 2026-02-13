@@ -131,7 +131,7 @@ let binanceBanUntil = 0;
 
 // Cache prices to avoid redundant API calls
 const priceCache: Record<string, { price: number; timestamp: number }> = {};
-const PRICE_CACHE_TTL = 5000; // 5 seconds - refresh every 5s max
+const PRICE_CACHE_TTL = 8000; // 8 seconds - refresh every 8s max
 
 // =====================
 // Request throttling & queueing (prevent rate limiting)
@@ -140,6 +140,15 @@ let lastRequestTime = 0;
 const MIN_REQUEST_INTERVAL = 2000; // 2000ms (2s) minimum between ALL requests - CRITICAL for Binance
 let requestQueue: Array<{ url: string; options?: any; resolve: Function; reject: Function }> = [];
 let isProcessingQueue = false;
+let requestCount = 0;
+let binanceRequestCount = 0;
+
+function trackRequest(url: string) {
+  requestCount += 1;
+  if (/binance\.(com|vision)/i.test(url)) {
+    binanceRequestCount += 1;
+  }
+}
 
 async function processRequestQueue() {
   if (isProcessingQueue) return;
@@ -178,6 +187,7 @@ async function processRequestQueue() {
 }
 
 async function throttledFetch(url: string, options?: any): Promise<Response> {
+  trackRequest(url);
   return new Promise((resolve, reject) => {
     requestQueue.push({ url, options, resolve, reject });
     processRequestQueue().catch(reject);
@@ -191,6 +201,10 @@ async function throttledFetch(url: string, options?: any): Promise<Response> {
 // Cache klines to avoid redundant API calls
 const klinesCache: Record<string, { data: any[]; timestamp: number }> = {};
 const KLINES_CACHE_TTL = 30000; // 30 seconds - reduce API pressure
+const MIN_KLINES_REFRESH_MS = 5000; // prevent burst refresh
+
+const symbolInfoCache: Record<string, { timestamp: number; data: any }> = {};
+const SYMBOL_INFO_TTL = 10 * 60 * 1000;
 
 function normalizeMarketType(value: any): "spot" | "futures" {
   const v = String(value || "").toLowerCase();
@@ -221,13 +235,8 @@ function timeframeToMinutes(timeframe: string): number {
 
 async function getCurrentPrice(symbol: string, marketType: "spot" | "futures"): Promise<number | null> {
   try {
-    // Check price cache first
-    const cacheKey = `${symbol}:${marketType}`;
-    const now = Date.now();
-    if (priceCache[cacheKey] && (now - priceCache[cacheKey].timestamp) < PRICE_CACHE_TTL) {
-      console.log(`💾 Cache hit for ${symbol} (${priceCache[cacheKey].price})`);
-      return priceCache[cacheKey].price;
-    }
+    const tickerPrice = await getTickerPrice(symbol, marketType, false);
+    if (Number.isFinite(tickerPrice)) return tickerPrice;
 
     const klines = await getKlines(symbol, marketType, "1m", 2);
     if (!klines || klines.length === 0) {
@@ -236,12 +245,7 @@ async function getCurrentPrice(symbol: string, marketType: "spot" | "futures"): 
     }
     const lastKline = klines[klines.length - 1];
     const p = Number(lastKline?.[4]);
-    if (!Number.isFinite(p)) return null;
-    
-    // Cache the price
-    priceCache[cacheKey] = { price: p, timestamp: now };
-    
-    return p;
+    return Number.isFinite(p) ? p : null;
   } catch (e) {
     console.error(`❌ price fetch error for ${symbol}:`, e);
     return null;
@@ -250,6 +254,9 @@ async function getCurrentPrice(symbol: string, marketType: "spot" | "futures"): 
 
 async function getCurrentPriceFresh(symbol: string, marketType: "spot" | "futures"): Promise<number | null> {
   try {
+    const tickerPrice = await getTickerPrice(symbol, marketType, true);
+    if (Number.isFinite(tickerPrice)) return tickerPrice;
+
     const klines = await getKlines(symbol, marketType, "1m", 2, 3, true);
     if (!klines || klines.length === 0) {
       console.error(`❌ price fetch failed for ${symbol}: klines unavailable`);
@@ -262,6 +269,30 @@ async function getCurrentPriceFresh(symbol: string, marketType: "spot" | "future
     console.error(`❌ price fetch error for ${symbol}:`, e);
     return null;
   }
+}
+
+async function getTickerPrice(symbol: string, marketType: "spot" | "futures", forceFresh: boolean): Promise<number | null> {
+  const cacheKey = `${symbol}:${marketType}:ticker`;
+  const now = Date.now();
+  if (!forceFresh && priceCache[cacheKey] && (now - priceCache[cacheKey].timestamp) < PRICE_CACHE_TTL) {
+    return priceCache[cacheKey].price;
+  }
+  if (forceFresh && priceCache[cacheKey] && (now - priceCache[cacheKey].timestamp) < 3000) {
+    return priceCache[cacheKey].price;
+  }
+
+  const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
+  const url = `${base}/ticker/price?symbol=${symbol}`;
+  const res = await throttledFetch(url);
+  if (!res.ok) {
+    console.error(`❌ ticker price fetch failed for ${symbol}:`, await res.text());
+    return null;
+  }
+  const data = await res.json();
+  const p = Number(data?.price);
+  if (!Number.isFinite(p)) return null;
+  priceCache[cacheKey] = { price: p, timestamp: now };
+  return p;
 }
 
 async function getFuturesMarkPrice(symbol: string): Promise<number | null> {
@@ -335,11 +366,18 @@ async function getBinanceBalance(apiKey: string, apiSecret: string, marketType: 
 }
 
 async function getSymbolInfo(symbol: string, marketType: "spot" | "futures"): Promise<{ quantityPrecision: number; minQty: number; pricePrecision: number; tickSize: number; stepSize: number } | null> {
+  const cacheKey = `${marketType}:${symbol}`;
+  const now = Date.now();
+  const cached = symbolInfoCache[cacheKey];
+  if (cached && (now - cached.timestamp) < SYMBOL_INFO_TTL) {
+    return cached.data;
+  }
+
   const baseUrl = marketType === "futures"
     ? "https://fapi.binance.com/fapi/v1/exchangeInfo"
     : "https://api.binance.com/api/v3/exchangeInfo";
 
-  const response = await fetch(baseUrl);
+  const response = await throttledFetch(baseUrl);
   if (!response.ok) return null;
 
   const data = await response.json();
@@ -361,13 +399,16 @@ async function getSymbolInfo(symbol: string, marketType: "spot" | "futures"): Pr
     ? tickSize.split(".")[1].replace(/0+$/, "").length
     : 0;
 
-  return {
+  const resolved = {
     quantityPrecision,
     minQty,
     pricePrecision,
     tickSize: Number(tickSize),
     stepSize: Number(stepSize)
   };
+
+  symbolInfoCache[cacheKey] = { timestamp: now, data: resolved };
+  return resolved;
 }
 
 async function setLeverage(apiKey: string, apiSecret: string, symbol: string, leverage: number): Promise<boolean> {
@@ -839,6 +880,25 @@ async function hasOpenFuturesPosition(apiKey: string, apiSecret: string, symbol:
   return Math.abs(positionAmt) > 0;
 }
 
+async function hasOpenFuturesOrders(apiKey: string, apiSecret: string, symbol: string): Promise<boolean> {
+  const timestamp = Date.now();
+  const queryString = `symbol=${symbol}&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v1/openOrders?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    console.error("❌ Binance futures open orders check failed:", await response.text());
+    throw new Error("Futures open orders check failed");
+  }
+
+  const data = await response.json();
+  return Array.isArray(data) && data.length > 0;
+}
+
 async function hasOpenSpotOrders(apiKey: string, apiSecret: string, symbol: string): Promise<boolean> {
   const timestamp = Date.now();
   const queryString = `symbol=${symbol}&timestamp=${timestamp}`;
@@ -856,6 +916,39 @@ async function hasOpenSpotOrders(apiKey: string, apiSecret: string, symbol: stri
 
   const data = await response.json();
   return Array.isArray(data) && data.length > 0;
+}
+
+function resolveSpotBaseAsset(symbol: string): string {
+  const upper = String(symbol || "").toUpperCase();
+  const quoteAssets = ["USDT", "USDC", "BUSD", "TUSD", "FDUSD", "USDP", "DAI"];
+  for (const quote of quoteAssets) {
+    if (upper.endsWith(quote)) {
+      return upper.slice(0, -quote.length);
+    }
+  }
+  return upper;
+}
+
+async function getSpotAssetBalance(apiKey: string, apiSecret: string, asset: string): Promise<number> {
+  const timestamp = Date.now();
+  const queryString = `timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://api.binance.com/api/v3/account?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    console.error("❌ Binance spot balance check failed:", await response.text());
+    throw new Error("Spot balance check failed");
+  }
+
+  const data = await response.json();
+  const balances = Array.isArray(data?.balances) ? data.balances : [];
+  const upperAsset = String(asset || "").toUpperCase();
+  const row = balances.find((b: any) => String(b?.asset || "").toUpperCase() === upperAsset);
+  return Number(row?.free || 0) + Number(row?.locked || 0);
 }
 
 type UserBinanceKeys = {
@@ -963,9 +1056,11 @@ async function executeAutoTrade(
           return { success: false, message: `Açık futures pozisyonu var (${symbol}). Yeni işlem açılmadı.`, blockedByOpenPosition: true };
         }
       } else {
-        const hasOpen = await hasOpenSpotOrders(api_key, api_secret, symbol);
-        if (hasOpen) {
-          return { success: false, message: `Açık spot emri var (${symbol}). Yeni işlem açılmadı.`, blockedByOpenPosition: true };
+        const baseAsset = resolveSpotBaseAsset(symbol);
+        const hasOpenOrders = await hasOpenSpotOrders(api_key, api_secret, symbol);
+        const assetBalance = await getSpotAssetBalance(api_key, api_secret, baseAsset);
+        if (hasOpenOrders || assetBalance > 0) {
+          return { success: false, message: `Açık spot pozisyonu var (${symbol}). Yeni işlem açılmadı.`, blockedByOpenPosition: true };
         }
       }
     } catch (e) {
@@ -1544,6 +1639,9 @@ async function getKlines(
     console.log(`💾 Klines cache hit for ${cacheKey}`);
     return klinesCache[cacheKey].data;
   }
+  if (forceRefresh && klinesCache[cacheKey] && (now - klinesCache[cacheKey].timestamp) < MIN_KLINES_REFRESH_MS) {
+    return klinesCache[cacheKey].data;
+  }
 
   const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
   const url = `${base}/klines?symbol=${symbol}&interval=${timeframe}&limit=${limit}`;
@@ -2065,6 +2163,65 @@ async function updateActiveSignalTelegramStatus(
     }
   } catch (e) {
     console.warn(`⚠️ Telegram status update error for signal ${signalId}:`, e);
+  }
+}
+
+async function buildActiveSignalOpenMessage(signal: any): Promise<string> {
+  const symbol = String(signal?.symbol || "").toUpperCase();
+  if (!symbol) return "";
+  const marketType = normalizeMarketType(signal?.market_type || signal?.marketType || signal?.market || "spot");
+  const precision = await getSymbolPricePrecision(symbol, marketType);
+  const direction = String(signal?.direction || "LONG").toUpperCase() === "SHORT" ? "SHORT" : "LONG";
+  const directionTR = direction === "SHORT" ? "🔴 SHORT" : "🟢 LONG";
+  const safeSymbol = escapeHtml(symbol);
+  const safeDirection = escapeHtml(directionTR);
+  const safeMarketType = escapeHtml(String(marketType || "spot").toUpperCase());
+  const safeTimeframe = escapeHtml(String(signal?.timeframe || "1h"));
+  const safeEntry = escapeHtml(formatPriceWithPrecision(Number(signal?.entry_price), precision));
+  const safeTp = escapeHtml(formatPriceWithPrecision(Number(signal?.take_profit), precision));
+  const safeSl = escapeHtml(formatPriceWithPrecision(Number(signal?.stop_loss), precision));
+  const safeDate = escapeHtml(formatTurkeyDateTime(signal?.signal_timestamp || signal?.created_at));
+  const tpPercent = Number(signal?.tp_percent);
+  const slPercent = Number(signal?.sl_percent);
+
+  return `
+🔔 <b>ALARM AKTİVE!</b> 🔔
+
+💰 Çift: <b>${safeSymbol}</b>
+🎯 ${safeDirection} Sinyali Tespit Edildi!
+
+📊 Piyasa: <b>${safeMarketType}</b> | Zaman: <b>${safeTimeframe}</b>
+💹 Fiyat: <b>$${safeEntry}</b>
+
+🎯 Hedefler:
+  TP: <b>$${safeTp}</b> (<b>+${Number.isFinite(tpPercent) ? tpPercent : 0}%</b>)
+  SL: <b>$${safeSl}</b> (<b>-${Number.isFinite(slPercent) ? slPercent : 0}%</b>)
+
+⏰ Zaman: <b>${safeDate}</b>
+`;
+}
+
+async function retryFailedOpenTelegrams(): Promise<void> {
+  const since = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  const { data: signals, error } = await supabase
+    .from("active_signals")
+    .select("id, user_id, symbol, market_type, timeframe, direction, entry_price, take_profit, stop_loss, tp_percent, sl_percent, signal_timestamp, created_at, telegram_status, telegram_error")
+    .eq("status", "ACTIVE")
+    .eq("telegram_status", "FAILED")
+    .gte("created_at", since);
+
+  if (error || !signals?.length) return;
+
+  for (const signal of signals) {
+    const errorText = String(signal?.telegram_error || "");
+    if (errorText.includes("missing_chat_id") || errorText.includes("notifications_disabled")) {
+      continue;
+    }
+    const message = await buildActiveSignalOpenMessage(signal);
+    if (!message) continue;
+    await updateActiveSignalTelegramStatus(signal.id, "QUEUED", null);
+    const sendResult = await sendTelegramNotification(signal.user_id, message);
+    await updateActiveSignalTelegramStatus(signal.id, sendResult.status, sendResult.error ?? null);
   }
 }
 
@@ -2917,12 +3074,40 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         if (!userKeys?.api_key || !userKeys?.api_secret) return false;
 
         if (marketType === "futures") {
-          const hasOpen = await hasOpenFuturesPosition(userKeys.api_key, userKeys.api_secret, String(signal?.symbol || ""));
-          return hasOpen;
+          const futuresSymbol = String(signal?.symbol || "");
+          const hasOpen = await hasOpenFuturesPosition(userKeys.api_key, userKeys.api_secret, futuresSymbol);
+          if (!hasOpen) return false;
+          const hasOrders = await hasOpenFuturesOrders(userKeys.api_key, userKeys.api_secret, futuresSymbol);
+          if (!hasOrders) {
+            try {
+              const symbolInfo = await getSymbolInfo(futuresSymbol, "futures");
+              if (symbolInfo) {
+                await placeTakeProfitStopLoss(
+                  userKeys.api_key,
+                  userKeys.api_secret,
+                  futuresSymbol,
+                  String(signal?.direction || "LONG").toUpperCase() === "SHORT" ? "SHORT" : "LONG",
+                  Number(signal?.take_profit),
+                  Number(signal?.stop_loss),
+                  symbolInfo.pricePrecision,
+                  0,
+                  symbolInfo.quantityPrecision,
+                  symbolInfo.tickSize
+                );
+                console.log(`🔁 Re-placed TP/SL orders for ${futuresSymbol}`);
+              }
+            } catch (e) {
+              console.warn(`⚠️ Failed to re-place TP/SL for ${futuresSymbol}:`, e);
+            }
+          }
+          return true;
         }
 
-        const hasOpenOrders = await hasOpenSpotOrders(userKeys.api_key, userKeys.api_secret, String(signal?.symbol || ""));
-        return hasOpenOrders;
+        const spotSymbol = String(signal?.symbol || "");
+        const baseAsset = resolveSpotBaseAsset(spotSymbol);
+        const hasOpenOrders = await hasOpenSpotOrders(userKeys.api_key, userKeys.api_secret, spotSymbol);
+        const assetBalance = await getSpotAssetBalance(userKeys.api_key, userKeys.api_secret, baseAsset);
+        return hasOpenOrders || assetBalance > 0;
       } catch (e) {
         console.warn(`⚠️ Binance close verification failed for ${signal?.symbol || ""}:`, e);
         return true;
@@ -3443,6 +3628,8 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
 // Handler
 // =====================
 serve(async (req: any) => {
+  const startRequestCount = requestCount;
+  const startBinanceCount = binanceRequestCount;
   // CORS headers
   const origin = req.headers.get("origin") || "*";
   const corsHeaders = {
@@ -3732,6 +3919,10 @@ ${emoji} ${statusMessage}
     
     await Promise.all(notificationPromises);
 
+    await retryFailedOpenTelegrams();
+
+    console.log(`📊 Request counts: total=${requestCount - startRequestCount}, binance=${binanceRequestCount - startBinanceCount}`);
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -3745,6 +3936,7 @@ ${emoji} ${statusMessage}
     );
   } catch (e) {
     console.error("❌ Fatal error:", e);
+    console.log(`📊 Request counts (error): total=${requestCount - startRequestCount}, binance=${binanceRequestCount - startBinanceCount}`);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
