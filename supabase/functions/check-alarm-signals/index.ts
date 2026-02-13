@@ -212,7 +212,10 @@ const KLINES_CACHE_TTL = 60000; // 60 seconds - reduce API pressure
 const MIN_KLINES_REFRESH_MS = 10000; // prevent burst refresh
 const INDICATOR_KLINES_LIMIT = 300; // reduce per-alarm klines load
 const MAX_REQUEST_RUNTIME_MS = 30000; // keep below Edge 60s timeout
+const HARD_TIMEOUT_MS = 25000; // emergency hard stop
 const MAX_ALARMS_PER_CRON = 30; // hard cap per cron
+const MAX_CLOSE_CHECKS_PER_CRON = 10; // emergency close-only cap
+const DISABLE_ALARM_PROCESSING = true; // temporary: close-only mode
 
 const symbolInfoCache: Record<string, { timestamp: number; data: any }> = {};
 const SYMBOL_INFO_TTL = 10 * 60 * 1000;
@@ -3094,7 +3097,7 @@ async function resolveFirstTouchRange(
   return "";
 }
 
-async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
+async function checkAndCloseSignals(deadlineMs?: number): Promise<ClosedSignal[]> {
   try {
     const { data: rawSignals, error: signalsError } = await supabase
       .from("active_signals")
@@ -3106,8 +3109,12 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
       return [];
     }
 
-    const signals = rawSignals || [];
+    let signals = rawSignals || [];
     if (!signals || signals.length === 0) return [];
+    if (signals.length > MAX_CLOSE_CHECKS_PER_CRON) {
+      console.warn(`⚠️ Close check truncated: ${signals.length} -> ${MAX_CLOSE_CHECKS_PER_CRON}`);
+      signals = signals.slice(0, MAX_CLOSE_CHECKS_PER_CRON);
+    }
     console.log(`🔍 Close check starting for ${signals.length} active signals`);
     const upperSymbols = signals.map(s => String(s?.symbol || "").toUpperCase());
     if (!upperSymbols.includes("RUNEUSDT")) {
@@ -3206,6 +3213,9 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
 
     for (let idx = 0; idx < signals.length; idx++) {
       try {
+        if (deadlineMs && Date.now() >= deadlineMs) {
+          throw new Error("Hard timeout reached during close checks");
+        }
         const signal = signals[idx];
         const symbol = String(signal.symbol || "");
         console.log(`🔎 Close check ${signal.id} ${symbol}`);
@@ -3745,6 +3755,7 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
 // =====================
 serve(async (req: any) => {
   const requestStartMs = Date.now();
+  const hardDeadlineMs = requestStartMs + HARD_TIMEOUT_MS;
   const startRequestCount = requestCount;
   const startBinanceCount = binanceRequestCount;
   // CORS headers
@@ -3993,10 +4004,11 @@ serve(async (req: any) => {
     console.log(`📊 Found ${alarms?.length || 0} active alarms${body?.user_id ? ' for user' : ' (cron mode)'}`);
 
     // ✅ Close signals that hit TP/SL (prioritize before heavy alarm scans)
-    const closedSignals = await checkAndCloseSignals();
+    const closedSignals = await checkAndCloseSignals(hardDeadlineMs);
 
-    // ✅ Check and trigger user alarms with time budget
-    if (alarms && alarms.length > 0) {
+    if (DISABLE_ALARM_PROCESSING) {
+      console.warn("⚠️ Alarm processing disabled (close-only mode)");
+    } else if (alarms && alarms.length > 0) {
       const deadlineMs = requestStartMs + MAX_REQUEST_RUNTIME_MS;
       await checkAndTriggerUserAlarms(alarms, deadlineMs);
     }
