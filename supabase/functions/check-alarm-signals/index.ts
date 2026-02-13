@@ -144,6 +144,10 @@ function formatTurkeyDateTime(timestampMs?: number): string {
 
 // Global ban cooldown (Binance 418)
 let binanceBanUntil = 0;
+let binanceTimeOffsetMs = 0;
+let lastBinanceTimeSyncMs = 0;
+let futuresAlgoEndpointBlockedUntil = 0;
+const BINANCE_TIME_SYNC_TTL_MS = 5 * 60 * 1000;
 
 // Cache prices to avoid redundant API calls
 const priceCache: Record<string, { price: number; timestamp: number }> = {};
@@ -464,6 +468,31 @@ async function createBinanceSignature(queryString: string, apiSecret: string): P
   return Array.from(new Uint8Array(signature))
     .map(b => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+async function syncBinanceServerTime(force: boolean = false): Promise<void> {
+  const now = Date.now();
+  if (!force && (now - lastBinanceTimeSyncMs) < BINANCE_TIME_SYNC_TTL_MS) return;
+  try {
+    const res = await throttledFetch("https://fapi.binance.com/fapi/v1/time");
+    if (!res.ok) return;
+    const data = await res.json();
+    const serverTime = Number(data?.serverTime);
+    if (Number.isFinite(serverTime)) {
+      binanceTimeOffsetMs = serverTime - Date.now();
+      lastBinanceTimeSyncMs = Date.now();
+    }
+  } catch {
+    // no-op
+  }
+}
+
+async function buildSignedQuery(apiSecret: string, params: string = ""): Promise<{ queryString: string; signature: string }> {
+  await syncBinanceServerTime(false);
+  const timestamp = Date.now() + binanceTimeOffsetMs;
+  const queryString = `${params ? `${params}&` : ""}timestamp=${timestamp}&recvWindow=10000`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  return { queryString, signature };
 }
 
 async function getBinanceBalance(apiKey: string, apiSecret: string, marketType: "spot" | "futures"): Promise<number> {
@@ -1036,22 +1065,25 @@ async function hasOpenFuturesOrders(apiKey: string, apiSecret: string, symbol: s
 }
 
 async function getOpenFuturesOrdersAll(apiKey: string, apiSecret: string): Promise<any[]> {
-  const timestamp = Date.now();
-  const queryString = `timestamp=${timestamp}`;
-  const signature = await createBinanceSignature(queryString, apiSecret);
-  const url = `https://fapi.binance.com/fapi/v1/openOrders?${queryString}&signature=${signature}`;
-
-  const response = await throttledFetch(url, {
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
-
-  if (!response.ok) {
-    console.error("❌ Binance futures open orders (all) failed:", await response.text());
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { queryString, signature } = await buildSignedQuery(apiSecret);
+    const url = `https://fapi.binance.com/fapi/v1/openOrders?${queryString}&signature=${signature}`;
+    const response = await throttledFetch(url, {
+      headers: { "X-MBX-APIKEY": apiKey }
+    });
+    if (response.ok) {
+      const data = await response.json();
+      return Array.isArray(data) ? data : [];
+    }
+    const errorText = await response.text();
+    if (errorText.includes("-1021") && attempt === 0) {
+      await syncBinanceServerTime(true);
+      continue;
+    }
+    console.error("❌ Binance futures open orders (all) failed:", errorText);
     return [];
   }
-
-  const data = await response.json();
-  return Array.isArray(data) ? data : [];
+  return [];
 }
 
 async function getOpenSpotOrdersAll(apiKey: string, apiSecret: string): Promise<any[]> {
@@ -1074,22 +1106,25 @@ async function getOpenSpotOrdersAll(apiKey: string, apiSecret: string): Promise<
 }
 
 async function getFuturesPositionsAll(apiKey: string, apiSecret: string): Promise<any[]> {
-  const timestamp = Date.now();
-  const queryString = `timestamp=${timestamp}`;
-  const signature = await createBinanceSignature(queryString, apiSecret);
-  const url = `https://fapi.binance.com/fapi/v2/positionRisk?${queryString}&signature=${signature}`;
-
-  const response = await throttledFetch(url, {
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
-
-  if (!response.ok) {
-    console.error("❌ Binance futures positionRisk (all) failed:", await response.text());
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { queryString, signature } = await buildSignedQuery(apiSecret);
+    const url = `https://fapi.binance.com/fapi/v2/positionRisk?${queryString}&signature=${signature}`;
+    const response = await throttledFetch(url, {
+      headers: { "X-MBX-APIKEY": apiKey }
+    });
+    if (response.ok) {
+      const data = await response.json();
+      return Array.isArray(data) ? data : [];
+    }
+    const errorText = await response.text();
+    if (errorText.includes("-1021") && attempt === 0) {
+      await syncBinanceServerTime(true);
+      continue;
+    }
+    console.error("❌ Binance futures positionRisk (all) failed:", errorText);
     return [];
   }
-
-  const data = await response.json();
-  return Array.isArray(data) ? data : [];
+  return [];
 }
 
 async function hasOpenFuturesAlgoOrders(apiKey: string, apiSecret: string, symbol: string): Promise<boolean> {
@@ -1195,9 +1230,11 @@ async function isSpotPositionOpen(apiKey: string, apiSecret: string, symbol: str
 }
 
 async function getOpenFuturesAlgoOrdersAll(apiKey: string, apiSecret: string): Promise<any[]> {
-  const timestamp = Date.now();
-  const queryString = `timestamp=${timestamp}`;
-  const signature = await createBinanceSignature(queryString, apiSecret);
+  if (futuresAlgoEndpointBlockedUntil && Date.now() < futuresAlgoEndpointBlockedUntil) {
+    return [];
+  }
+
+  const { queryString, signature } = await buildSignedQuery(apiSecret);
   const url = `https://fapi.binance.com/fapi/v1/algoOpenOrders?${queryString}&signature=${signature}`;
 
   const response = await throttledFetch(url, {
@@ -1205,7 +1242,13 @@ async function getOpenFuturesAlgoOrdersAll(apiKey: string, apiSecret: string): P
   });
 
   if (!response.ok) {
-    console.warn("⚠️ Binance futures algo orders (all) failed:", await response.text());
+    const text = await response.text();
+    if (text.includes("<!DOCTYPE") || text.includes("saved from url") || text.includes("/errorPages/")) {
+      futuresAlgoEndpointBlockedUntil = Date.now() + 30 * 60 * 1000;
+      console.warn("⚠️ Binance futures algo endpoint unavailable (HTML response). Temporarily disabling algo-open-orders checks for 30m.");
+      return [];
+    }
+    console.warn("⚠️ Binance futures algo orders (all) failed:", text);
     return [];
   }
 
@@ -3482,54 +3525,58 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
       const keys = await getUserBinanceSettings(userId);
       if (!keys?.api_key || !keys?.api_secret) return;
       userKeysMap.set(userId, keys);
-      const apiKey = keys.api_key;
-      const apiSecret = keys.api_secret;
-      const prefetches: Promise<void>[] = [];
       userFetchCounts.set(userId, { positionRisk: 0, openOrders: 0, algoOrders: 0, spotOpenOrders: 0, spotBalances: 0 });
-
-      if (hasFuturesSignals) {
-        if (!futuresPositionsCache.has(apiKey)) {
-          prefetches.push(getFuturesPositionsAll(apiKey, apiSecret).then((data) => {
-            futuresPositionsCache.set(apiKey, data);
-            const counts = userFetchCounts.get(userId);
-            if (counts) counts.positionRisk += 1;
-          }));
-        }
-        if (!futuresOpenOrdersCache.has(apiKey)) {
-          prefetches.push(getOpenFuturesOrdersAll(apiKey, apiSecret).then((data) => {
-            futuresOpenOrdersCache.set(apiKey, data);
-            const counts = userFetchCounts.get(userId);
-            if (counts) counts.openOrders += 1;
-          }));
-        }
-        if (!futuresAlgoOrdersCache.has(apiKey)) {
-          prefetches.push(getOpenFuturesAlgoOrdersAll(apiKey, apiSecret).then((data) => {
-            futuresAlgoOrdersCache.set(apiKey, data);
-            const counts = userFetchCounts.get(userId);
-            if (counts) counts.algoOrders += 1;
-          }));
-        }
-      }
-
-      if (hasSpotSignals) {
-        if (!spotOpenOrdersCache.has(apiKey)) {
-          prefetches.push(getOpenSpotOrdersAll(apiKey, apiSecret).then((data) => {
-            spotOpenOrdersCache.set(apiKey, data);
-            const counts = userFetchCounts.get(userId);
-            if (counts) counts.spotOpenOrders += 1;
-          }));
-        }
-        if (!spotBalancesCache.has(apiKey)) {
-          prefetches.push(getSpotBalancesAll(apiKey, apiSecret).then((data) => {
-            spotBalancesCache.set(apiKey, data);
-            const counts = userFetchCounts.get(userId);
-            if (counts) counts.spotBalances += 1;
-          }));
-        }
-      }
-
-      await Promise.all(prefetches);
     }));
+
+    const ensureFuturesPositions = async (userId: string, userKeys: UserBinanceKeys): Promise<any[]> => {
+      const apiKey = userKeys.api_key;
+      if (futuresPositionsCache.has(apiKey)) return futuresPositionsCache.get(apiKey) || [];
+      const data = await getFuturesPositionsAll(apiKey, userKeys.api_secret);
+      futuresPositionsCache.set(apiKey, data);
+      const counts = userFetchCounts.get(userId);
+      if (counts) counts.positionRisk += 1;
+      return data;
+    };
+
+    const ensureFuturesOpenOrders = async (userId: string, userKeys: UserBinanceKeys): Promise<any[]> => {
+      const apiKey = userKeys.api_key;
+      if (futuresOpenOrdersCache.has(apiKey)) return futuresOpenOrdersCache.get(apiKey) || [];
+      const data = await getOpenFuturesOrdersAll(apiKey, userKeys.api_secret);
+      futuresOpenOrdersCache.set(apiKey, data);
+      const counts = userFetchCounts.get(userId);
+      if (counts) counts.openOrders += 1;
+      return data;
+    };
+
+    const ensureFuturesAlgoOrders = async (userId: string, userKeys: UserBinanceKeys): Promise<any[]> => {
+      const apiKey = userKeys.api_key;
+      if (futuresAlgoOrdersCache.has(apiKey)) return futuresAlgoOrdersCache.get(apiKey) || [];
+      const data = await getOpenFuturesAlgoOrdersAll(apiKey, userKeys.api_secret);
+      futuresAlgoOrdersCache.set(apiKey, data);
+      const counts = userFetchCounts.get(userId);
+      if (counts) counts.algoOrders += 1;
+      return data;
+    };
+
+    const ensureSpotOpenOrders = async (userId: string, userKeys: UserBinanceKeys): Promise<any[]> => {
+      const apiKey = userKeys.api_key;
+      if (spotOpenOrdersCache.has(apiKey)) return spotOpenOrdersCache.get(apiKey) || [];
+      const data = await getOpenSpotOrdersAll(apiKey, userKeys.api_secret);
+      spotOpenOrdersCache.set(apiKey, data);
+      const counts = userFetchCounts.get(userId);
+      if (counts) counts.spotOpenOrders += 1;
+      return data;
+    };
+
+    const ensureSpotBalances = async (userId: string, userKeys: UserBinanceKeys): Promise<Record<string, number>> => {
+      const apiKey = userKeys.api_key;
+      if (spotBalancesCache.has(apiKey)) return spotBalancesCache.get(apiKey) || {};
+      const data = await getSpotBalancesAll(apiKey, userKeys.api_secret);
+      spotBalancesCache.set(apiKey, data);
+      const counts = userFetchCounts.get(userId);
+      if (counts) counts.spotBalances += 1;
+      return data;
+    };
 
     console.log(`👤 uniqueUsers=${userIds.length}`);
     for (const userId of userIds) {
@@ -3556,14 +3603,14 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
 
       const futuresSymbol = String(signal?.symbol || "");
       const upperSymbol = futuresSymbol.toUpperCase();
-      const positions = futuresPositionsCache.get(userKeys.api_key) || [];
+      const positions = await ensureFuturesPositions(userId, userKeys);
       const positionRow = positions.find((p: any) => String(p?.symbol || "").toUpperCase() === upperSymbol);
       const positionAmt = Number(positionRow?.positionAmt || 0);
       const position = Math.abs(positionAmt) > 0;
 
-      const openOrders = (futuresOpenOrdersCache.get(userKeys.api_key) || [])
+      const openOrders = (await ensureFuturesOpenOrders(userId, userKeys))
         .some((o: any) => String(o?.symbol || "").toUpperCase() === upperSymbol);
-      const algoOrders = (futuresAlgoOrdersCache.get(userKeys.api_key) || [])
+      const algoOrders = (await ensureFuturesAlgoOrders(userId, userKeys))
         .some((o: any) => String(o?.symbol || "").toUpperCase() === upperSymbol);
 
       return { position, openOrders, algoOrders, canCheck: true };
@@ -3640,15 +3687,15 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
 
         if (marketType === "futures") {
           const futuresSymbol = String(signal?.symbol || "");
-          let positions = futuresPositionsCache.get(userKeys.api_key) || [];
+          let positions = await ensureFuturesPositions(userId, userKeys);
           const upperSymbol = futuresSymbol.toUpperCase();
           const position = positions.find((p: any) => String(p?.symbol || "").toUpperCase() === upperSymbol);
           const positionAmt = Number(position?.positionAmt || 0);
           const hasOpen = Math.abs(positionAmt) > 0;
           if (!hasOpen) return false;
-          let openOrders = futuresOpenOrdersCache.get(userKeys.api_key) || [];
+          let openOrders = await ensureFuturesOpenOrders(userId, userKeys);
           const hasOrders = openOrders.some((o: any) => String(o?.symbol || "").toUpperCase() === upperSymbol);
-          let algoOrders = futuresAlgoOrdersCache.get(userKeys.api_key) || [];
+          let algoOrders = await ensureFuturesAlgoOrders(userId, userKeys);
           const hasAlgoOrders = algoOrders.some((o: any) => String(o?.symbol || "").toUpperCase() === upperSymbol);
           if (!hasOrders && !hasAlgoOrders) {
             try {
@@ -3677,10 +3724,10 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
         }
 
         const spotSymbol = String(signal?.symbol || "");
-        let spotOrders = spotOpenOrdersCache.get(userKeys.api_key) || [];
+        let spotOrders = await ensureSpotOpenOrders(userId, userKeys);
         const hasOpenOrders = spotOrders.some((o: any) => String(o?.symbol || "").toUpperCase() === String(spotSymbol).toUpperCase());
         const baseAsset = resolveSpotBaseAsset(spotSymbol);
-        const balances = spotBalancesCache.get(userKeys.api_key) || {};
+        const balances = await ensureSpotBalances(userId, userKeys);
         const balance = Number(balances[String(baseAsset).toUpperCase()] || 0);
         let hasBalance = false;
         if (Number.isFinite(balance) && balance > 0) {
@@ -3708,10 +3755,11 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
     const stats: CloseCheckStats = { closesChecked: 0, closed: 0 };
 
     for (let idx = 0; idx < signals.length; idx++) {
+      if (deadlineMs && Date.now() >= deadlineMs) {
+        console.warn(`⏱️ Close checks stopped by deadline. processed=${stats.closesChecked}/${signals.length}`);
+        break;
+      }
       try {
-        if (deadlineMs && Date.now() >= deadlineMs) {
-          throw new Error("Hard timeout reached during close checks");
-        }
         const signal = signals[idx];
         stats.closesChecked += 1;
         const symbol = String(signal.symbol || "");
