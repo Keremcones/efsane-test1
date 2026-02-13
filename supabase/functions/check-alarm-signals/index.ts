@@ -131,13 +131,13 @@ let binanceBanUntil = 0;
 
 // Cache prices to avoid redundant API calls
 const priceCache: Record<string, { price: number; timestamp: number }> = {};
-const PRICE_CACHE_TTL = 8000; // 8 seconds - refresh every 8s max
+const PRICE_CACHE_TTL = 15000; // 15 seconds - reduce API pressure
 
 // =====================
 // Request throttling & queueing (prevent rate limiting)
 // =====================
 let lastRequestTime = 0;
-const MIN_REQUEST_INTERVAL = 2000; // 2000ms (2s) minimum between ALL requests - CRITICAL for Binance
+const MIN_REQUEST_INTERVAL = 4000; // 4000ms (4s) minimum between ALL requests - CRITICAL for Binance
 let requestQueue: Array<{ url: string; options?: any; resolve: Function; reject: Function }> = [];
 let isProcessingQueue = false;
 let requestCount = 0;
@@ -200,8 +200,8 @@ async function throttledFetch(url: string, options?: any): Promise<Response> {
 
 // Cache klines to avoid redundant API calls
 const klinesCache: Record<string, { data: any[]; timestamp: number }> = {};
-const KLINES_CACHE_TTL = 30000; // 30 seconds - reduce API pressure
-const MIN_KLINES_REFRESH_MS = 5000; // prevent burst refresh
+const KLINES_CACHE_TTL = 60000; // 60 seconds - reduce API pressure
+const MIN_KLINES_REFRESH_MS = 10000; // prevent burst refresh
 
 const symbolInfoCache: Record<string, { timestamp: number; data: any }> = {};
 const SYMBOL_INFO_TTL = 10 * 60 * 1000;
@@ -254,6 +254,7 @@ async function getCurrentPrice(symbol: string, marketType: "spot" | "futures"): 
 
 async function getCurrentPriceFresh(symbol: string, marketType: "spot" | "futures"): Promise<number | null> {
   try {
+    if (binanceBanUntil && Date.now() < binanceBanUntil) return null;
     const tickerPrice = await getTickerPrice(symbol, marketType, true);
     if (Number.isFinite(tickerPrice)) return tickerPrice;
 
@@ -274,6 +275,10 @@ async function getCurrentPriceFresh(symbol: string, marketType: "spot" | "future
 async function getTickerPrice(symbol: string, marketType: "spot" | "futures", forceFresh: boolean): Promise<number | null> {
   const cacheKey = `${symbol}:${marketType}:ticker`;
   const now = Date.now();
+  if (binanceBanUntil && now < binanceBanUntil) {
+    console.warn(`⛔ Binance ban active. Skipping ticker for ${symbol}`);
+    return null;
+  }
   if (!forceFresh && priceCache[cacheKey] && (now - priceCache[cacheKey].timestamp) < PRICE_CACHE_TTL) {
     return priceCache[cacheKey].price;
   }
@@ -297,6 +302,7 @@ async function getTickerPrice(symbol: string, marketType: "spot" | "futures", fo
 
 async function getFuturesMarkPrice(symbol: string): Promise<number | null> {
   try {
+    if (binanceBanUntil && Date.now() < binanceBanUntil) return null;
     const url = `https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`;
     const res = await throttledFetch(url);
     if (!res.ok) {
@@ -951,6 +957,24 @@ async function getSpotAssetBalance(apiKey: string, apiSecret: string, asset: str
   return Number(row?.free || 0) + Number(row?.locked || 0);
 }
 
+async function isSpotPositionOpen(apiKey: string, apiSecret: string, symbol: string): Promise<boolean> {
+  const baseAsset = resolveSpotBaseAsset(symbol);
+  const balance = await getSpotAssetBalance(apiKey, apiSecret, baseAsset);
+  if (!Number.isFinite(balance) || balance <= 0) return false;
+
+  const info = await getSymbolInfo(symbol, "spot");
+  const minQty = Number(info?.minQty || 0);
+  const price = await getTickerPrice(symbol, "spot", false);
+  const notional = Number.isFinite(price) ? price * balance : NaN;
+
+  const minNotional = 5; // USDT dust threshold
+  const qtyBelow = Number.isFinite(minQty) && minQty > 0 ? balance < minQty : false;
+  const notionalBelow = Number.isFinite(notional) ? notional < minNotional : true;
+  if (qtyBelow && notionalBelow) return false;
+
+  return true;
+}
+
 type UserBinanceKeys = {
   api_key: string;
   api_secret: string;
@@ -1056,10 +1080,9 @@ async function executeAutoTrade(
           return { success: false, message: `Açık futures pozisyonu var (${symbol}). Yeni işlem açılmadı.`, blockedByOpenPosition: true };
         }
       } else {
-        const baseAsset = resolveSpotBaseAsset(symbol);
         const hasOpenOrders = await hasOpenSpotOrders(api_key, api_secret, symbol);
-        const assetBalance = await getSpotAssetBalance(api_key, api_secret, baseAsset);
-        if (hasOpenOrders || assetBalance > 0) {
+        const hasBalance = await isSpotPositionOpen(api_key, api_secret, symbol);
+        if (hasOpenOrders || hasBalance) {
           return { success: false, message: `Açık spot pozisyonu var (${symbol}). Yeni işlem açılmadı.`, blockedByOpenPosition: true };
         }
       }
@@ -3033,6 +3056,7 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
 
     const signals = rawSignals || [];
     if (!signals || signals.length === 0) return [];
+    console.log(`🔍 Close check starting for ${signals.length} active signals`);
 
     const alarmIds = Array.from(
       new Set(
@@ -3104,10 +3128,13 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         }
 
         const spotSymbol = String(signal?.symbol || "");
-        const baseAsset = resolveSpotBaseAsset(spotSymbol);
         const hasOpenOrders = await hasOpenSpotOrders(userKeys.api_key, userKeys.api_secret, spotSymbol);
-        const assetBalance = await getSpotAssetBalance(userKeys.api_key, userKeys.api_secret, baseAsset);
-        return hasOpenOrders || assetBalance > 0;
+        const hasBalance = await isSpotPositionOpen(userKeys.api_key, userKeys.api_secret, spotSymbol);
+        if (hasOpenOrders || hasBalance) {
+          console.log(`⏳ Spot still open for ${spotSymbol}: orders=${hasOpenOrders} balance=${hasBalance}`);
+          return true;
+        }
+        return false;
       } catch (e) {
         console.warn(`⚠️ Binance close verification failed for ${signal?.symbol || ""}:`, e);
         return true;
@@ -3120,6 +3147,7 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
       try {
         const signal = signals[idx];
         const symbol = String(signal.symbol || "");
+        console.log(`🔎 Close check ${signal.id} ${symbol}`);
         const direction = (signal.condition || signal.direction) as "LONG" | "SHORT";
         
         if (direction !== "LONG" && direction !== "SHORT") {
@@ -3207,23 +3235,25 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
 
         const timeframe = String(signal.timeframe || "1h");
 
-        // Kapanis kontrolu: sinyal acildigindan beri TP/SL hit kontrolu.
-        const signalStartMs = Date.parse(String(signal.signal_timestamp || signal.created_at || ""));
-        if (Number.isFinite(signalStartMs)) {
-          const historicalHit = await resolveFirstTouchRange(
-            symbol,
-            effectiveMarketType,
-            timeframe,
-            signalStartMs,
-            Date.now(),
-            direction,
-            takeProfit,
-            stopLoss
-          );
-          if (historicalHit) {
-            shouldClose = true;
-            closeReason = historicalHit;
-            closePrice = historicalHit === "TP_HIT" ? takeProfit : stopLoss;
+        if (!shouldClose) {
+          // Kapanis kontrolu: sinyal acildigindan beri TP/SL hit kontrolu.
+          const signalStartMs = Date.parse(String(signal.signal_timestamp || signal.created_at || ""));
+          if (Number.isFinite(signalStartMs)) {
+            const historicalHit = await resolveFirstTouchRange(
+              symbol,
+              effectiveMarketType,
+              timeframe,
+              signalStartMs,
+              Date.now(),
+              direction,
+              takeProfit,
+              stopLoss
+            );
+            if (historicalHit) {
+              shouldClose = true;
+              closeReason = historicalHit;
+              closePrice = historicalHit === "TP_HIT" ? takeProfit : stopLoss;
+            }
           }
         }
 
@@ -3231,114 +3261,114 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           // continue to close update section
         } else {
           // Kapanis kontrolu: son kapanan bar + aktif barin high/low degerleri ile anlik TP/SL yakala.
-        const timeframeMinutes = timeframeToMinutes(timeframe);
-        const timeframeMs = timeframeMinutes * 60 * 1000;
-        let klines = await getKlines(symbol, effectiveMarketType, timeframe, 2, 2, true);
-        if ((!klines || klines.length < 2) && effectiveMarketType === "spot") {
-          effectiveMarketType = "futures";
-          klines = await getKlines(symbol, effectiveMarketType, timeframe, 2, 2, true);
-        }
-        if (klines && klines.length >= 2) {
-          const lastClosed = klines[klines.length - 2];
-          const currentBar = klines[klines.length - 1];
-          const lastClosedHigh = Number(lastClosed?.[2]);
-          const lastClosedLow = Number(lastClosed?.[3]);
-          const currentHigh = Number(currentBar?.[2]);
-          const currentLow = Number(currentBar?.[3]);
-          const highCandidates = [lastClosedHigh, currentHigh].filter(v => Number.isFinite(v));
-          const lowCandidates = [lastClosedLow, currentLow].filter(v => Number.isFinite(v));
-          let barHigh = highCandidates.length ? Math.max(...highCandidates) : NaN;
-          let barLow = lowCandidates.length ? Math.min(...lowCandidates) : NaN;
-
-          let currentPrice = await getCurrentPriceFresh(symbol, effectiveMarketType);
-          if (!Number.isFinite(currentPrice) && effectiveMarketType === "futures") {
-            currentPrice = await getFuturesMarkPrice(symbol);
+          const timeframeMinutes = timeframeToMinutes(timeframe);
+          const timeframeMs = timeframeMinutes * 60 * 1000;
+          let klines = await getKlines(symbol, effectiveMarketType, timeframe, 2, 2, true);
+          if ((!klines || klines.length < 2) && effectiveMarketType === "spot") {
+            effectiveMarketType = "futures";
+            klines = await getKlines(symbol, effectiveMarketType, timeframe, 2, 2, true);
           }
-          if (Number.isFinite(currentPrice)) {
-            barHigh = Number.isFinite(barHigh) ? Math.max(barHigh, currentPrice) : currentPrice;
-            barLow = Number.isFinite(barLow) ? Math.min(barLow, currentPrice) : currentPrice;
-          }
+          if (klines && klines.length >= 2) {
+            const lastClosed = klines[klines.length - 2];
+            const currentBar = klines[klines.length - 1];
+            const lastClosedHigh = Number(lastClosed?.[2]);
+            const lastClosedLow = Number(lastClosed?.[3]);
+            const currentHigh = Number(currentBar?.[2]);
+            const currentLow = Number(currentBar?.[3]);
+            const highCandidates = [lastClosedHigh, currentHigh].filter(v => Number.isFinite(v));
+            const lowCandidates = [lastClosedLow, currentLow].filter(v => Number.isFinite(v));
+            let barHigh = highCandidates.length ? Math.max(...highCandidates) : NaN;
+            let barLow = lowCandidates.length ? Math.min(...lowCandidates) : NaN;
 
-          if (Number.isFinite(barHigh) && Number.isFinite(barLow)) {
-            if (direction === "LONG") {
-              const hitSl = barLow <= stopLoss;
-              const hitTp = barHigh >= takeProfit;
-              if (hitSl && hitTp) {
-                const lastClosedStart = Number(lastClosed?.[0]);
-                const lastClosedEnd = Number(lastClosed?.[6]) || (Number.isFinite(timeframeMs) ? lastClosedStart + timeframeMs : lastClosedStart);
-                let resolved = await resolveFirstTouch(symbol, effectiveMarketType, timeframe, lastClosedStart, lastClosedEnd, direction, takeProfit, stopLoss);
-                if (!resolved && Number.isFinite(Number(currentBar?.[0]))) {
-                  const currentStart = Number(currentBar?.[0]);
-                  const currentEnd = Math.min(Date.now(), Number.isFinite(timeframeMs) ? currentStart + timeframeMs : Date.now());
-                  resolved = await resolveFirstTouch(symbol, effectiveMarketType, timeframe, currentStart, currentEnd, direction, takeProfit, stopLoss);
+            let currentPrice = await getCurrentPriceFresh(symbol, effectiveMarketType);
+            if (!Number.isFinite(currentPrice) && effectiveMarketType === "futures") {
+              currentPrice = await getFuturesMarkPrice(symbol);
+            }
+            if (Number.isFinite(currentPrice)) {
+              barHigh = Number.isFinite(barHigh) ? Math.max(barHigh, currentPrice) : currentPrice;
+              barLow = Number.isFinite(barLow) ? Math.min(barLow, currentPrice) : currentPrice;
+            }
+
+            if (Number.isFinite(barHigh) && Number.isFinite(barLow)) {
+              if (direction === "LONG") {
+                const hitSl = barLow <= stopLoss;
+                const hitTp = barHigh >= takeProfit;
+                if (hitSl && hitTp) {
+                  const lastClosedStart = Number(lastClosed?.[0]);
+                  const lastClosedEnd = Number(lastClosed?.[6]) || (Number.isFinite(timeframeMs) ? lastClosedStart + timeframeMs : lastClosedStart);
+                  let resolved = await resolveFirstTouch(symbol, effectiveMarketType, timeframe, lastClosedStart, lastClosedEnd, direction, takeProfit, stopLoss);
+                  if (!resolved && Number.isFinite(Number(currentBar?.[0]))) {
+                    const currentStart = Number(currentBar?.[0]);
+                    const currentEnd = Math.min(Date.now(), Number.isFinite(timeframeMs) ? currentStart + timeframeMs : Date.now());
+                    resolved = await resolveFirstTouch(symbol, effectiveMarketType, timeframe, currentStart, currentEnd, direction, takeProfit, stopLoss);
+                  }
+                  closeReason = resolved || resolveSameCandleHit(Number(lastClosed?.[1]), takeProfit, stopLoss);
+                  shouldClose = true;
+                  closePrice = closeReason === "TP_HIT" ? takeProfit : stopLoss;
+                } else if (hitSl) {
+                  shouldClose = true;
+                  closeReason = "SL_HIT";
+                  closePrice = stopLoss;
+                } else if (hitTp) {
+                  shouldClose = true;
+                  closeReason = "TP_HIT";
+                  closePrice = takeProfit;
                 }
-                closeReason = resolved || resolveSameCandleHit(Number(lastClosed?.[1]), takeProfit, stopLoss);
-                shouldClose = true;
-                closePrice = closeReason === "TP_HIT" ? takeProfit : stopLoss;
-              } else if (hitSl) {
-                shouldClose = true;
-                closeReason = "SL_HIT";
-                closePrice = stopLoss;
-              } else if (hitTp) {
-                shouldClose = true;
-                closeReason = "TP_HIT";
-                closePrice = takeProfit;
+              } else if (direction === "SHORT") {
+                const hitSl = barHigh >= stopLoss;
+                const hitTp = barLow <= takeProfit;
+                if (hitSl && hitTp) {
+                  const lastClosedStart = Number(lastClosed?.[0]);
+                  const lastClosedEnd = Number(lastClosed?.[6]) || (Number.isFinite(timeframeMs) ? lastClosedStart + timeframeMs : lastClosedStart);
+                  let resolved = await resolveFirstTouch(symbol, effectiveMarketType, timeframe, lastClosedStart, lastClosedEnd, direction, takeProfit, stopLoss);
+                  if (!resolved && Number.isFinite(Number(currentBar?.[0]))) {
+                    const currentStart = Number(currentBar?.[0]);
+                    const currentEnd = Math.min(Date.now(), Number.isFinite(timeframeMs) ? currentStart + timeframeMs : Date.now());
+                    resolved = await resolveFirstTouch(symbol, effectiveMarketType, timeframe, currentStart, currentEnd, direction, takeProfit, stopLoss);
+                  }
+                  closeReason = resolved || resolveSameCandleHit(Number(lastClosed?.[1]), takeProfit, stopLoss);
+                  shouldClose = true;
+                  closePrice = closeReason === "TP_HIT" ? takeProfit : stopLoss;
+                } else if (hitSl) {
+                  shouldClose = true;
+                  closeReason = "SL_HIT";
+                  closePrice = stopLoss;
+                } else if (hitTp) {
+                  shouldClose = true;
+                  closeReason = "TP_HIT";
+                  closePrice = takeProfit;
+                }
               }
-            } else if (direction === "SHORT") {
-              const hitSl = barHigh >= stopLoss;
-              const hitTp = barLow <= takeProfit;
-              if (hitSl && hitTp) {
-                const lastClosedStart = Number(lastClosed?.[0]);
-                const lastClosedEnd = Number(lastClosed?.[6]) || (Number.isFinite(timeframeMs) ? lastClosedStart + timeframeMs : lastClosedStart);
-                let resolved = await resolveFirstTouch(symbol, effectiveMarketType, timeframe, lastClosedStart, lastClosedEnd, direction, takeProfit, stopLoss);
-                if (!resolved && Number.isFinite(Number(currentBar?.[0]))) {
-                  const currentStart = Number(currentBar?.[0]);
-                  const currentEnd = Math.min(Date.now(), Number.isFinite(timeframeMs) ? currentStart + timeframeMs : Date.now());
-                  resolved = await resolveFirstTouch(symbol, effectiveMarketType, timeframe, currentStart, currentEnd, direction, takeProfit, stopLoss);
+            }
+          } else {
+            let currentPrice = await getCurrentPriceFresh(symbol, effectiveMarketType);
+            if (!Number.isFinite(currentPrice) && effectiveMarketType === "futures") {
+              currentPrice = await getFuturesMarkPrice(symbol);
+            }
+            if (Number.isFinite(currentPrice)) {
+              if (direction === "LONG") {
+                if (currentPrice <= stopLoss) {
+                  shouldClose = true;
+                  closeReason = "SL_HIT";
+                  closePrice = stopLoss;
+                } else if (currentPrice >= takeProfit) {
+                  shouldClose = true;
+                  closeReason = "TP_HIT";
+                  closePrice = takeProfit;
                 }
-                closeReason = resolved || resolveSameCandleHit(Number(lastClosed?.[1]), takeProfit, stopLoss);
-                shouldClose = true;
-                closePrice = closeReason === "TP_HIT" ? takeProfit : stopLoss;
-              } else if (hitSl) {
-                shouldClose = true;
-                closeReason = "SL_HIT";
-                closePrice = stopLoss;
-              } else if (hitTp) {
-                shouldClose = true;
-                closeReason = "TP_HIT";
-                closePrice = takeProfit;
+              } else if (direction === "SHORT") {
+                if (currentPrice >= stopLoss) {
+                  shouldClose = true;
+                  closeReason = "SL_HIT";
+                  closePrice = stopLoss;
+                } else if (currentPrice <= takeProfit) {
+                  shouldClose = true;
+                  closeReason = "TP_HIT";
+                  closePrice = takeProfit;
+                }
               }
             }
           }
-        } else {
-          let currentPrice = await getCurrentPriceFresh(symbol, effectiveMarketType);
-          if (!Number.isFinite(currentPrice) && effectiveMarketType === "futures") {
-            currentPrice = await getFuturesMarkPrice(symbol);
-          }
-          if (Number.isFinite(currentPrice)) {
-            if (direction === "LONG") {
-              if (currentPrice <= stopLoss) {
-                shouldClose = true;
-                closeReason = "SL_HIT";
-                closePrice = stopLoss;
-              } else if (currentPrice >= takeProfit) {
-                shouldClose = true;
-                closeReason = "TP_HIT";
-                closePrice = takeProfit;
-              }
-            } else if (direction === "SHORT") {
-              if (currentPrice >= stopLoss) {
-                shouldClose = true;
-                closeReason = "SL_HIT";
-                closePrice = stopLoss;
-              } else if (currentPrice <= takeProfit) {
-                shouldClose = true;
-                closeReason = "TP_HIT";
-                closePrice = takeProfit;
-              }
-            }
-          }
-        }
         }
 
         if (!shouldClose || !closeReason) continue;
