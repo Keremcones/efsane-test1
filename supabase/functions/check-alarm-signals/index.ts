@@ -202,6 +202,9 @@ async function throttledFetch(url: string, options?: any): Promise<Response> {
 const klinesCache: Record<string, { data: any[]; timestamp: number }> = {};
 const KLINES_CACHE_TTL = 60000; // 60 seconds - reduce API pressure
 const MIN_KLINES_REFRESH_MS = 10000; // prevent burst refresh
+const INDICATOR_KLINES_LIMIT = 300; // reduce per-alarm klines load
+const MAX_REQUEST_RUNTIME_MS = 30000; // keep below Edge 60s timeout
+const MAX_ALARMS_PER_CRON = 30; // hard cap per cron
 
 const symbolInfoCache: Record<string, { timestamp: number; data: any }> = {};
 const SYMBOL_INFO_TTL = 10 * 60 * 1000;
@@ -899,6 +902,25 @@ async function hasOpenFuturesOrders(apiKey: string, apiSecret: string, symbol: s
   if (!response.ok) {
     console.error("❌ Binance futures open orders check failed:", await response.text());
     throw new Error("Futures open orders check failed");
+  }
+
+  const data = await response.json();
+  return Array.isArray(data) && data.length > 0;
+}
+
+async function hasOpenFuturesAlgoOrders(apiKey: string, apiSecret: string, symbol: string): Promise<boolean> {
+  const timestamp = Date.now();
+  const queryString = `symbol=${symbol}&timestamp=${timestamp}`;
+  const signature = await createBinanceSignature(queryString, apiSecret);
+  const url = `https://fapi.binance.com/fapi/v1/algoOpenOrders?${queryString}&signature=${signature}`;
+
+  const response = await fetch(url, {
+    headers: { "X-MBX-APIKEY": apiKey }
+  });
+
+  if (!response.ok) {
+    console.warn("⚠️ Binance futures algo orders check failed:", await response.text());
+    return false;
   }
 
   const data = await response.json();
@@ -1788,7 +1810,7 @@ interface TechnicalIndicators {
 
 async function calculateIndicators(symbol: string, marketType: "spot" | "futures", timeframe: string = "1h"): Promise<TechnicalIndicators | null> {
   const MIN_INDICATOR_WINDOW = 100;
-  let klines = await getKlines(symbol, marketType, timeframe, 1000);
+  let klines = await getKlines(symbol, marketType, timeframe, INDICATOR_KLINES_LIMIT);
   if (!klines || klines.length < 2) return null;
 
   // ✅ Backtest ile birebir uyum için açık (son) bar'ı dahil etme
@@ -1816,7 +1838,7 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
     const afterOpen = nowMs >= expectedOpenMs + 1000;
 
     if (isStale && afterOpen) {
-      klines = await getKlines(symbol, marketType, timeframe, 1000, 3, true);
+      klines = await getKlines(symbol, marketType, timeframe, INDICATOR_KLINES_LIMIT, 3, true);
       if (!klines || klines.length < 2) return null;
       closedKlines = klines.slice(0, -1);
       if (closedKlines.length < MIN_INDICATOR_WINDOW) return null;
@@ -2327,10 +2349,15 @@ function validateAlarm(alarm: any): boolean {
 // =====================
 // User alarm trigger logic (WITH SIGNAL GENERATION)
 // =====================
-async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
+async function checkAndTriggerUserAlarms(alarms: any[], deadlineMs?: number): Promise<void> {
   console.log(`🔥 checkAndTriggerUserAlarms called with ${alarms?.length || 0} alarms`);
   
   if (!alarms || alarms.length === 0) return;
+
+  if (binanceBanUntil && Date.now() < binanceBanUntil) {
+    console.warn("⛔ Binance ban active. Skipping alarm trigger checks.");
+    return;
+  }
 
   console.log(`🔍 Fetching existing ACTIVE_TRADE alarms...`);
   // Fetch all open ACTIVE_TRADE alarms to prevent duplicate SIGNAL alarms
@@ -2381,7 +2408,7 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
   console.log(`📌 Open auto_signal count: ${openSignalKeys.size}`);
 
   const telegramPromises: Promise<void>[] = [];
-  const BATCH_SIZE = 10;
+  const BATCH_SIZE = 3;
   const batches: any[][] = [];
 
   for (let i = 0; i < alarms.length; i += BATCH_SIZE) {
@@ -2390,6 +2417,9 @@ async function checkAndTriggerUserAlarms(alarms: any[]): Promise<void> {
 
   const processAlarm = async (alarm: any): Promise<void> => {
     try {
+      if (deadlineMs && Date.now() >= deadlineMs) {
+        return;
+      }
       if (!validateAlarm(alarm)) {
         return;
       }
@@ -2932,6 +2962,10 @@ ${tradeNotificationText}
   };
 
   for (const batch of batches) {
+    if (deadlineMs && Date.now() >= deadlineMs) {
+      console.warn("⏱️ Alarm processing stopped due to time budget");
+      break;
+    }
     await Promise.all(batch.map(processAlarm));
     await new Promise(resolve => setTimeout(resolve, 250));
   }
@@ -3057,6 +3091,10 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
     const signals = rawSignals || [];
     if (!signals || signals.length === 0) return [];
     console.log(`🔍 Close check starting for ${signals.length} active signals`);
+    const upperSymbols = signals.map(s => String(s?.symbol || "").toUpperCase());
+    if (!upperSymbols.includes("RUNEUSDT")) {
+      console.warn("⚠️ RUNEUSDT not found in active_signals list for close check");
+    }
 
     const alarmIds = Array.from(
       new Set(
@@ -3102,7 +3140,8 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
           const hasOpen = await hasOpenFuturesPosition(userKeys.api_key, userKeys.api_secret, futuresSymbol);
           if (!hasOpen) return false;
           const hasOrders = await hasOpenFuturesOrders(userKeys.api_key, userKeys.api_secret, futuresSymbol);
-          if (!hasOrders) {
+          const hasAlgoOrders = await hasOpenFuturesAlgoOrders(userKeys.api_key, userKeys.api_secret, futuresSymbol);
+          if (!hasOrders && !hasAlgoOrders) {
             try {
               const symbolInfo = await getSymbolInfo(futuresSymbol, "futures");
               if (symbolInfo) {
@@ -3683,6 +3722,7 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
 // Handler
 // =====================
 serve(async (req: any) => {
+  const requestStartMs = Date.now();
   const startRequestCount = requestCount;
   const startBinanceCount = binanceRequestCount;
   // CORS headers
@@ -3922,15 +3962,22 @@ serve(async (req: any) => {
       // Don't fail the request, just log the error
     }
 
-    console.log(`📊 Found ${alarms?.length || 0} active alarms${body?.user_id ? ' for user' : ' (cron mode)'}`);
-
-    // ✅ Check and trigger user alarms
-    if (alarms && alarms.length > 0) {
-      await checkAndTriggerUserAlarms(alarms);
+    const totalAlarms = alarms?.length || 0;
+    if (alarms && totalAlarms > MAX_ALARMS_PER_CRON) {
+      alarms = alarms.slice(0, MAX_ALARMS_PER_CRON);
+      console.warn(`⚠️ Alarm list truncated: ${totalAlarms} -> ${alarms.length}`);
     }
 
-    // ✅ Close signals that hit TP/SL
+    console.log(`📊 Found ${alarms?.length || 0} active alarms${body?.user_id ? ' for user' : ' (cron mode)'}`);
+
+    // ✅ Close signals that hit TP/SL (prioritize before heavy alarm scans)
     const closedSignals = await checkAndCloseSignals();
+
+    // ✅ Check and trigger user alarms with time budget
+    if (alarms && alarms.length > 0) {
+      const deadlineMs = requestStartMs + MAX_REQUEST_RUNTIME_MS;
+      await checkAndTriggerUserAlarms(alarms, deadlineMs);
+    }
 
     // ✅ Notify - 🚀 PARALLELIZED
     const notificationPromises = closedSignals.map(async signal => {
@@ -3976,7 +4023,9 @@ ${emoji} ${statusMessage}
 
     await retryFailedOpenTelegrams();
 
+    const elapsedMs = Date.now() - requestStartMs;
     console.log(`📊 Request counts: total=${requestCount - startRequestCount}, binance=${binanceRequestCount - startBinanceCount}`);
+    console.log(`⏱️ Request duration: ${elapsedMs}ms`);
 
     return new Response(
       JSON.stringify({
@@ -3991,7 +4040,9 @@ ${emoji} ${statusMessage}
     );
   } catch (e) {
     console.error("❌ Fatal error:", e);
+    const elapsedMs = Date.now() - requestStartMs;
     console.log(`📊 Request counts (error): total=${requestCount - startRequestCount}, binance=${binanceRequestCount - startBinanceCount}`);
+    console.log(`⏱️ Request duration (error): ${elapsedMs}ms`);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
