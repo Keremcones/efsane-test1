@@ -3148,6 +3148,31 @@ async function checkAndCloseSignals(): Promise<ClosedSignal[]> {
         let closeReason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "" = "";
         let closePrice: number | null = null;
 
+        const quickPrice = await getTickerPrice(symbol, effectiveMarketType, false);
+        if (Number.isFinite(quickPrice)) {
+          if (direction === "LONG") {
+            if (quickPrice >= takeProfit) {
+              shouldClose = true;
+              closeReason = "TP_HIT";
+              closePrice = takeProfit;
+            } else if (quickPrice <= stopLoss) {
+              shouldClose = true;
+              closeReason = "SL_HIT";
+              closePrice = stopLoss;
+            }
+          } else {
+            if (quickPrice <= takeProfit) {
+              shouldClose = true;
+              closeReason = "TP_HIT";
+              closePrice = takeProfit;
+            } else if (quickPrice >= stopLoss) {
+              shouldClose = true;
+              closeReason = "SL_HIT";
+              closePrice = stopLoss;
+            }
+          }
+        }
+
         const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
         const createdAtMs = Date.parse(String(signal.created_at || ""));
         if (Number.isFinite(createdAtMs) && (Date.now() - createdAtMs) > maxAgeMs) {
