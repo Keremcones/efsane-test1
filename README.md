@@ -140,6 +140,23 @@ const TELEGRAM_CHAT_ID = 'your-chat-id';
 - Offline mode devreye girer, localStorage kullanır
 - Alarmlar `localStorage` da saklı olur
 
+## 📌 Incident Notes (14 Şubat 2026)
+
+Cron tarafında TP/SL geçtiği halde kapanmayan ACTIVE sinyaller için aşağıdaki kalıcı düzeltmeler uygulandı:
+
+- Close kontrolünde sert timeout durumunda hata fırlatmak yerine kontrollü durdurma eklendi (tekrarlı hata spam'i bitti).
+- Binance signed endpoint çağrılarına zaman senkronu + recvWindow eklendi (`-1021 timestamp outside recvWindow` hatası için).
+- Futures algo endpoint HTML/404 döndüğünde geçici cooldown eklendi (gereksiz tekrar denemeler azaltıldı).
+- Binance veri çekimleri close akışında lazy-cache modeline alındı (prefetch yükü azaltıldı, close throughput arttı).
+- `active_signals.close_reason` yazımı DB kısıtlarına göre normalize edildi (varchar/check constraint kaynaklı kapanmama giderildi).
+
+Beklenen sağlıklı log sinyalleri:
+
+- `updateError ... close_reason_check` görünmemeli.
+- `value too long for type character varying(20)` görünmemeli.
+- Summary içinde `closed` değeri backlog durumunda 0'dan büyük olmalı.
+- Close döngüsü timeout olduğunda tek satır uyarı ile sonlanmalı, sinyal başına stack trace üretmemeli.
+
 ## 📝 Lisans
 
 MIT License - Özgürce kullan, modifiye et, dağıt
