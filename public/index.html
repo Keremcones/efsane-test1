@@ -4592,6 +4592,12 @@
                     <!-- Alarmlar Container -->
                     <div class="card">
                         <div class="card-title"><i class="fa-solid fa-bell"></i> Alarmlar</div>
+                        <div id="alarmQuotaInfo" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-secondary);">
+                            <span id="alarmQuotaText" style="font-size: 0.88rem; color: var(--text-secondary);">Kalan alarm hakkı: -</span>
+                            <button class="btn-premium" onclick="window.location.href='premium.html'" style="padding: 8px 12px; font-size: 0.82rem; white-space: nowrap;">
+                                <i class="fa-solid fa-circle-plus"></i> Daha fazla alarm al
+                            </button>
+                        </div>
                         <div class="alarm-grid" id="activeAlarmGrid">
                             <!-- Active alarms will be inserted here -->
                         </div>
@@ -5149,12 +5155,28 @@
         async function loadAlarms() {
             const activeGrid = document.getElementById('activeAlarmGrid');
             const closedContainerEl = document.getElementById('closedAlarmContainer');
+            const alarmQuotaTextEl = document.getElementById('alarmQuotaText');
             if (!activeGrid) return;
             
             // Filtre kaldırıldı - TÜM alarmlar gösterilecek
             const allAlarms = (alarmSystem.alarms || []);
             const activeAlarms = allAlarms.filter(alarm => alarm.active !== false && alarm.status !== 'KAPANDI');
             const closedAlarms = allAlarms.filter(alarm => alarm.active === false || alarm.status === 'KAPANDI');
+
+            if (alarmQuotaTextEl) {
+                try {
+                    const limitInfo = await alarmSystem.getAlarmLimitInfo();
+                    if (limitInfo?.limit === null || limitInfo?.limit === undefined) {
+                        alarmQuotaTextEl.textContent = 'Kalan alarm hakkı: Sınırsız';
+                    } else {
+                        const remaining = Math.max(0, Number(limitInfo.limit) - Number(limitInfo.activeCount || 0));
+                        alarmQuotaTextEl.textContent = `Kalan alarm hakkı: ${remaining} (${Number(limitInfo.activeCount || 0)}/${Number(limitInfo.limit)})`;
+                    }
+                } catch (quotaError) {
+                    console.warn('⚠️ Alarm hakkı bilgisi alınamadı:', quotaError);
+                    alarmQuotaTextEl.textContent = 'Kalan alarm hakkı: -';
+                }
+            }
             
             // Aktif Alarmlar Grid'i
             if (activeAlarms.length === 0) {
