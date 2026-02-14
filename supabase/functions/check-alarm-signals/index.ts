@@ -3642,11 +3642,6 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
       signals = signals.slice(0, MAX_CLOSE_CHECKS_PER_CRON);
     }
     console.log(`🔍 Close check starting for ${signals.length} active signals`);
-    const upperSymbols = signals.map(s => String(s?.symbol || "").toUpperCase());
-    if (!upperSymbols.includes("RUNEUSDT")) {
-      console.warn("⚠️ RUNEUSDT not found in active_signals list for close check");
-    }
-
     const spotTickerMap = await getAllTickerPrices("spot", true);
     const futuresTickerMap = await getAllTickerPrices("futures", true);
     const futuresMarkPriceMap = await getAllFuturesMarkPrices(true);
