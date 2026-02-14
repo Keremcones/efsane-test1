@@ -653,6 +653,7 @@ type OpenTradeOptions = {
   limitTimeoutSeconds?: number;
   quantityPrecision?: number;
   minQty?: number;
+  stepSize?: number;
 };
 
 const LIMIT_ORDER_POLL_INTERVAL_MS = 2000;
@@ -684,6 +685,25 @@ function roundToTick(value: number, tick: number): number {
   return Number.isFinite(scaled) ? scaled : value;
 }
 
+function formatOrderQuantity(
+  quantity: number,
+  quantityPrecision?: number,
+  stepSize?: number
+): string {
+  let normalized = Number(quantity);
+  if (!Number.isFinite(normalized) || normalized <= 0) return "0";
+
+  if (Number.isFinite(stepSize) && Number(stepSize) > 0) {
+    normalized = roundToStepDown(normalized, Number(stepSize));
+  }
+
+  const resolvedPrecision = Number.isFinite(Number(quantityPrecision))
+    ? Math.max(0, Math.floor(Number(quantityPrecision)))
+    : 8;
+
+  return normalized.toFixed(resolvedPrecision);
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -693,7 +713,7 @@ async function placeFuturesMarketOrder(
   apiSecret: string,
   symbol: string,
   side: "BUY" | "SELL",
-  quantity: number
+  quantity: string
 ): Promise<{ success: boolean; orderId?: string; error?: string; actualSymbol?: string }> {
   const timestamp = Date.now();
   const queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
@@ -729,7 +749,7 @@ async function placeFuturesLimitOrder(
   apiSecret: string,
   symbol: string,
   side: "BUY" | "SELL",
-  quantity: number,
+  quantity: string,
   price: string
 ): Promise<{ success: boolean; orderId?: string; error?: string; actualSymbol?: string }> {
   const timestamp = Date.now();
@@ -819,11 +839,15 @@ async function openBinanceTrade(
   const requestedSymbol = String(symbol || "").toUpperCase();
   const timestamp = Date.now();
   const side = direction === "LONG" ? "BUY" : "SELL";
+  const quantityString = formatOrderQuantity(quantity, options.quantityPrecision, options.stepSize);
+  if (!Number.isFinite(Number(quantityString)) || Number(quantityString) <= 0) {
+    return { success: false, error: `Invalid quantity: ${quantity}` };
+  }
 
   if (marketType === "futures") {
     const orderType = normalizeFuturesEntryType(options.orderType);
     if (orderType === "LIMIT" && options.limitPrice) {
-      const limitOrder = await placeFuturesLimitOrder(apiKey, apiSecret, requestedSymbol, side, quantity, options.limitPrice);
+      const limitOrder = await placeFuturesLimitOrder(apiKey, apiSecret, requestedSymbol, side, quantityString, options.limitPrice);
       if (!limitOrder.success || !limitOrder.orderId) {
         return { success: false, error: limitOrder.error || "Limit order failed" };
       }
@@ -854,10 +878,10 @@ async function openBinanceTrade(
       return { success: false, error: "Limit emir dolmadi. Islem acilmadi." };
     }
 
-    return placeFuturesMarketOrder(apiKey, apiSecret, requestedSymbol, side, quantity);
+    return placeFuturesMarketOrder(apiKey, apiSecret, requestedSymbol, side, quantityString);
   }
 
-  const queryString = `symbol=${requestedSymbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
+  const queryString = `symbol=${requestedSymbol}&side=${side}&type=MARKET&quantity=${quantityString}&timestamp=${timestamp}`;
   const baseUrl = "https://api.binance.com/api/v3/order";
 
   const signature = await createBinanceSignature(queryString, apiSecret);
@@ -1045,6 +1069,8 @@ async function placeSpotOco(
   apiSecret: string,
   symbol: string,
   quantity: number,
+  quantityPrecision: number,
+  stepSize: number,
   takeProfit: number,
   stopLoss: number,
   pricePrecision: number,
@@ -1067,7 +1093,8 @@ async function placeSpotOco(
   const stopLimitValue = Math.max(0, slValue - offset);
   const stopLimitPrice = roundToTick(stopLimitValue, safeTick).toFixed(pricePrecision);
 
-  const queryString = `symbol=${symbol}&side=SELL&type=OCO&quantity=${quantity}`
+  const quantityString = formatOrderQuantity(quantity, quantityPrecision, stepSize);
+  const queryString = `symbol=${symbol}&side=SELL&type=OCO&quantity=${quantityString}`
     + `&price=${tpPrice}&stopPrice=${slPrice}&stopLimitPrice=${stopLimitPrice}`
     + `&stopLimitTimeInForce=GTC&timestamp=${timestamp}`;
   const signature = await createBinanceSignature(queryString, apiSecret);
@@ -1546,9 +1573,14 @@ async function executeAutoTrade(
           limitPrice,
           limitTimeoutSeconds,
           quantityPrecision: symbolInfo.quantityPrecision,
-          minQty: symbolInfo.minQty
+          minQty: symbolInfo.minQty,
+          stepSize: symbolInfo.stepSize
         }
-      : {};
+      : {
+          quantityPrecision: symbolInfo.quantityPrecision,
+          minQty: symbolInfo.minQty,
+          stepSize: symbolInfo.stepSize
+        };
     const orderResult = await openBinanceTrade(api_key, api_secret, symbol, direction, quantity, marketType, orderOptions);
     if (!orderResult.success) {
       return { success: false, message: orderResult.error || "Order failed" };
@@ -1587,6 +1619,8 @@ async function executeAutoTrade(
         api_secret,
         symbol,
         quantity,
+        symbolInfo.quantityPrecision,
+        symbolInfo.stepSize,
         takeProfit,
         stopLoss,
         symbolInfo.pricePrecision,
