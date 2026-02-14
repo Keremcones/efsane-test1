@@ -2867,6 +2867,13 @@ async function checkAndTriggerUserAlarms(
       const barStartMs = Math.floor(nowMs / timeframeMs) * timeframeMs;
       const barEndMs = barStartMs + (Number.isFinite(timeframeMs) && timeframeMs > 0 ? timeframeMs : 60 * 60 * 1000);
       const isWithinOpenWindow = nowMs >= barStartMs && nowMs < barEndMs;
+      const alarmCreatedAtMs = Date.parse(String(alarm.created_at || alarm.createdAt || ""));
+      const firstEligibleBarStartAfterCreateMs = Number.isFinite(alarmCreatedAtMs) && timeframeMs > 0
+        ? (Math.floor(alarmCreatedAtMs / timeframeMs) * timeframeMs) + timeframeMs
+        : NaN;
+      const waitingForFirstBarCloseAfterCreate = Number.isFinite(firstEligibleBarStartAfterCreateMs)
+        ? nowMs < Number(firstEligibleBarStartAfterCreateMs)
+        : false;
       const lastSignalTs = alarm.signal_timestamp || alarm.signalTimestamp;
       const lastSignalMs = lastSignalTs ? Date.parse(String(lastSignalTs)) : NaN;
       const lastOpenIso = new Date(barStartMs).toISOString();
@@ -2895,6 +2902,8 @@ async function checkAndTriggerUserAlarms(
         if (autoTradeEnabled && openTradeSymbols.has(symbolKey)) {
           console.log(`⏹️ Skipping user_alarm for ${symbol}: ACTIVE_TRADE in progress (user: ${alarm.user_id})`);
           stats.skippedActive += 1;
+        } else if (waitingForFirstBarCloseAfterCreate) {
+          console.log(`⏹️ Skipping user_alarm for ${symbol}: waiting for first bar close after alarm creation (eligible at ${new Date(Number(firstEligibleBarStartAfterCreateMs)).toISOString()})`);
         } else if (!isWithinOpenWindow) {
           console.log(`⏹️ Skipping user_alarm for ${symbol}: outside current bar (${Math.round((nowMs - lastOpenMs) / 1000)}s)`);
         } else if (Number.isFinite(lastSignalMs) && lastSignalMs >= lastOpenMs) {
@@ -3066,6 +3075,8 @@ async function checkAndTriggerUserAlarms(
         if (openTradeSymbols.has(symbolKey)) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: ACTIVE_TRADE in progress (user: ${alarm.user_id})`);
           stats.skippedActive += 1;
+        } else if (waitingForFirstBarCloseAfterCreate) {
+          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: waiting for first bar close after alarm creation (eligible at ${new Date(Number(firstEligibleBarStartAfterCreateMs)).toISOString()})`);
         } else if (!isWithinOpenWindow) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: outside current bar (${Math.round((nowMs - lastOpenMs) / 1000)}s)`);
         } else if (Number.isFinite(lastSignalMs) && lastSignalMs >= lastOpenMs) {
