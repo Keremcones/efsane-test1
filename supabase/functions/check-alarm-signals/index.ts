@@ -2868,12 +2868,9 @@ async function checkAndTriggerUserAlarms(
       const barEndMs = barStartMs + (Number.isFinite(timeframeMs) && timeframeMs > 0 ? timeframeMs : 60 * 60 * 1000);
       const isWithinOpenWindow = nowMs >= barStartMs && nowMs < barEndMs;
       const alarmCreatedAtMs = Date.parse(String(alarm.created_at || alarm.createdAt || ""));
-      const firstEligibleBarStartAfterCreateMs = Number.isFinite(alarmCreatedAtMs) && timeframeMs > 0
-        ? (Math.floor(alarmCreatedAtMs / timeframeMs) * timeframeMs) + timeframeMs
+      const alarmCreatedBarOpenMs = Number.isFinite(alarmCreatedAtMs) && timeframeMs > 0
+        ? Math.floor(alarmCreatedAtMs / timeframeMs) * timeframeMs
         : NaN;
-      const waitingForFirstBarCloseAfterCreate = Number.isFinite(firstEligibleBarStartAfterCreateMs)
-        ? nowMs < Number(firstEligibleBarStartAfterCreateMs)
-        : false;
       const lastSignalTs = alarm.signal_timestamp || alarm.signalTimestamp;
       const lastSignalMs = lastSignalTs ? Date.parse(String(lastSignalTs)) : NaN;
       const lastOpenIso = new Date(barStartMs).toISOString();
@@ -2882,6 +2879,8 @@ async function checkAndTriggerUserAlarms(
         ? Number(tickerPrice)
         : fallbackTrigger;
       let lastOpenMs = barStartMs;
+      let evaluatedBarOpenMs = barStartMs;
+      let evaluatedBarIso = lastOpenIso;
 
       const isNearTargets = (price: number, targets: number[]): boolean => {
         if (!Number.isFinite(price) || targets.length === 0) return true;
@@ -2902,12 +2901,8 @@ async function checkAndTriggerUserAlarms(
         if (autoTradeEnabled && openTradeSymbols.has(symbolKey)) {
           console.log(`⏹️ Skipping user_alarm for ${symbol}: ACTIVE_TRADE in progress (user: ${alarm.user_id})`);
           stats.skippedActive += 1;
-        } else if (waitingForFirstBarCloseAfterCreate) {
-          console.log(`⏹️ Skipping user_alarm for ${symbol}: waiting for first bar close after alarm creation (eligible at ${new Date(Number(firstEligibleBarStartAfterCreateMs)).toISOString()})`);
         } else if (!isWithinOpenWindow) {
           console.log(`⏹️ Skipping user_alarm for ${symbol}: outside current bar (${Math.round((nowMs - lastOpenMs) / 1000)}s)`);
-        } else if (Number.isFinite(lastSignalMs) && lastSignalMs >= lastOpenMs) {
-          console.log(`⏹️ Skipping user_alarm for ${symbol}: same bar already processed (alarm ${alarm.id})`);
         } else if (openSignalKeys.has(signalKey)) {
           console.log(`⏹️ Skipping user_alarm for ${symbol}: signal already active for this alarm (user: ${alarm.user_id})`);
           stats.skippedActive += 1;
@@ -2939,13 +2934,30 @@ async function checkAndTriggerUserAlarms(
             if (Number.isFinite(indicators.lastOpenTimestamp)) {
               lastOpenMs = Number(indicators.lastOpenTimestamp);
             }
+            if (Number.isFinite(indicators.lastClosedTimestamp) && timeframeMs > 0) {
+              evaluatedBarOpenMs = Math.floor(Number(indicators.lastClosedTimestamp) / timeframeMs) * timeframeMs;
+              evaluatedBarIso = new Date(evaluatedBarOpenMs).toISOString();
+            }
           }
+
+          if (Number.isFinite(alarmCreatedBarOpenMs) && Number.isFinite(evaluatedBarOpenMs) && evaluatedBarOpenMs < alarmCreatedBarOpenMs) {
+            console.log(`⏹️ Skipping user_alarm for ${symbol}: waiting for first closed bar after creation`);
+            return;
+          }
+
+          if (Number.isFinite(lastSignalMs) && Number.isFinite(evaluatedBarOpenMs) && lastSignalMs >= evaluatedBarOpenMs) {
+            console.log(`⏹️ Skipping user_alarm for ${symbol}: same closed bar already processed (alarm ${alarm.id})`);
+            return;
+          }
+
           stats.triggersChecked += 1;
           const tpPercent = Number(alarm.tp_percent || 5);
           const slPercent = Number(alarm.sl_percent || 3);
-          const entryPrice = Number.isFinite(triggerPrice)
-            ? triggerPrice
-            : Number(indicators.closes?.[indicators.closes.length - 1] ?? indicators.price);
+          const entryPrice = Number.isFinite(Number(indicators.price))
+            ? Number(indicators.price)
+            : (Number.isFinite(triggerPrice)
+              ? triggerPrice
+              : Number(indicators.closes?.[indicators.closes.length - 1] ?? indicators.price));
           
           console.log(`📊 User alarm check: ${symbol}, TP=${tpPercent}%, SL=${slPercent}%`);
           
@@ -2992,7 +3004,7 @@ async function checkAndTriggerUserAlarms(
             };
             
             const directionEmoji = signal.direction === "LONG" ? "🟢" : "🔴";
-            const formattedDateTime = formatTurkeyDateTime(indicators.lastOpenTimestamp);
+            const formattedDateTime = formatTurkeyDateTime(evaluatedBarOpenMs);
             
             triggerMessage = `🔔 ALARM AKTİVE! 🔔\n\n` +
               `💰 Çift: ${symbol}\n` +
@@ -3075,12 +3087,8 @@ async function checkAndTriggerUserAlarms(
         if (openTradeSymbols.has(symbolKey)) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: ACTIVE_TRADE in progress (user: ${alarm.user_id})`);
           stats.skippedActive += 1;
-        } else if (waitingForFirstBarCloseAfterCreate) {
-          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: waiting for first bar close after alarm creation (eligible at ${new Date(Number(firstEligibleBarStartAfterCreateMs)).toISOString()})`);
         } else if (!isWithinOpenWindow) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: outside current bar (${Math.round((nowMs - lastOpenMs) / 1000)}s)`);
-        } else if (Number.isFinite(lastSignalMs) && lastSignalMs >= lastOpenMs) {
-          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: same bar already processed (alarm ${alarm.id})`);
         } else if (openSignalKeys.has(signalKey)) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: signal already active for this alarm (user: ${alarm.user_id})`);
           stats.skippedActive += 1;
@@ -3112,7 +3120,22 @@ async function checkAndTriggerUserAlarms(
             if (Number.isFinite(indicators.lastOpenTimestamp)) {
               lastOpenMs = Number(indicators.lastOpenTimestamp);
             }
+            if (Number.isFinite(indicators.lastClosedTimestamp) && timeframeMs > 0) {
+              evaluatedBarOpenMs = Math.floor(Number(indicators.lastClosedTimestamp) / timeframeMs) * timeframeMs;
+              evaluatedBarIso = new Date(evaluatedBarOpenMs).toISOString();
+            }
           }
+
+          if (Number.isFinite(alarmCreatedBarOpenMs) && Number.isFinite(evaluatedBarOpenMs) && evaluatedBarOpenMs < alarmCreatedBarOpenMs) {
+            console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: waiting for first closed bar after creation`);
+            return;
+          }
+
+          if (Number.isFinite(lastSignalMs) && Number.isFinite(evaluatedBarOpenMs) && lastSignalMs >= evaluatedBarOpenMs) {
+            console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: same closed bar already processed (alarm ${alarm.id})`);
+            return;
+          }
+
           stats.triggersChecked += 1;
           const userConfidenceThreshold = Number(alarm.confidence_score || 70);
           const signal = generateSignalScoreAligned(alarmIndicators, userConfidenceThreshold);
@@ -3144,7 +3167,8 @@ async function checkAndTriggerUserAlarms(
               direction: signal.direction,
               score: signal.score,
               triggered: true,
-              breakdown: signal.breakdown
+              breakdown: signal.breakdown,
+              entry_price: Number.isFinite(Number(alarmIndicators.price)) ? Number(alarmIndicators.price) : triggerPrice
             };
             triggerMessage = `🎯 <b>${signal.direction}</b> Signal detected!\n` +
               `Confidence: <b>${signal.score}%</b>\n` +
@@ -3215,11 +3239,8 @@ async function checkAndTriggerUserAlarms(
       }
 
       if (shouldTrigger && triggerMessage) {
-        const sendNowMs = Date.now();
-        if (sendNowMs < barStartMs || sendNowMs >= barEndMs) {
-          console.log(`⏹️ Skipping signal send for ${alarm.symbol}: outside current bar (${Math.round((sendNowMs - lastOpenMs) / 1000)}s)`);
-          return;
-        }
+        const signalBarMs = Number.isFinite(evaluatedBarOpenMs) ? evaluatedBarOpenMs : lastOpenMs;
+        const signalBarIso = Number.isFinite(evaluatedBarOpenMs) ? evaluatedBarIso : lastOpenIso;
 
         try {
           const { data: lastSignal } = await supabase
@@ -3234,7 +3255,7 @@ async function checkAndTriggerUserAlarms(
           const lastSignalMs = lastSignal?.signal_timestamp
             ? Date.parse(String(lastSignal.signal_timestamp))
             : NaN;
-          if (Number.isFinite(lastSignalMs) && lastSignalMs >= lastOpenMs) {
+          if (Number.isFinite(lastSignalMs) && lastSignalMs >= signalBarMs) {
             console.log(`⏹️ Skipping ${alarm.symbol}: last signal already in this bar (alarm ${alarm.id})`);
             return;
           }
@@ -3246,7 +3267,7 @@ async function checkAndTriggerUserAlarms(
         try {
           await supabase
             .from("alarms")
-            .update({ signal_timestamp: lastOpenIso })
+            .update({ signal_timestamp: signalBarIso })
             .eq("id", alarm.id);
         } catch (e) {
           console.warn(`⚠️ Failed to pre-update alarm signal_timestamp for ${alarm.symbol}:`, e);
@@ -3313,7 +3334,7 @@ async function checkAndTriggerUserAlarms(
             stop_loss: slPrice,
             tp_percent: tpPercent,
             sl_percent: slPercent,
-            signal_timestamp: lastOpenIso,
+            signal_timestamp: signalBarIso,
             status: "ACTIVE",
             score: detectedSignal?.score || 50  // ✅ ADD SCORE
           };
@@ -3418,7 +3439,7 @@ async function checkAndTriggerUserAlarms(
           }
         }
         
-        const formattedDateTime = formatTurkeyDateTime(lastOpenMs);
+        const formattedDateTime = formatTurkeyDateTime(signalBarMs);
 
         // Get signal analysis score for market strength
         const userConfidenceThreshold = Number(alarm.confidence_score || 70);
@@ -3462,7 +3483,7 @@ ${tradeNotificationText}
         try {
           await supabase
             .from("alarms")
-            .update({ signal_timestamp: lastOpenIso })
+            .update({ signal_timestamp: signalBarIso })
             .eq("id", alarm.id);
         } catch (e) {
           console.warn(`⚠️ Failed to update alarm signal_timestamp for ${symbol}:`, e);
