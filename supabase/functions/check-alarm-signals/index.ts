@@ -3346,7 +3346,7 @@ async function checkAndTriggerUserAlarms(
         const autoTradeEnabled = await resolveAutoTradeEnabled(alarm, alarmMarketType);
         let autoTradeAttempted = false;
 
-        if (autoTradeEnabled && !alarm.binance_order_id) {
+        if (autoTradeEnabled) {
           autoTradeAttempted = true;
           tradeResult = await executeAutoTrade(
             alarm.user_id,
@@ -3372,6 +3372,14 @@ async function checkAndTriggerUserAlarms(
             tradeResult.message !== "Spot auto-trade not enabled"
           ) {
             tradeNotificationText = `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${escapeHtml(tradeResult.message)}`;
+            try {
+              await supabase
+                .from("alarms")
+                .update({ binance_order_id: null })
+                .eq("id", alarm.id);
+            } catch (e) {
+              console.warn(`⚠️ Failed to clear stale binance_order_id after auto-trade failure for ${symbol}:`, e);
+            }
           }
         }
 
