@@ -4654,6 +4654,26 @@
         function createMiniChart(klines, signal, backtest, displaySignal, lastBacktestTrade, signalTimestamp) {
             const container = document.getElementById('miniChart');
             if (!container || !klines || klines.length === 0) return;
+
+            const inferMiniChartPrecision = (sourceKlines) => {
+                let maxDecimals = 2;
+                for (const row of (sourceKlines || [])) {
+                    for (const idx of [1, 2, 3, 4]) {
+                        const raw = row?.[idx];
+                        if (raw === null || raw === undefined) continue;
+                        const asText = String(raw);
+                        if (!asText || asText.includes('e') || asText.includes('E')) continue;
+                        const dotIndex = asText.indexOf('.');
+                        if (dotIndex === -1) continue;
+                        const trimmedFraction = asText.slice(dotIndex + 1).replace(/0+$/, '');
+                        maxDecimals = Math.max(maxDecimals, trimmedFraction.length);
+                    }
+                }
+                return Math.min(Math.max(maxDecimals, 2), 12);
+            };
+
+            const miniChartPrecision = inferMiniChartPrecision(klines);
+            const miniChartMinMove = Math.pow(10, -miniChartPrecision);
             
             container.innerHTML = '';
             
@@ -4723,6 +4743,9 @@
                     vertLines: { color: 'rgba(45, 55, 72, 0.3)' },
                     horzLines: { color: 'rgba(45, 55, 72, 0.3)' }
                 },
+                localization: {
+                    priceFormatter: (value) => Number(value).toFixed(miniChartPrecision)
+                },
                 crosshair: {
                     mode: LightweightCharts.CrosshairMode.Normal,
                     vertLine: { color: 'rgba(59, 130, 246, 0.5)' },
@@ -4737,7 +4760,12 @@
                 borderUpColor: '#00ff88',
                 borderDownColor: '#ff4757',
                 wickUpColor: '#00ff88',
-                wickDownColor: '#ff4757'
+                wickDownColor: '#ff4757',
+                priceFormat: {
+                    type: 'price',
+                    precision: miniChartPrecision,
+                    minMove: miniChartMinMove
+                }
             });
             
             // Candlestick verisi hazırla - Türkiye saati (UTC+3) ile göster
