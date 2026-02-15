@@ -262,6 +262,10 @@ const EXTERNAL_CLOSE_GRACE_SECONDS = Math.min(
   300,
   Math.max(15, Number(Deno.env.get("EXTERNAL_CLOSE_GRACE_SECONDS") || "45"))
 ); // wait briefly before syncing externally closed futures positions
+const FORCE_EXTERNAL_CLOSE_MAX_AGE_SECONDS = Math.min(
+  24 * 60 * 60,
+  Math.max(300, Number(Deno.env.get("FORCE_EXTERNAL_CLOSE_MAX_AGE_SECONDS") || "1800"))
+); // hard fallback: do not leave futures signals ACTIVE forever when verification is unavailable
 const DISABLE_ALARM_PROCESSING = false; // temporary: close-only mode
 const CLOSE_NEAR_TARGET_PCT = 0.3; // only run heavy checks when near TP/SL
 const TRIGGER_NEAR_TARGET_PCT = 0.1; // skip indicator klines if far from targets
@@ -4324,6 +4328,11 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
             const state = await getFuturesCloseState(signal, alarmData);
             if (state.canCheck && !state.position && !state.openOrders && !state.algoOrders) {
               console.log(`🧭 External close sync: ${JSON.stringify({ signalId: signal.id, symbol, ageSeconds, reason: "EXTERNAL_CLOSE" })}`);
+              shouldClose = true;
+              closeReason = "EXTERNAL_CLOSE";
+              closePrice = Number(signal.entry_price);
+            } else if (!state.canCheck && ageSeconds >= FORCE_EXTERNAL_CLOSE_MAX_AGE_SECONDS) {
+              console.warn(`🧯 Forced stale close fallback: ${JSON.stringify({ signalId: signal.id, symbol, ageSeconds, reason: "EXTERNAL_CLOSE", mode: "no_verification_available" })}`);
               shouldClose = true;
               closeReason = "EXTERNAL_CLOSE";
               closePrice = Number(signal.entry_price);
