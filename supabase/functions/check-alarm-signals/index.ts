@@ -267,6 +267,7 @@ const CLOSE_NEAR_TARGET_PCT = 0.3; // only run heavy checks when near TP/SL
 const TRIGGER_NEAR_TARGET_PCT = 0.1; // skip indicator klines if far from targets
 const BAR_CLOSE_TRIGGER_GRACE_MS = 2 * 60 * 1000; // only allow open signal creation within 2 min after bar close
 const OPEN_TELEGRAM_RETRY_MAX_AGE_MS = 3 * 60 * 1000; // do not deliver open-signal messages too late
+const CLOSE_TELEGRAM_RETRY_MAX_AGE_MS = 24 * 60 * 60 * 1000; // retry failed close notifications within 24h
 const ACTIVE_SIGNAL_STATUSES = ["ACTIVE", "active"];
 const ACTIVE_ALARM_STATUSES = ["ACTIVE", "active"];
 
@@ -740,9 +741,9 @@ async function placeFuturesMarketOrder(
   symbol: string,
   side: "BUY" | "SELL",
   quantity: string
-): Promise<{ success: boolean; orderId?: string; error?: string; actualSymbol?: string }> {
+): Promise<{ success: boolean; orderId?: string; error?: string; actualSymbol?: string; filledPrice?: number }> {
   const timestamp = Date.now();
-  const queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
+  const queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&newOrderRespType=RESULT&timestamp=${timestamp}`;
   const signature = await createBinanceSignature(queryString, apiSecret);
   const url = `https://fapi.binance.com/fapi/v1/order?${queryString}&signature=${signature}`;
 
@@ -767,7 +768,10 @@ async function placeFuturesMarketOrder(
     return { success: false, error: `Order symbol mismatch: requested ${requestedSymbol}, got ${actualSymbol}`, actualSymbol };
   }
 
-  return { success: true, orderId: String(data.orderId), actualSymbol };
+  const avgPrice = Number(data?.avgPrice || 0);
+  const fillPrice = Number.isFinite(avgPrice) && avgPrice > 0 ? avgPrice : undefined;
+
+  return { success: true, orderId: String(data.orderId), actualSymbol, filledPrice: fillPrice };
 }
 
 async function placeFuturesLimitOrder(
@@ -861,7 +865,7 @@ async function openBinanceTrade(
   quantity: number,
   marketType: "spot" | "futures",
   options: OpenTradeOptions = {}
-): Promise<{ success: boolean; orderId?: string; error?: string }> {
+): Promise<{ success: boolean; orderId?: string; error?: string; filledPrice?: number }> {
   const requestedSymbol = String(symbol || "").toUpperCase();
   const timestamp = Date.now();
   const side = direction === "LONG" ? "BUY" : "SELL";
@@ -907,7 +911,7 @@ async function openBinanceTrade(
     return placeFuturesMarketOrder(apiKey, apiSecret, requestedSymbol, side, quantityString);
   }
 
-  const queryString = `symbol=${requestedSymbol}&side=${side}&type=MARKET&quantity=${quantityString}&timestamp=${timestamp}`;
+  const queryString = `symbol=${requestedSymbol}&side=${side}&type=MARKET&quantity=${quantityString}&newOrderRespType=FULL&timestamp=${timestamp}`;
   const baseUrl = "https://api.binance.com/api/v3/order";
 
   const signature = await createBinanceSignature(queryString, apiSecret);
@@ -934,7 +938,24 @@ async function openBinanceTrade(
     return { success: false, error: `Spot order symbol mismatch: requested ${requestedSymbol}, got ${actualSymbol}` };
   }
 
-  return { success: true, orderId: String(data.orderId) };
+  let filledPrice: number | undefined;
+  const executedQty = Number(data?.executedQty || 0);
+  const cumulativeQuoteQty = Number(data?.cummulativeQuoteQty || 0);
+  if (Number.isFinite(executedQty) && executedQty > 0 && Number.isFinite(cumulativeQuoteQty) && cumulativeQuoteQty > 0) {
+    const weighted = cumulativeQuoteQty / executedQty;
+    if (Number.isFinite(weighted) && weighted > 0) {
+      filledPrice = weighted;
+    }
+  }
+  if (!filledPrice && Array.isArray(data?.fills) && data.fills.length > 0) {
+    const totalQty = data.fills.reduce((sum: number, f: any) => sum + Number(f?.qty || 0), 0);
+    const totalQuote = data.fills.reduce((sum: number, f: any) => sum + (Number(f?.price || 0) * Number(f?.qty || 0)), 0);
+    if (Number.isFinite(totalQty) && totalQty > 0 && Number.isFinite(totalQuote) && totalQuote > 0) {
+      filledPrice = totalQuote / totalQty;
+    }
+  }
+
+  return { success: true, orderId: String(data.orderId), filledPrice };
 }
 
 async function placeTakeProfitStopLoss(
@@ -1473,7 +1494,7 @@ async function executeAutoTrade(
   takeProfit: number,
   stopLoss: number,
   marketType: "spot" | "futures"
-): Promise<{ success: boolean; message: string; orderId?: string; blockedByOpenPosition?: boolean }> {
+): Promise<{ success: boolean; message: string; orderId?: string; blockedByOpenPosition?: boolean; executedEntryPrice?: number; executedTakeProfit?: number; executedStopLoss?: number }> {
   try {
     const { data: userProfile } = await supabase
       .from("user_profiles")
@@ -1624,14 +1645,28 @@ async function executeAutoTrade(
       return { success: false, message: orderResult.error || "Order failed" };
     }
 
+    const effectiveEntryPrice = Number.isFinite(orderResult.filledPrice) && Number(orderResult.filledPrice) > 0
+      ? Number(orderResult.filledPrice)
+      : entryPrice;
+    const tpPercentFromSignal = Math.abs(((takeProfit - entryPrice) / entryPrice) * 100);
+    const slPercentFromSignal = Math.abs(((entryPrice - stopLoss) / entryPrice) * 100);
+    const adjustedRawTp = direction === "SHORT"
+      ? effectiveEntryPrice * (1 - tpPercentFromSignal / 100)
+      : effectiveEntryPrice * (1 + tpPercentFromSignal / 100);
+    const adjustedRawSl = direction === "SHORT"
+      ? effectiveEntryPrice * (1 + slPercentFromSignal / 100)
+      : effectiveEntryPrice * (1 - slPercentFromSignal / 100);
+    const adjustedTakeProfit = roundToTick(adjustedRawTp, symbolInfo.tickSize);
+    const adjustedStopLoss = roundToTick(adjustedRawSl, symbolInfo.tickSize);
+
     if (marketType === "futures") {
       const tpSlResult = await placeTakeProfitStopLoss(
         api_key,
         api_secret,
         symbol,
         direction,
-        takeProfit,
-        stopLoss,
+        adjustedTakeProfit,
+        adjustedStopLoss,
         symbolInfo.pricePrecision,
         quantity,
         symbolInfo.quantityPrecision,
@@ -1647,8 +1682,11 @@ async function executeAutoTrade(
       if (warningText) {
         return {
           success: true,
-          message: `✅ ${direction} ${quantity} ${symbol} (${leverage}x) @ $${entryPrice.toFixed(symbolInfo.pricePrecision)}\n⚠️ ${warningText.trim()}`,
-          orderId: orderResult.orderId
+          message: `✅ ${direction} ${quantity} ${symbol} (${leverage}x) @ $${effectiveEntryPrice.toFixed(symbolInfo.pricePrecision)}\n⚠️ ${warningText.trim()}`,
+          orderId: orderResult.orderId,
+          executedEntryPrice: effectiveEntryPrice,
+          executedTakeProfit: adjustedTakeProfit,
+          executedStopLoss: adjustedStopLoss
         };
       }
     } else {
@@ -1659,8 +1697,8 @@ async function executeAutoTrade(
         quantity,
         symbolInfo.quantityPrecision,
         symbolInfo.stepSize,
-        takeProfit,
-        stopLoss,
+        adjustedTakeProfit,
+        adjustedStopLoss,
         symbolInfo.pricePrecision,
         symbolInfo.tickSize
       );
@@ -1672,8 +1710,11 @@ async function executeAutoTrade(
     const leverageText = marketType === "futures" ? ` (${leverage}x)` : "";
     return {
       success: true,
-      message: `✅ ${direction} ${quantity} ${symbol}${leverageText} @ $${entryPrice.toFixed(symbolInfo.pricePrecision)}`,
-      orderId: orderResult.orderId
+      message: `✅ ${direction} ${quantity} ${symbol}${leverageText} @ $${effectiveEntryPrice.toFixed(symbolInfo.pricePrecision)}`,
+      orderId: orderResult.orderId,
+      executedEntryPrice: effectiveEntryPrice,
+      executedTakeProfit: adjustedTakeProfit,
+      executedStopLoss: adjustedStopLoss
     };
   } catch (e) {
     console.error(`❌ Auto-trade error for ${userId}:`, e);
@@ -2717,6 +2758,116 @@ async function retryFailedOpenTelegrams(): Promise<void> {
   }
 }
 
+function buildClosedSignalTelegramMessage(signal: {
+  symbol: string;
+  direction: string;
+  close_reason: string;
+  price: number;
+  profitLoss?: number;
+  profit_loss?: number;
+  market_type?: string;
+}): Promise<string> {
+  return (async () => {
+    let statusMessage = "⛔ KAPANDI - STOP LOSS HIT!";
+    let emoji = "⚠️";
+    const reason = String(signal.close_reason || "").toUpperCase();
+    if (reason === "TP_HIT") {
+      statusMessage = "✅ KAPANDI - TP HIT!";
+      emoji = "🎉";
+    } else if (reason === "NOT_FILLED") {
+      statusMessage = "⚠️ İŞLEM AÇILMADI - LIMIT DOLMADI";
+      emoji = "🚫";
+    } else if (reason === "TIMEOUT") {
+      statusMessage = "⏱️ KAPANDI - TIMEOUT";
+      emoji = "⏱️";
+    } else if (reason === "EXTERNAL_CLOSE") {
+      statusMessage = "🧭 KAPANDI - BINANCE'DE DIŞSAL KAPANIŞ";
+      emoji = "🧭";
+    }
+
+    const precision = await getSymbolPricePrecision(
+      String(signal.symbol || "").toUpperCase(),
+      normalizeMarketType(signal.market_type || "spot")
+    );
+
+    const safeSymbol = escapeHtml(String(signal.symbol || ""));
+    const safeDirection = escapeHtml(String(signal.direction || ""));
+    const safePrice = escapeHtml(formatPriceWithPrecision(Number(signal.price), precision));
+    const pnl = Number.isFinite(Number(signal.profitLoss))
+      ? Number(signal.profitLoss)
+      : Number(signal.profit_loss);
+    const safePnL = escapeHtml(Number.isFinite(pnl)
+      ? (pnl >= 0 ? "+" : "") + pnl.toFixed(2) + "%"
+      : "N/A");
+
+    return `
+🔔 <b>İŞLEM KAPANDI</b> 🔔
+
+📊 Coin: <b>${safeSymbol}</b>
+📈 İşlem Yönü: <b>${safeDirection}</b>
+${emoji} ${statusMessage}
+💰 Kapanış Fiyatı: <b>$${safePrice}</b>
+    📈 Kar/Zarar: <b>${safePnL}</b>
+`;
+  })();
+}
+
+async function retryFailedCloseTelegrams(): Promise<void> {
+  const since = new Date(Date.now() - CLOSE_TELEGRAM_RETRY_MAX_AGE_MS).toISOString();
+  const { data: signals, error } = await supabase
+    .from("active_signals")
+    .select("id, user_id, symbol, direction, close_reason, market_type, closed_at, profit_loss, entry_price, take_profit, stop_loss, telegram_close_status, telegram_close_error")
+    .eq("status", "CLOSED")
+    .gte("closed_at", since)
+    .order("closed_at", { ascending: false })
+    .limit(200);
+
+  if (error || !signals?.length) return;
+
+  const retryCandidates = signals.filter((signal: any) => {
+    const status = String(signal?.telegram_close_status || "").toUpperCase();
+    return status === "FAILED" || status === "";
+  });
+
+  for (const signal of retryCandidates) {
+    const closedMs = Date.parse(String(signal?.closed_at || ""));
+    const ageMs = Number.isFinite(closedMs) ? (Date.now() - closedMs) : Number.MAX_SAFE_INTEGER;
+    if (!Number.isFinite(closedMs) || ageMs > CLOSE_TELEGRAM_RETRY_MAX_AGE_MS) {
+      await updateActiveSignalCloseTelegramStatus(signal.id, "SKIPPED", "stale_retry_window_exceeded");
+      continue;
+    }
+    const errorText = String(signal?.telegram_close_error || "");
+    if (errorText.includes("missing_chat_id") || errorText.includes("notifications_disabled")) {
+      continue;
+    }
+
+    const reason = String(signal?.close_reason || "").toUpperCase();
+    let price = Number(signal?.entry_price);
+    if (reason === "TP_HIT") {
+      price = Number(signal?.take_profit);
+    } else if (reason === "SL_HIT") {
+      price = Number(signal?.stop_loss);
+    }
+    if (!Number.isFinite(price) || price <= 0) {
+      price = Number(signal?.entry_price);
+    }
+    if (!Number.isFinite(price) || price <= 0) {
+      price = 0;
+    }
+    const message = await buildClosedSignalTelegramMessage({
+      symbol: String(signal?.symbol || ""),
+      direction: String(signal?.direction || ""),
+      close_reason: String(signal?.close_reason || ""),
+      price,
+      market_type: String(signal?.market_type || "spot"),
+      profit_loss: Number(signal?.profit_loss),
+    });
+    await updateActiveSignalCloseTelegramStatus(signal.id, "QUEUED", null);
+    const sendResult = await sendTelegramNotification(signal.user_id, message);
+    await updateActiveSignalCloseTelegramStatus(signal.id, sendResult.status, sendResult.error ?? null);
+  }
+}
+
 async function updateActiveSignalCloseTelegramStatus(
   signalId: string | number,
   status: "QUEUED" | "SENT" | "FAILED" | "SKIPPED",
@@ -3445,7 +3596,18 @@ async function checkAndTriggerUserAlarms(
         }
 
         // 🚀 AUTO TRADE EXECUTION
-        let tradeResult = { success: false, message: "Auto-trade not triggered" } as { success: boolean; message: string; orderId?: string; blockedByOpenPosition?: boolean };
+        let tradeResult = {
+          success: false,
+          message: "Auto-trade not triggered"
+        } as {
+          success: boolean;
+          message: string;
+          orderId?: string;
+          blockedByOpenPosition?: boolean;
+          executedEntryPrice?: number;
+          executedTakeProfit?: number;
+          executedStopLoss?: number;
+        };
         let tradeNotificationText = "";
         const autoTradeEnabled = await resolveAutoTradeEnabled(alarm, alarmMarketType);
         let autoTradeAttempted = false;
@@ -3464,6 +3626,27 @@ async function checkAndTriggerUserAlarms(
 
           if (tradeResult.success) {
             tradeNotificationText = `\n\n🤖 <b>OTOMATİK İŞLEM:</b>\n${escapeHtml(tradeResult.message)}`;
+
+            if (insertedSignalId && Number.isFinite(tradeResult.executedEntryPrice) && Number(tradeResult.executedEntryPrice) > 0) {
+              try {
+                await supabase
+                  .from("active_signals")
+                  .update({
+                    entry_price: Number(tradeResult.executedEntryPrice),
+                    take_profit: Number.isFinite(tradeResult.executedTakeProfit)
+                      ? Number(tradeResult.executedTakeProfit)
+                      : tpPrice,
+                    stop_loss: Number.isFinite(tradeResult.executedStopLoss)
+                      ? Number(tradeResult.executedStopLoss)
+                      : slPrice,
+                  })
+                  .eq("id", insertedSignalId)
+                  .in("status", ACTIVE_SIGNAL_STATUSES);
+              } catch (e) {
+                console.warn(`⚠️ Failed to sync executed prices for signal ${insertedSignalId}:`, e);
+              }
+            }
+
             if (tradeResult.orderId) {
               await supabase
                 .from("alarms")
@@ -3546,11 +3729,20 @@ async function checkAndTriggerUserAlarms(
         const safeDirection = escapeHtml(directionTR);
         const safeMarketType = escapeHtml(marketType);
         const safeTimeframe = escapeHtml(timeframe);
-        const safePrice = escapeHtml(formatPriceWithPrecision(entryPrice, decimals));
+        const displayEntryPrice = Number.isFinite(tradeResult.executedEntryPrice)
+          ? Number(tradeResult.executedEntryPrice)
+          : entryPrice;
+        const displayTpPrice = Number.isFinite(tradeResult.executedTakeProfit)
+          ? Number(tradeResult.executedTakeProfit)
+          : tpPrice;
+        const displaySlPrice = Number.isFinite(tradeResult.executedStopLoss)
+          ? Number(tradeResult.executedStopLoss)
+          : slPrice;
+        const safePrice = escapeHtml(formatPriceWithPrecision(displayEntryPrice, decimals));
         const safeConfidence = escapeHtml(String(userConfidenceThreshold));
         const safeSignalScore = escapeHtml(String(signalAnalysis.score));
-        const safeTpPrice = escapeHtml(formatPriceWithPrecision(tpPrice, decimals));
-        const safeSlPrice = escapeHtml(formatPriceWithPrecision(slPrice, decimals));
+        const safeTpPrice = escapeHtml(formatPriceWithPrecision(displayTpPrice, decimals));
+        const safeSlPrice = escapeHtml(formatPriceWithPrecision(displaySlPrice, decimals));
         const safeDate = escapeHtml(formattedDateTime);
 
         let telegramMessage = `
@@ -3756,8 +3948,14 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
       return { closedSignals: [], stats: { closesChecked: 0, closed: 0 } };
     }
     if (signals.length > MAX_CLOSE_CHECKS_PER_CRON) {
-      console.warn(`⚠️ Close check truncated: ${signals.length} -> ${MAX_CLOSE_CHECKS_PER_CRON}`);
-      signals = signals.slice(0, MAX_CLOSE_CHECKS_PER_CRON);
+      const oldestCount = Math.max(50, Math.floor(MAX_CLOSE_CHECKS_PER_CRON * 0.2));
+      const newestCount = Math.max(50, MAX_CLOSE_CHECKS_PER_CRON - oldestCount);
+      const oldest = signals.slice(0, oldestCount);
+      const newest = signals.slice(-newestCount);
+      const merged = [...oldest, ...newest];
+      const deduped = merged.filter((s, idx, arr) => arr.findIndex(x => String(x?.id) === String(s?.id)) === idx);
+      console.warn(`⚠️ Close check truncated: ${signals.length} -> ${deduped.length} (oldest=${oldest.length}, newest=${newest.length})`);
+      signals = deduped;
     }
     console.log(`🔍 Close check starting for ${signals.length} active signals`);
     const spotTickerMap = await getAllTickerPrices("spot", true);
@@ -4304,7 +4502,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
           }
         }
 
-        if (closeReason !== "ORPHAN_ACTIVE_NO_TRADE") {
+        if (closeReason !== "ORPHAN_ACTIVE_NO_TRADE" && closeReason !== "EXTERNAL_CLOSE") {
           const skipClose = await shouldSkipCloseForBinance(signal, alarmData, effectiveMarketType);
           if (skipClose) {
             console.log(`⏳ Skipping close for ${signal.symbol}: Binance position/orders still open`);
@@ -4938,41 +5136,7 @@ serve(async (req: any) => {
 
     // ✅ Notify - 🚀 PARALLELIZED
     const notificationPromises = closedSignals.map(async signal => {
-      let statusMessage = "⛔ KAPANDI - STOP LOSS HIT!";
-      let emoji = "⚠️";
-      if (signal.close_reason === "TP_HIT") {
-        statusMessage = "✅ KAPANDI - TP HIT!";
-        emoji = "🎉";
-      } else if (signal.close_reason === "NOT_FILLED") {
-        statusMessage = "⚠️ İŞLEM AÇILMADI - LIMIT DOLMADI";
-        emoji = "🚫";
-      } else if (signal.close_reason === "TIMEOUT") {
-        statusMessage = "⏱️ KAPANDI - TIMEOUT";
-        emoji = "⏱️";
-      }
-
-      const precision = await getSymbolPricePrecision(
-        String(signal.symbol || "").toUpperCase(),
-        normalizeMarketType(signal.market_type || "spot")
-      );
-
-      const safeSymbol = escapeHtml(String(signal.symbol || ""));
-      const safeDirection = escapeHtml(String(signal.direction || ""));
-      const safePrice = escapeHtml(formatPriceWithPrecision(signal.price, precision));
-      const safePnL = escapeHtml(signal.profitLoss !== undefined
-        ? (signal.profitLoss >= 0 ? "+" : "") + signal.profitLoss.toFixed(2) + "%"
-        : "N/A");
-
-      const telegramMessage = `
-🔔 <b>İŞLEM KAPANDI</b> 🔔
-
-📊 Coin: <b>${safeSymbol}</b>
-📈 İşlem Yönü: <b>${safeDirection}</b>
-${emoji} ${statusMessage}
-💰 Kapanış Fiyatı: <b>$${safePrice}</b>
-    📈 Kar/Zarar: <b>${safePnL}</b>
-`;
-
+      const telegramMessage = await buildClosedSignalTelegramMessage(signal);
       await updateActiveSignalCloseTelegramStatus(signal.id, "QUEUED", null);
       const sendResult = await sendTelegramNotification(signal.user_id, telegramMessage);
       await updateActiveSignalCloseTelegramStatus(signal.id, sendResult.status, sendResult.error ?? null);
@@ -4982,6 +5146,7 @@ ${emoji} ${statusMessage}
     await Promise.all(notificationPromises);
 
     await retryFailedOpenTelegrams();
+    await retryFailedCloseTelegrams();
 
     const elapsedMs = Date.now() - requestStartMs;
     console.log(`📊 Request counts: total=${requestCount - startRequestCount}, binance=${binanceRequestCount - startBinanceCount}`);
