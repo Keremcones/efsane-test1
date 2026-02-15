@@ -253,11 +253,10 @@ const MIN_KLINES_REFRESH_MS = 10000; // prevent burst refresh
 const INDICATOR_KLINES_LIMIT = 300; // reduce per-alarm klines load
 const MAX_REQUEST_RUNTIME_MS = 30000; // keep below Edge 60s timeout
 const HARD_TIMEOUT_MS = 25000; // emergency hard stop
-const MAX_ALARMS_PER_CRON = 30; // hard cap per cron
+const MAX_ALARMS_PER_CRON = 1000; // safety cap per cron (high enough to avoid practical starvation)
 const MAX_CLOSE_CHECKS_PER_CRON = 300; // safety cap for large backlogs
 const DISABLE_ALARM_PROCESSING = false; // temporary: close-only mode
 const CLOSE_NEAR_TARGET_PCT = 0.3; // only run heavy checks when near TP/SL
-const MAX_KLINES_PER_INVOCATION = 3; // limit klines per cron
 const TRIGGER_NEAR_TARGET_PCT = 0.1; // skip indicator klines if far from targets
 const BAR_CLOSE_TRIGGER_GRACE_MS = 2 * 60 * 1000; // only allow open signal creation within 2 min after bar close
 const ACTIVE_SIGNAL_STATUSES = ["ACTIVE", "active"];
@@ -2832,12 +2831,27 @@ async function checkAndTriggerUserAlarms(
   }
   console.log(`📌 Open auto_signal count: ${openSignalKeys.size}`);
 
+  const indicatorPromiseCache = new Map<string, Promise<TechnicalIndicators | null>>();
+  const getCachedIndicators = (symbol: string, marketType: "spot" | "futures", timeframe: string) => {
+    const cacheKey = `${symbol}:${marketType}:${timeframe}`;
+    if (!indicatorPromiseCache.has(cacheKey)) {
+      indicatorPromiseCache.set(cacheKey, calculateIndicators(symbol, marketType, timeframe));
+    }
+    return indicatorPromiseCache.get(cacheKey)!;
+  };
+
   const telegramPromises: Promise<void>[] = [];
   const BATCH_SIZE = 3;
   const batches: any[][] = [];
 
-  for (let i = 0; i < alarms.length; i += BATCH_SIZE) {
-    batches.push(alarms.slice(i, i + BATCH_SIZE));
+  const rotationSeed = Math.floor(Date.now() / 60000);
+  const offset = alarms.length > 0 ? (rotationSeed % alarms.length) : 0;
+  const rotatedAlarms = offset > 0
+    ? alarms.slice(offset).concat(alarms.slice(0, offset))
+    : alarms.slice();
+
+  for (let i = 0; i < rotatedAlarms.length; i += BATCH_SIZE) {
+    batches.push(rotatedAlarms.slice(i, i + BATCH_SIZE));
   }
 
   const stats: TriggerCheckStats = { alarmsProcessed: 0, triggersChecked: 0, triggered: 0, skippedActive: 0 };
@@ -2921,13 +2935,9 @@ async function checkAndTriggerUserAlarms(
             requestMetrics.klinesSkippedByProximity += 1;
             return;
           }
-          if (requestMetrics.klinesFetched >= MAX_KLINES_PER_INVOCATION) {
-            requestMetrics.klinesSkippedByProximity += 1;
-            return;
-          }
 
           if (!alarmIndicators) {
-            indicators = await calculateIndicators(
+            indicators = await getCachedIndicators(
               alarmSymbol,
               alarmMarketType,
               String(alarm.timeframe || "1h")
@@ -2970,11 +2980,13 @@ async function checkAndTriggerUserAlarms(
           stats.triggersChecked += 1;
           const tpPercent = Number(alarm.tp_percent || 5);
           const slPercent = Number(alarm.sl_percent || 3);
-          const entryPrice = Number.isFinite(Number(indicators.price))
-            ? Number(indicators.price)
+          const entryPrice = Number.isFinite(Number(alarmIndicators.openPrice))
+            ? Number(alarmIndicators.openPrice)
+            : (Number.isFinite(Number(indicators.price))
+              ? Number(indicators.price)
             : (Number.isFinite(triggerPrice)
               ? triggerPrice
-              : Number(indicators.closes?.[indicators.closes.length - 1] ?? indicators.price));
+              : Number(indicators.closes?.[indicators.closes.length - 1] ?? indicators.price)));
           
           console.log(`📊 User alarm check: ${symbol}, TP=${tpPercent}%, SL=${slPercent}%`);
           
@@ -3116,13 +3128,9 @@ async function checkAndTriggerUserAlarms(
             requestMetrics.klinesSkippedByProximity += 1;
             return;
           }
-          if (requestMetrics.klinesFetched >= MAX_KLINES_PER_INVOCATION) {
-            requestMetrics.klinesSkippedByProximity += 1;
-            return;
-          }
 
           if (!alarmIndicators) {
-            indicators = await calculateIndicators(
+            indicators = await getCachedIndicators(
               alarmSymbol,
               alarmMarketType,
               String(alarm.timeframe || "1h")
@@ -3194,7 +3202,9 @@ async function checkAndTriggerUserAlarms(
               score: signal.score,
               triggered: true,
               breakdown: signal.breakdown,
-              entry_price: Number.isFinite(Number(alarmIndicators.price)) ? Number(alarmIndicators.price) : triggerPrice
+              entry_price: Number.isFinite(Number(alarmIndicators.openPrice))
+                ? Number(alarmIndicators.openPrice)
+                : (Number.isFinite(Number(alarmIndicators.price)) ? Number(alarmIndicators.price) : triggerPrice)
             };
             triggerMessage = `🎯 <b>${signal.direction}</b> Signal detected!\n` +
               `Confidence: <b>${signal.score}%</b>\n` +
@@ -3477,7 +3487,7 @@ async function checkAndTriggerUserAlarms(
         const safeDirection = escapeHtml(directionTR);
         const safeMarketType = escapeHtml(marketType);
         const safeTimeframe = escapeHtml(timeframe);
-        const safePrice = escapeHtml(formatPriceWithPrecision(triggerPrice, decimals));
+        const safePrice = escapeHtml(formatPriceWithPrecision(entryPrice, decimals));
         const safeConfidence = escapeHtml(String(userConfidenceThreshold));
         const safeSignalScore = escapeHtml(String(signalAnalysis.score));
         const safeTpPrice = escapeHtml(formatPriceWithPrecision(tpPrice, decimals));
@@ -4822,6 +4832,16 @@ serve(async (req: any) => {
     if (alarmsError) {
       console.error("❌ Error fetching alarms:", alarmsError);
       // Don't fail the request, just log the error
+    }
+
+    if (alarms && alarms.length > 1) {
+      alarms = alarms.slice().sort((a: any, b: any) => {
+        const aTs = Date.parse(String(a?.signal_timestamp || a?.created_at || ""));
+        const bTs = Date.parse(String(b?.signal_timestamp || b?.created_at || ""));
+        const aSafe = Number.isFinite(aTs) ? aTs : Number.MAX_SAFE_INTEGER;
+        const bSafe = Number.isFinite(bTs) ? bTs : Number.MAX_SAFE_INTEGER;
+        return aSafe - bSafe;
+      });
     }
 
     const totalAlarms = alarms?.length || 0;
