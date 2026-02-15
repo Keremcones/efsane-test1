@@ -113,6 +113,7 @@ const i18n = {
             send_start_command: '/start komutunu yazıp gönderin',
             copy_user_id: 'Bot tarafından gönderilen User ID\'yi kopyalayın',
             copy_digits_only: '💡 İpucu: Sadece rakamları kopyalayın, başka karakterleri eklemeyin',
+            language_selection: 'Dil Seçimi',
             live_signals_badge: 'Canlı sinyaller aktif — 7/24 piyasa takibi'
         },
         en: {
@@ -224,6 +225,7 @@ const i18n = {
             send_start_command: 'Type /start and send',
             copy_user_id: 'Copy the User ID sent by the bot',
             copy_digits_only: '💡 Tip: Copy only digits, do not add any other characters',
+            language_selection: 'Language Selection',
             live_signals_badge: 'Live signals are active — 24/7 market tracking'
         },
         de: {
@@ -335,6 +337,7 @@ const i18n = {
             send_start_command: 'Geben Sie /start ein und senden Sie es',
             copy_user_id: 'Kopieren Sie die vom Bot gesendete User-ID',
             copy_digits_only: '💡 Tipp: Nur Zahlen kopieren, keine weiteren Zeichen hinzufügen',
+            language_selection: 'Sprachauswahl',
             live_signals_badge: 'Live-Signale aktiv — 24/7 Marktüberwachung'
         }
     },
@@ -470,6 +473,15 @@ const i18n = {
                 align-items: center;
                 gap: 6px;
                 margin-top: 10px;
+                flex-wrap: wrap;
+            }
+            .menu-language-label {
+                width: 100%;
+                font-size: 0.76rem;
+                font-weight: 700;
+                letter-spacing: 0.02em;
+                opacity: 0.9;
+                margin-bottom: 2px;
             }
             .language-option {
                 border: 1px solid rgba(255,255,255,0.18);
@@ -533,6 +545,11 @@ const i18n = {
                 return;
             }
             const selector = this.buildLanguageSelector('menu-language-selector');
+            const label = document.createElement('div');
+            label.className = 'menu-language-label';
+            label.setAttribute('data-i18n', 'language_selection');
+            label.textContent = this.t('language_selection');
+            selector.prepend(label);
             btn.insertAdjacentElement('afterend', selector);
         });
     },
