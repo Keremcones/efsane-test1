@@ -788,6 +788,44 @@
             min-width: 140px;
         }
 
+        .admin-site-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .admin-site-stat-card {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .admin-site-stat-label {
+            color: var(--text-secondary);
+            font-size: 12px;
+            margin-bottom: 6px;
+        }
+
+        .admin-site-stat-value {
+            color: var(--text-primary);
+            font-weight: 800;
+            font-size: 18px;
+            line-height: 1;
+        }
+
+        .admin-site-stats-meta {
+            color: var(--text-secondary);
+            font-size: 12px;
+            margin-top: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
         .button-group {
             display: flex;
             gap: 12px;
@@ -1527,6 +1565,36 @@
                         Bu duyuru tum kullanicilarda dashboard coin listesi ustunde gorunur.
                     </p>
                 </div>
+
+                <div class="profile-section" id="adminSiteStatsSection" style="display:none;">
+                    <div class="section-title">
+                        <i class="fa-solid fa-chart-column"></i> Admin: Site İstatistikleri
+                    </div>
+                    <div class="admin-site-stats-grid">
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">Siteye Giriş (Son 1 Saat)</div>
+                            <div class="admin-site-stat-value" id="adminVisit1h">-</div>
+                        </div>
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">Siteye Giriş (Son 7 Gün)</div>
+                            <div class="admin-site-stat-value" id="adminVisit7d">-</div>
+                        </div>
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">Yeni Kayıt (Son 1 Saat)</div>
+                            <div class="admin-site-stat-value" id="adminSignup1h">-</div>
+                        </div>
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">Yeni Kayıt (Son 7 Gün)</div>
+                            <div class="admin-site-stat-value" id="adminSignup7d">-</div>
+                        </div>
+                    </div>
+                    <div class="admin-site-stats-meta">
+                        <span id="adminSiteStatsUpdatedAt">Son güncelleme: -</span>
+                        <button class="btn btn-secondary" style="padding: 8px 12px; flex: 0 0 auto;" onclick="window.refreshAdminSiteStats()">
+                            <i class="fa-solid fa-rotate"></i> Yenile
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <div class="profile-col">
@@ -1771,6 +1839,69 @@
         let canUseTelegramChatId = false;
         let currentIsAdmin = false;
 
+        function toCountText(value) {
+            return Number.isFinite(value) && value >= 0 ? String(value) : '-';
+        }
+
+        function setAdminSiteStatsValues(values) {
+            const visit1hEl = document.getElementById('adminVisit1h');
+            const visit7dEl = document.getElementById('adminVisit7d');
+            const signup1hEl = document.getElementById('adminSignup1h');
+            const signup7dEl = document.getElementById('adminSignup7d');
+            const updatedAtEl = document.getElementById('adminSiteStatsUpdatedAt');
+
+            if (visit1hEl) visit1hEl.textContent = toCountText(values?.visit1h);
+            if (visit7dEl) visit7dEl.textContent = toCountText(values?.visit7d);
+            if (signup1hEl) signup1hEl.textContent = toCountText(values?.signup1h);
+            if (signup7dEl) signup7dEl.textContent = toCountText(values?.signup7d);
+            if (updatedAtEl) {
+                const now = new Date();
+                updatedAtEl.textContent = `Son güncelleme: ${now.toLocaleString('tr-TR')}`;
+            }
+        }
+
+        async function loadAdminSiteStats() {
+            if (!currentIsAdmin) return;
+
+            const oneHourAgoIso = new Date(Date.now() - (60 * 60 * 1000)).toISOString();
+            const sevenDaysAgoIso = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000)).toISOString();
+
+            try {
+                const [visit1hRes, visit7dRes, signup1hRes, signup7dRes] = await Promise.all([
+                    supabaseClient
+                        .from('user_profiles')
+                        .select('id', { count: 'exact', head: true })
+                        .gte('updated_at', oneHourAgoIso),
+                    supabaseClient
+                        .from('user_profiles')
+                        .select('id', { count: 'exact', head: true })
+                        .gte('updated_at', sevenDaysAgoIso),
+                    supabaseClient
+                        .from('user_profiles')
+                        .select('id', { count: 'exact', head: true })
+                        .gte('created_at', oneHourAgoIso),
+                    supabaseClient
+                        .from('user_profiles')
+                        .select('id', { count: 'exact', head: true })
+                        .gte('created_at', sevenDaysAgoIso)
+                ]);
+
+                if (visit1hRes.error || visit7dRes.error || signup1hRes.error || signup7dRes.error) {
+                    throw visit1hRes.error || visit7dRes.error || signup1hRes.error || signup7dRes.error;
+                }
+
+                setAdminSiteStatsValues({
+                    visit1h: visit1hRes.count || 0,
+                    visit7d: visit7dRes.count || 0,
+                    signup1h: signup1hRes.count || 0,
+                    signup7d: signup7dRes.count || 0
+                });
+            } catch (error) {
+                console.warn('Admin site istatistikleri yüklenemedi:', error?.message || error);
+                setAdminSiteStatsValues({ visit1h: NaN, visit7d: NaN, signup1h: NaN, signup7d: NaN });
+            }
+        }
+
         // Profil Ayarlarını Yükle
         async function loadProfileSettings() {
             if (!currentUser) return;
@@ -1822,10 +1953,12 @@
                 }
                 if (isAdmin) {
                     await loadAdminUserList();
+                    await loadAdminSiteStats();
                 }
 
                 await loadAdminAnnouncement();
                 updateAdminAnnouncementPanel();
+                updateAdminSiteStatsPanel();
 
                 // Son şifre değiştirme tarihini yükle
                 const lastPasswordChangeDate = localStorage.getItem(`pwd_change_${currentUser.id}`) || 'Hiç değiştirilmedi';
@@ -1941,6 +2074,21 @@
             const panelEl = document.getElementById('adminAnnouncementSection');
             if (!panelEl) return;
             panelEl.style.display = currentIsAdmin ? 'block' : 'none';
+        }
+
+        function updateAdminSiteStatsPanel() {
+            const panelEl = document.getElementById('adminSiteStatsSection');
+            if (!panelEl) return;
+            panelEl.style.display = currentIsAdmin ? 'block' : 'none';
+        }
+
+        async function refreshAdminSiteStats() {
+            if (!currentIsAdmin) {
+                showNotification('Bu islem yalnizca adminler icin.', 'error');
+                return;
+            }
+            await loadAdminSiteStats();
+            showNotification('Site istatistikleri guncellendi.', 'success');
         }
 
         async function saveAdminAnnouncement() {

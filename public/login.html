@@ -852,6 +852,20 @@ Bu metni onaylamadan kayıt olamazsınız.
                 });
                 
                 if (error) throw error;
+
+                if (data?.user?.id) {
+                    try {
+                        await supabaseClient
+                            .from('user_profiles')
+                            .upsert({
+                                id: data.user.id,
+                                email: data.user.email || email,
+                                updated_at: new Date().toISOString()
+                            }, { onConflict: 'id' });
+                    } catch (profileTouchError) {
+                        console.warn('Profil giriş zamanı güncellenemedi:', profileTouchError?.message || profileTouchError);
+                    }
+                }
                 
                 // Giriş başarılı - dashboard'a yönlendir
                 window.location.href = 'index.html';
@@ -908,6 +922,20 @@ Bu metni onaylamadan kayıt olamazsınız.
                 });
                 
                 if (error) throw error;
+
+                if (data?.user?.id) {
+                    try {
+                        await supabaseClient
+                            .from('user_profiles')
+                            .upsert({
+                                id: data.user.id,
+                                email: data.user.email || email,
+                                updated_at: new Date().toISOString()
+                            }, { onConflict: 'id' });
+                    } catch (profileCreateError) {
+                        console.warn('Profil kayıt sonrası oluşturulamadı:', profileCreateError?.message || profileCreateError);
+                    }
+                }
                 
                 showSuccess('signup', 'Kayıt başarılı! Lütfen e-postanızı doğrulayın.');
                 
