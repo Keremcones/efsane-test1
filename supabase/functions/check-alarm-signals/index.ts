@@ -341,6 +341,16 @@ function isWithinBarCloseTriggerWindow(nowMs: number, evaluatedBarOpenMs: number
   return nowMs >= evaluatedBarCloseMs && nowMs <= (evaluatedBarCloseMs + BAR_CLOSE_TRIGGER_GRACE_MS);
 }
 
+function resolveBarCloseDisplayTimeMs(barOpenOrIso: number | string | undefined, timeframe: string): number {
+  const raw = typeof barOpenOrIso === "string"
+    ? Date.parse(barOpenOrIso)
+    : Number(barOpenOrIso);
+  const barOpenMs = Number.isFinite(raw) ? Number(raw) : Date.now();
+  const timeframeMs = timeframeToMinutes(String(timeframe || "1h")) * 60 * 1000;
+  if (!Number.isFinite(timeframeMs) || timeframeMs <= 0) return barOpenMs;
+  return barOpenMs + timeframeMs;
+}
+
 
 async function getCurrentPrice(symbol: string, marketType: "spot" | "futures"): Promise<number | null> {
   try {
@@ -2637,7 +2647,7 @@ async function buildActiveSignalOpenMessage(signal: any): Promise<string> {
   const safeEntry = escapeHtml(formatPriceWithPrecision(Number(signal?.entry_price), precision));
   const safeTp = escapeHtml(formatPriceWithPrecision(Number(signal?.take_profit), precision));
   const safeSl = escapeHtml(formatPriceWithPrecision(Number(signal?.stop_loss), precision));
-  const safeDate = escapeHtml(formatTurkeyDateTime(signal?.signal_timestamp || signal?.created_at));
+  const safeDate = escapeHtml(formatTurkeyDateTime(resolveBarCloseDisplayTimeMs(signal?.signal_timestamp || signal?.created_at, String(signal?.timeframe || "1h"))));
   const tpPercent = Number(signal?.tp_percent);
   const slPercent = Number(signal?.sl_percent);
 
@@ -3040,7 +3050,7 @@ async function checkAndTriggerUserAlarms(
             };
             
             const directionEmoji = signal.direction === "LONG" ? "🟢" : "🔴";
-            const formattedDateTime = formatTurkeyDateTime(evaluatedBarOpenMs);
+            const formattedDateTime = formatTurkeyDateTime(resolveBarCloseDisplayTimeMs(evaluatedBarOpenMs, String(alarm.timeframe || "1h")));
             
             triggerMessage = `🔔 ALARM AKTİVE! 🔔\n\n` +
               `💰 Çift: ${symbol}\n` +
@@ -3482,7 +3492,7 @@ async function checkAndTriggerUserAlarms(
           }
         }
         
-        const formattedDateTime = formatTurkeyDateTime(signalBarMs);
+        const formattedDateTime = formatTurkeyDateTime(resolveBarCloseDisplayTimeMs(signalBarMs, timeframe));
 
         // Get signal analysis score for market strength
         const userConfidenceThreshold = Number(alarm.confidence_score || 70);
@@ -4481,7 +4491,7 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
 
   if (existing?.id) {
     console.log(`⚠️ Duplicate signal attempt: ${newSignal.symbol} ${newSignal.signal_direction}`);
-    const duplicateMessage = `⚠️ <b>AKTIF SİNYAL VAR</b>\n\n💰 Çift: <b>${escapeHtml(newSignal.symbol)}</b>\n🎯 Yön: <b>${escapeHtml(newSignal.signal_direction)}</b>\n⏰ Zaman: <b>${escapeHtml(formatTurkeyDateTime(newSignal.signal_timestamp))}</b>`;
+    const duplicateMessage = `⚠️ <b>AKTIF SİNYAL VAR</b>\n\n💰 Çift: <b>${escapeHtml(newSignal.symbol)}</b>\n🎯 Yön: <b>${escapeHtml(newSignal.signal_direction)}</b>\n⏰ Zaman: <b>${escapeHtml(formatTurkeyDateTime(resolveBarCloseDisplayTimeMs(newSignal.signal_timestamp, String(newSignal.timeframe || "1h"))))}</b>`;
     await sendTelegramNotification(newSignal.user_id, duplicateMessage);
     return { inserted: false, duplicate: true };
   }
@@ -4528,7 +4538,7 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
     const safeEntry = escapeHtml(formatPriceWithPrecision(newSignal.entry_price, pricePrecision));
     const safeTp = escapeHtml(formatPriceWithPrecision(newSignal.take_profit, pricePrecision));
     const safeSl = escapeHtml(formatPriceWithPrecision(newSignal.stop_loss, pricePrecision));
-    const safeDate = escapeHtml(formatTurkeyDateTime(newSignal.signal_timestamp));
+    const safeDate = escapeHtml(formatTurkeyDateTime(resolveBarCloseDisplayTimeMs(newSignal.signal_timestamp, String(newSignal.timeframe || "1h"))));
 
     const telegramMessage = `
 🔔 <b>ALARM AKTİVE!</b> 🔔
