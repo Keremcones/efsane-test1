@@ -259,6 +259,7 @@ const DISABLE_ALARM_PROCESSING = false; // temporary: close-only mode
 const CLOSE_NEAR_TARGET_PCT = 0.3; // only run heavy checks when near TP/SL
 const MAX_KLINES_PER_INVOCATION = 3; // limit klines per cron
 const TRIGGER_NEAR_TARGET_PCT = 0.1; // skip indicator klines if far from targets
+const BAR_CLOSE_TRIGGER_GRACE_MS = 2 * 60 * 1000; // only allow open signal creation within 2 min after bar close
 const ACTIVE_SIGNAL_STATUSES = ["ACTIVE", "active"];
 const ACTIVE_ALARM_STATUSES = ["ACTIVE", "active"];
 
@@ -330,6 +331,14 @@ function timeframeToMinutes(timeframe: string): number {
     default:
       return 60;
   }
+}
+
+function isWithinBarCloseTriggerWindow(nowMs: number, evaluatedBarOpenMs: number, timeframeMs: number): boolean {
+  if (!Number.isFinite(nowMs) || !Number.isFinite(evaluatedBarOpenMs) || !Number.isFinite(timeframeMs) || timeframeMs <= 0) {
+    return false;
+  }
+  const evaluatedBarCloseMs = evaluatedBarOpenMs + timeframeMs;
+  return nowMs >= evaluatedBarCloseMs && nowMs <= (evaluatedBarCloseMs + BAR_CLOSE_TRIGGER_GRACE_MS);
 }
 
 
@@ -2866,7 +2875,6 @@ async function checkAndTriggerUserAlarms(
       const timeframeMs = timeframeMinutes * 60 * 1000;
       const barStartMs = Math.floor(nowMs / timeframeMs) * timeframeMs;
       const barEndMs = barStartMs + (Number.isFinite(timeframeMs) && timeframeMs > 0 ? timeframeMs : 60 * 60 * 1000);
-      const isWithinOpenWindow = nowMs >= barStartMs && nowMs < barEndMs;
       const alarmCreatedAtMs = Date.parse(String(alarm.created_at || alarm.createdAt || ""));
       const alarmCreatedBarOpenMs = Number.isFinite(alarmCreatedAtMs) && timeframeMs > 0
         ? Math.floor(alarmCreatedAtMs / timeframeMs) * timeframeMs
@@ -2901,8 +2909,6 @@ async function checkAndTriggerUserAlarms(
         if (autoTradeEnabled && openTradeSymbols.has(symbolKey)) {
           console.log(`⏹️ Skipping user_alarm for ${symbol}: ACTIVE_TRADE in progress (user: ${alarm.user_id})`);
           stats.skippedActive += 1;
-        } else if (!isWithinOpenWindow) {
-          console.log(`⏹️ Skipping user_alarm for ${symbol}: outside current bar (${Math.round((nowMs - lastOpenMs) / 1000)}s)`);
         } else if (openSignalKeys.has(signalKey)) {
           console.log(`⏹️ Skipping user_alarm for ${symbol}: signal already active for this alarm (user: ${alarm.user_id})`);
           stats.skippedActive += 1;
@@ -2947,6 +2953,17 @@ async function checkAndTriggerUserAlarms(
 
           if (Number.isFinite(lastSignalMs) && Number.isFinite(evaluatedBarOpenMs) && lastSignalMs >= evaluatedBarOpenMs) {
             console.log(`⏹️ Skipping user_alarm for ${symbol}: same closed bar already processed (alarm ${alarm.id})`);
+            return;
+          }
+
+          if (!isWithinBarCloseTriggerWindow(nowMs, evaluatedBarOpenMs, timeframeMs)) {
+            const evaluatedBarCloseMs = Number.isFinite(evaluatedBarOpenMs) && Number.isFinite(timeframeMs)
+              ? evaluatedBarOpenMs + timeframeMs
+              : NaN;
+            const delaySec = Number.isFinite(evaluatedBarCloseMs)
+              ? Math.round((nowMs - evaluatedBarCloseMs) / 1000)
+              : -1;
+            console.log(`⏹️ Skipping user_alarm for ${symbol}: outside strict bar-close trigger window (delay=${delaySec}s, grace=${Math.round(BAR_CLOSE_TRIGGER_GRACE_MS / 1000)}s)`);
             return;
           }
 
@@ -3087,8 +3104,6 @@ async function checkAndTriggerUserAlarms(
         if (openTradeSymbols.has(symbolKey)) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: ACTIVE_TRADE in progress (user: ${alarm.user_id})`);
           stats.skippedActive += 1;
-        } else if (!isWithinOpenWindow) {
-          console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: outside current bar (${Math.round((nowMs - lastOpenMs) / 1000)}s)`);
         } else if (openSignalKeys.has(signalKey)) {
           console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: signal already active for this alarm (user: ${alarm.user_id})`);
           stats.skippedActive += 1;
@@ -3133,6 +3148,17 @@ async function checkAndTriggerUserAlarms(
 
           if (Number.isFinite(lastSignalMs) && Number.isFinite(evaluatedBarOpenMs) && lastSignalMs >= evaluatedBarOpenMs) {
             console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: same closed bar already processed (alarm ${alarm.id})`);
+            return;
+          }
+
+          if (!isWithinBarCloseTriggerWindow(nowMs, evaluatedBarOpenMs, timeframeMs)) {
+            const evaluatedBarCloseMs = Number.isFinite(evaluatedBarOpenMs) && Number.isFinite(timeframeMs)
+              ? evaluatedBarOpenMs + timeframeMs
+              : NaN;
+            const delaySec = Number.isFinite(evaluatedBarCloseMs)
+              ? Math.round((nowMs - evaluatedBarCloseMs) / 1000)
+              : -1;
+            console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: outside strict bar-close trigger window (delay=${delaySec}s, grace=${Math.round(BAR_CLOSE_TRIGGER_GRACE_MS / 1000)}s)`);
             return;
           }
 
