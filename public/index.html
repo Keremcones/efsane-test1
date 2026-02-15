@@ -2576,8 +2576,7 @@
         function formatSignalCloseDateTime(signalTimestamp, createdAt, timeframe) {
             const baseTs = Date.parse(String(signalTimestamp || createdAt || ''));
             if (!Number.isFinite(baseTs)) return '-';
-            const closeTs = baseTs + timeframeToMs(timeframe);
-            return formatDateTime(closeTs);
+            return formatDateTime(baseTs);
         }
         
         // Coin logosu için HTML elementi oluştur

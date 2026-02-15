@@ -7,6 +7,7 @@ window.autoTranslate = {
     isRunning: false,
     rerunRequested: false,
     scheduleTimer: null,
+    loadingShown: false,
 
     dictionary: {
         'Canlı sinyaller aktif — 7/24 piyasa takibi': {
@@ -197,6 +198,9 @@ window.autoTranslate = {
         }
 
         this.isRunning = true;
+        if (this.currentLanguage !== 'tr') {
+            this.setLoadingState(true);
+        }
 
         try {
             const nodeTargets = this.collectTextNodes();
@@ -230,8 +234,21 @@ window.autoTranslate = {
             if (this.rerunRequested) {
                 this.rerunRequested = false;
                 this.scheduleTranslate(100);
+            } else {
+                this.setLoadingState(false);
             }
         }
+    },
+
+    setLoadingState(isLoading) {
+        if (this.loadingShown === isLoading) return;
+        this.loadingShown = isLoading;
+        window.dispatchEvent(new CustomEvent('translationLoading', {
+            detail: {
+                isLoading,
+                language: this.currentLanguage
+            }
+        }));
     },
 
     scheduleTranslate(delay = 150) {
@@ -255,6 +272,9 @@ window.autoTranslate = {
 
     setLanguage(lang) {
         this.currentLanguage = lang;
+        if (lang === 'tr') {
+            this.setLoadingState(false);
+        }
         this.scheduleTranslate(0);
     },
 

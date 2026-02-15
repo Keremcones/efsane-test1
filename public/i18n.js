@@ -114,6 +114,7 @@ const i18n = {
             copy_user_id: 'Bot tarafından gönderilen User ID\'yi kopyalayın',
             copy_digits_only: '💡 İpucu: Sadece rakamları kopyalayın, başka karakterleri eklemeyin',
             language_selection: 'Dil Seçimi',
+            translation_loading: 'Çeviri yükleniyor...',
             live_signals_badge: 'Canlı sinyaller aktif — 7/24 piyasa takibi'
         },
         en: {
@@ -226,6 +227,7 @@ const i18n = {
             copy_user_id: 'Copy the User ID sent by the bot',
             copy_digits_only: '💡 Tip: Copy only digits, do not add any other characters',
             language_selection: 'Language Selection',
+            translation_loading: 'Loading translation...',
             live_signals_badge: 'Live signals are active — 24/7 market tracking'
         },
         de: {
@@ -338,6 +340,7 @@ const i18n = {
             copy_user_id: 'Kopieren Sie die vom Bot gesendete User-ID',
             copy_digits_only: '💡 Tipp: Nur Zahlen kopieren, keine weiteren Zeichen hinzufügen',
             language_selection: 'Sprachauswahl',
+            translation_loading: 'Übersetzung wird geladen...',
             live_signals_badge: 'Live-Signale aktiv — 24/7 Marktüberwachung'
         }
     },
@@ -458,6 +461,7 @@ const i18n = {
 
     ensureLanguageSelectors: function() {
         this.ensureLanguageSelectorStyles();
+        this.ensureTranslationLoadingPopup();
         this.insertMenuLanguageSelector();
         this.insertHomeBadgeLanguageSelector();
     },
@@ -508,8 +512,65 @@ const i18n = {
                 display: inline-flex;
                 align-items: center;
             }
+            .translation-loading-popup {
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                display: none;
+                align-items: center;
+                gap: 10px;
+                padding: 10px 14px;
+                border-radius: 10px;
+                border: 1px solid rgba(245,183,49,0.4);
+                background: rgba(18,24,38,0.94);
+                color: #f7f8fb;
+                z-index: 9999;
+                font-size: 0.84rem;
+                font-weight: 600;
+                box-shadow: 0 8px 22px rgba(0,0,0,0.25);
+            }
+            .translation-loading-popup.active {
+                display: inline-flex;
+            }
+            .translation-loading-spinner {
+                width: 14px;
+                height: 14px;
+                border-radius: 50%;
+                border: 2px solid rgba(247,248,251,0.25);
+                border-top-color: rgba(245,183,49,1);
+                animation: translationSpin 0.8s linear infinite;
+            }
+            @keyframes translationSpin {
+                to { transform: rotate(360deg); }
+            }
         `;
         document.head.appendChild(style);
+    },
+
+    ensureTranslationLoadingPopup: function() {
+        if (document.getElementById('translationLoadingPopup')) return;
+
+        const popup = document.createElement('div');
+        popup.id = 'translationLoadingPopup';
+        popup.className = 'translation-loading-popup';
+        popup.setAttribute('aria-live', 'polite');
+        popup.innerHTML = `
+            <span class="translation-loading-spinner" aria-hidden="true"></span>
+            <span id="translationLoadingText" data-i18n="translation_loading">${this.t('translation_loading')}</span>
+        `;
+        document.body.appendChild(popup);
+    },
+
+    setTranslationLoadingState: function(isLoading) {
+        const popup = document.getElementById('translationLoadingPopup');
+        const text = document.getElementById('translationLoadingText');
+        if (!popup) return;
+
+        if (text) {
+            text.textContent = this.t('translation_loading');
+        }
+
+        popup.classList.toggle('active', !!isLoading);
     },
 
     buildLanguageSelector: function(containerClass) {
@@ -582,6 +643,14 @@ const i18n = {
     init: function() {
         this.ensureLanguageSelectors();
         this.applyLanguage();
+
+        if (!window.__translationLoadingListenerAttached) {
+            window.addEventListener('translationLoading', (event) => {
+                const isLoading = !!event?.detail?.isLoading;
+                this.setTranslationLoadingState(isLoading);
+            });
+            window.__translationLoadingListenerAttached = true;
+        }
         
         // Navbar dil düğmesini aktif göster
         const langBtnTr = document.getElementById('langBtnTr');
