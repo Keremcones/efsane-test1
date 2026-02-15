@@ -1088,6 +1088,13 @@ function resolveKlineOpenTimeMs(kline) {
     return openMs + 1;
 }
 
+function resolveSameCandleHit(openPrice, takeProfit, stopLoss) {
+    if (!Number.isFinite(openPrice)) return 'SL';
+    const distToTp = Math.abs(takeProfit - openPrice);
+    const distToSl = Math.abs(openPrice - stopLoss);
+    return distToTp < distToSl ? 'TP' : 'SL';
+}
+
 async function resolveBinanceServerTimeMs(marketType) {
     try {
         const response = await binanceFetchPath(marketType, '/time', {}, { retries: 2, timeoutMs: 15000 });
@@ -1237,8 +1244,31 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 
                 if (openTrade.signal === 'LONG') {  // ✅ .direction yerine .signal
                     // LONG işlem
-                    // KURAL 1: SL'ye ulaştı mı? (BAR İÇİNDE HIT)
-                    if (currentLow <= openTrade.stopLoss) {
+                    const hitSl = currentLow <= openTrade.stopLoss;
+                    const hitTp = currentHigh >= openTrade.takeProfit;
+
+                    if (hitSl && hitTp) {
+                        const resolvedHit = resolveSameCandleHit(opens[i], openTrade.takeProfit, openTrade.stopLoss);
+                        if (resolvedHit === 'TP') {
+                            if (barsSinceEntry >= 4 && barsSinceEntry <= 6) {
+                                console.log(`🎯 LONG [${timeframe}] SAME BAR TP HIT bar${barsSinceEntry}: HIGH=${currentHigh.toFixed(4)} >= TP=${openTrade.takeProfit.toFixed(4)}`);
+                            }
+                            const exitRaw = applySlippage(openTrade.takeProfit, 'SELL', slippageBpsValue);
+                            openTrade.exit = roundToTick(exitRaw, safeTick);
+                            openTrade.actualTP = true;
+                            closeReason = 'TP';
+                        } else {
+                            if (barsSinceEntry >= 4 && barsSinceEntry <= 6) {
+                                console.log(`🎯 LONG [${timeframe}] SAME BAR SL HIT bar${barsSinceEntry}: LOW=${currentLow.toFixed(4)} <= SL=${openTrade.stopLoss.toFixed(4)}`);
+                            }
+                            const exitRaw = applySlippage(openTrade.stopLoss, 'SELL', slippageBpsValue);
+                            openTrade.exit = roundToTick(exitRaw, safeTick);
+                            openTrade.actualSL = true;
+                            closeReason = 'SL';
+                        }
+                        openTrade.exitBarIndex = i;
+                        shouldClose = true;
+                    } else if (hitSl) {
                         if (barsSinceEntry >= 4 && barsSinceEntry <= 6) {
                             console.log(`🎯 LONG [${timeframe}] SL HIT bar${barsSinceEntry}: LOW=${currentLow.toFixed(4)} <= SL=${openTrade.stopLoss.toFixed(4)}`);
                         }
@@ -1248,9 +1278,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                         openTrade.actualSL = true;
                         shouldClose = true;
                         closeReason = 'SL';
-                    }
-                    // KURAL 2: TP'ye ulaştı mı? (BAR İÇİNDE HIT)
-                    else if (currentHigh >= openTrade.takeProfit) {
+                    } else if (hitTp) {
                         if (barsSinceEntry >= 4 && barsSinceEntry <= 6) {
                             console.log(`🎯 LONG [${timeframe}] TP HIT bar${barsSinceEntry}: HIGH=${currentHigh.toFixed(4)} >= TP=${openTrade.takeProfit.toFixed(4)}`);
                         }
@@ -1263,8 +1291,31 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                     }
                 } else {
                     // SHORT işlem
-                    // KURAL 1: SL'ye ulaştı mı? (BAR İÇİNDE HIT)
-                    if (currentHigh >= openTrade.stopLoss) {
+                    const hitSl = currentHigh >= openTrade.stopLoss;
+                    const hitTp = currentLow <= openTrade.takeProfit;
+
+                    if (hitSl && hitTp) {
+                        const resolvedHit = resolveSameCandleHit(opens[i], openTrade.takeProfit, openTrade.stopLoss);
+                        if (resolvedHit === 'TP') {
+                            if (barsSinceEntry >= 4 && barsSinceEntry <= 6) {
+                                console.log(`🎯 SHORT [${timeframe}] SAME BAR TP HIT bar${barsSinceEntry}: LOW=${currentLow.toFixed(4)} <= TP=${openTrade.takeProfit.toFixed(4)}`);
+                            }
+                            const exitRaw = applySlippage(openTrade.takeProfit, 'BUY', slippageBpsValue);
+                            openTrade.exit = roundToTick(exitRaw, safeTick);
+                            openTrade.actualTP = true;
+                            closeReason = 'TP';
+                        } else {
+                            if (barsSinceEntry >= 4 && barsSinceEntry <= 6) {
+                                console.log(`🎯 SHORT [${timeframe}] SAME BAR SL HIT bar${barsSinceEntry}: HIGH=${currentHigh.toFixed(4)} >= SL=${openTrade.stopLoss.toFixed(4)}`);
+                            }
+                            const exitRaw = applySlippage(openTrade.stopLoss, 'BUY', slippageBpsValue);
+                            openTrade.exit = roundToTick(exitRaw, safeTick);
+                            openTrade.actualSL = true;
+                            closeReason = 'SL';
+                        }
+                        openTrade.exitBarIndex = i;
+                        shouldClose = true;
+                    } else if (hitSl) {
                         if (barsSinceEntry >= 4 && barsSinceEntry <= 6) {
                             console.log(`🎯 SHORT [${timeframe}] SL HIT bar${barsSinceEntry}: HIGH=${currentHigh.toFixed(4)} >= SL=${openTrade.stopLoss.toFixed(4)}`);
                         }
@@ -1274,9 +1325,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                         openTrade.actualSL = true;
                         shouldClose = true;
                         closeReason = 'SL';
-                    }
-                    // KURAL 2: TP'ye ulaştı mı? (BAR İÇİNDE HIT)
-                    else if (currentLow <= openTrade.takeProfit) {
+                    } else if (hitTp) {
                         if (barsSinceEntry >= 4 && barsSinceEntry <= 6) {
                             console.log(`🎯 SHORT [${timeframe}] TP HIT bar${barsSinceEntry}: LOW=${currentLow.toFixed(4)} <= TP=${openTrade.takeProfit.toFixed(4)}`);
                         }
