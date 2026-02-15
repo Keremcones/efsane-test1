@@ -10,6 +10,7 @@ window.autoTranslate = {
     loadingShown: false,
     pendingRoots: new Set(),
     fullScanRequested: false,
+    loadingForManualSwitch: false,
 
     dictionary: {
         'Canlı sinyaller aktif — 7/24 piyasa takibi': {
@@ -25,7 +26,31 @@ window.autoTranslate = {
         'Çıkış Yap': { en: 'Logout', de: 'Abmelden' },
         'Yükleniyor...': { en: 'Loading...', de: 'Wird geladen...' },
         'Bilgi yükleniyor...': { en: 'Loading information...', de: 'Informationen werden geladen...' },
-        'Menü': { en: 'Menu', de: 'Menü' }
+        'Menü': { en: 'Menu', de: 'Menü' },
+        'Her Durumda': { en: 'All Conditions', de: 'In jeder Lage' },
+        'Binance Bağlantısı': { en: 'Binance Connection', de: 'Binance-Verbindung' },
+        'Binance API anahtarlarınızı ve otomatik trade ayarlarınızı yönetin': { en: 'Manage your Binance API keys and auto-trade settings', de: 'Verwalte deine Binance-API-Schlüssel und Auto-Trade-Einstellungen' },
+        'Otomatik Trade\'i Aktif Et': { en: 'Enable Auto Trade', de: 'Auto-Trade aktivieren' },
+        'Futures Ayarları': { en: 'Futures Settings', de: 'Futures-Einstellungen' },
+        'Futures Otomatik Trade': { en: 'Futures Auto Trade', de: 'Futures Auto-Trade' },
+        'Kaldıraç': { en: 'Leverage', de: 'Hebel' },
+        'Emir Tipi': { en: 'Order Type', de: 'Ordertyp' },
+        'Limit Sapma (%) (Emir fiyatindan ne kadar uzak olsun)': { en: 'Limit Deviation (%) (How far from order price)', de: 'Limit-Abweichung (%) (Abstand zum Auftragspreis)' },
+        'Spot Ayarları': { en: 'Spot Settings', de: 'Spot-Einstellungen' },
+        'Spot Otomatik Trade': { en: 'Spot Auto Trade', de: 'Spot Auto-Trade' },
+        'API Bağlantısını Test Et': { en: 'Test API Connection', de: 'API-Verbindung testen' },
+        'Kaydet': { en: 'Save', de: 'Speichern' },
+        'Bağlantı durumu': { en: 'Connection status', de: 'Verbindungsstatus' },
+        'Otomatik trade kapalıyken test başlatılamaz. Önce Otomatik Trade\'i açın.': { en: 'Test cannot start while auto trade is disabled. Enable Auto Trade first.', de: 'Test kann nicht starten, solange Auto-Trade deaktiviert ist. Aktiviere zuerst Auto-Trade.' },
+        'Otomatik trade işlemleri tamamen sizin sorumluluğunuzdadır. Kayıp riski vardır.': { en: 'Auto trade operations are entirely your responsibility. There is risk of loss.', de: 'Auto-Trade-Operationen liegen vollständig in deiner Verantwortung. Es besteht Verlustrisiko.' },
+        'Bar kapanışı hesaplaması Binance otomatik trade\'de desteklenmiyor.': { en: 'Bar close calculation is not supported in Binance auto trade.', de: 'Die Bar-Close-Berechnung wird im Binance Auto-Trade nicht unterstützt.' },
+        'Minimum miktar/precision nedeniyle küçük bakiyelerde işlem açılmayabilir.': { en: 'Due to minimum amount/precision, trades may not open on small balances.', de: 'Aufgrund von Mindestmenge/Präzision werden bei kleinen Guthaben möglicherweise keine Trades eröffnet.' },
+        'Bu sayfadaki alanlara yapıştırıp Kaydet butonuna basın, ardından API Bağlantısını Test Et butonuyla doğrulayın.': { en: 'Paste into the fields on this page, press Save, then verify with Test API Connection.', de: 'Füge die Daten in die Felder dieser Seite ein, klicke auf Speichern und prüfe anschließend mit API-Verbindung testen.' },
+        'Binance bağlantısı sadece Premium üyeler için aktif.': { en: 'Binance connection is only active for Premium members.', de: 'Die Binance-Verbindung ist nur für Premium-Mitglieder aktiv.' },
+        'Yatırım danışmanlığı değildir; genel bilgilendirme amaçlıdır, sorumluluk kullanıcıya aittir.': { en: 'This is not investment advice; for general information only, responsibility belongs to the user.', de: 'Dies ist keine Anlageberatung; nur allgemeine Informationen, die Verantwortung liegt beim Nutzer.' },
+        'Binance ayarları kaydedildi.': { en: 'Binance settings saved.', de: 'Binance-Einstellungen gespeichert.' },
+        'Binance bağlantısı başarılı.': { en: 'Binance connection successful.', de: 'Binance-Verbindung erfolgreich.' },
+        'Bağlantı başarısız.': { en: 'Connection failed.', de: 'Verbindung fehlgeschlagen.' }
     },
 
     shouldTranslateText(text) {
@@ -34,6 +59,8 @@ window.autoTranslate = {
         if (!normalized) return false;
         if (normalized.length < 2) return false;
         if (/^[\d\s.,:%+\-–—()\[\]{}\/\\|]+$/.test(normalized)) return false;
+        if (/\d/.test(normalized) && /[%$:+\-]/.test(normalized)) return false;
+        if (normalized.length > 80 && /\d/.test(normalized)) return false;
         return true;
     },
 
@@ -276,7 +303,7 @@ window.autoTranslate = {
             ];
             const uniqueTexts = Array.from(new Set(allTexts));
 
-            if (this.needsNetworkTranslation(uniqueTexts)) {
+            if (this.loadingForManualSwitch && this.needsNetworkTranslation(uniqueTexts)) {
                 this.setLoadingState(true);
             }
 
@@ -293,6 +320,7 @@ window.autoTranslate = {
             });
 
             this.setLoadingState(false);
+            this.loadingForManualSwitch = false;
         } finally {
             this.isRunning = false;
 
@@ -301,6 +329,7 @@ window.autoTranslate = {
                 this.scheduleTranslate(100);
             } else {
                 this.setLoadingState(false);
+                this.loadingForManualSwitch = false;
             }
         }
     },
@@ -336,11 +365,13 @@ window.autoTranslate = {
     },
 
     translateDOM() {
+        this.loadingForManualSwitch = true;
         this.scheduleTranslate(0, true);
     },
 
     setLanguage(lang) {
         this.currentLanguage = lang;
+        this.loadingForManualSwitch = true;
         if (lang === 'tr') {
             this.setLoadingState(false);
         }
