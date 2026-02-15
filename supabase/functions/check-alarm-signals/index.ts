@@ -740,9 +740,9 @@ async function placeFuturesMarketOrder(
   symbol: string,
   side: "BUY" | "SELL",
   quantity: string
-): Promise<{ success: boolean; orderId?: string; error?: string; actualSymbol?: string; filledPrice?: number }> {
+): Promise<{ success: boolean; orderId?: string; error?: string; actualSymbol?: string }> {
   const timestamp = Date.now();
-  const queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&newOrderRespType=RESULT&timestamp=${timestamp}`;
+  const queryString = `symbol=${symbol}&side=${side}&type=MARKET&quantity=${quantity}&timestamp=${timestamp}`;
   const signature = await createBinanceSignature(queryString, apiSecret);
   const url = `https://fapi.binance.com/fapi/v1/order?${queryString}&signature=${signature}`;
 
@@ -767,10 +767,7 @@ async function placeFuturesMarketOrder(
     return { success: false, error: `Order symbol mismatch: requested ${requestedSymbol}, got ${actualSymbol}`, actualSymbol };
   }
 
-  const avgPrice = Number(data?.avgPrice || 0);
-  const fillPrice = Number.isFinite(avgPrice) && avgPrice > 0 ? avgPrice : undefined;
-
-  return { success: true, orderId: String(data.orderId), actualSymbol, filledPrice: fillPrice };
+  return { success: true, orderId: String(data.orderId), actualSymbol };
 }
 
 async function placeFuturesLimitOrder(
@@ -864,7 +861,7 @@ async function openBinanceTrade(
   quantity: number,
   marketType: "spot" | "futures",
   options: OpenTradeOptions = {}
-): Promise<{ success: boolean; orderId?: string; error?: string; filledPrice?: number }> {
+): Promise<{ success: boolean; orderId?: string; error?: string }> {
   const requestedSymbol = String(symbol || "").toUpperCase();
   const timestamp = Date.now();
   const side = direction === "LONG" ? "BUY" : "SELL";
@@ -910,7 +907,7 @@ async function openBinanceTrade(
     return placeFuturesMarketOrder(apiKey, apiSecret, requestedSymbol, side, quantityString);
   }
 
-  const queryString = `symbol=${requestedSymbol}&side=${side}&type=MARKET&quantity=${quantityString}&newOrderRespType=FULL&timestamp=${timestamp}`;
+  const queryString = `symbol=${requestedSymbol}&side=${side}&type=MARKET&quantity=${quantityString}&timestamp=${timestamp}`;
   const baseUrl = "https://api.binance.com/api/v3/order";
 
   const signature = await createBinanceSignature(queryString, apiSecret);
@@ -937,24 +934,7 @@ async function openBinanceTrade(
     return { success: false, error: `Spot order symbol mismatch: requested ${requestedSymbol}, got ${actualSymbol}` };
   }
 
-  let filledPrice: number | undefined;
-  const executedQty = Number(data?.executedQty || 0);
-  const cumulativeQuoteQty = Number(data?.cummulativeQuoteQty || 0);
-  if (Number.isFinite(executedQty) && executedQty > 0 && Number.isFinite(cumulativeQuoteQty) && cumulativeQuoteQty > 0) {
-    const weighted = cumulativeQuoteQty / executedQty;
-    if (Number.isFinite(weighted) && weighted > 0) {
-      filledPrice = weighted;
-    }
-  }
-  if (!filledPrice && Array.isArray(data?.fills) && data.fills.length > 0) {
-    const totalQty = data.fills.reduce((sum: number, f: any) => sum + Number(f?.qty || 0), 0);
-    const totalQuote = data.fills.reduce((sum: number, f: any) => sum + (Number(f?.price || 0) * Number(f?.qty || 0)), 0);
-    if (Number.isFinite(totalQty) && totalQty > 0 && Number.isFinite(totalQuote) && totalQuote > 0) {
-      filledPrice = totalQuote / totalQty;
-    }
-  }
-
-  return { success: true, orderId: String(data.orderId), filledPrice };
+  return { success: true, orderId: String(data.orderId) };
 }
 
 async function placeTakeProfitStopLoss(
@@ -1493,7 +1473,7 @@ async function executeAutoTrade(
   takeProfit: number,
   stopLoss: number,
   marketType: "spot" | "futures"
-): Promise<{ success: boolean; message: string; orderId?: string; blockedByOpenPosition?: boolean; executedEntryPrice?: number; executedTakeProfit?: number; executedStopLoss?: number }> {
+): Promise<{ success: boolean; message: string; orderId?: string; blockedByOpenPosition?: boolean }> {
   try {
     const { data: userProfile } = await supabase
       .from("user_profiles")
@@ -1644,28 +1624,14 @@ async function executeAutoTrade(
       return { success: false, message: orderResult.error || "Order failed" };
     }
 
-    const effectiveEntryPrice = Number.isFinite(orderResult.filledPrice) && Number(orderResult.filledPrice) > 0
-      ? Number(orderResult.filledPrice)
-      : entryPrice;
-    const tpPercentFromSignal = Math.abs(((takeProfit - entryPrice) / entryPrice) * 100);
-    const slPercentFromSignal = Math.abs(((entryPrice - stopLoss) / entryPrice) * 100);
-    const adjustedRawTp = direction === "SHORT"
-      ? effectiveEntryPrice * (1 - tpPercentFromSignal / 100)
-      : effectiveEntryPrice * (1 + tpPercentFromSignal / 100);
-    const adjustedRawSl = direction === "SHORT"
-      ? effectiveEntryPrice * (1 + slPercentFromSignal / 100)
-      : effectiveEntryPrice * (1 - slPercentFromSignal / 100);
-    const adjustedTakeProfit = roundToTick(adjustedRawTp, symbolInfo.tickSize);
-    const adjustedStopLoss = roundToTick(adjustedRawSl, symbolInfo.tickSize);
-
     if (marketType === "futures") {
       const tpSlResult = await placeTakeProfitStopLoss(
         api_key,
         api_secret,
         symbol,
         direction,
-        adjustedTakeProfit,
-        adjustedStopLoss,
+        takeProfit,
+        stopLoss,
         symbolInfo.pricePrecision,
         quantity,
         symbolInfo.quantityPrecision,
@@ -1681,11 +1647,8 @@ async function executeAutoTrade(
       if (warningText) {
         return {
           success: true,
-          message: `✅ ${direction} ${quantity} ${symbol} (${leverage}x) @ $${effectiveEntryPrice.toFixed(symbolInfo.pricePrecision)}\n⚠️ ${warningText.trim()}`,
-          orderId: orderResult.orderId,
-          executedEntryPrice: effectiveEntryPrice,
-          executedTakeProfit: adjustedTakeProfit,
-          executedStopLoss: adjustedStopLoss
+          message: `✅ ${direction} ${quantity} ${symbol} (${leverage}x) @ $${entryPrice.toFixed(symbolInfo.pricePrecision)}\n⚠️ ${warningText.trim()}`,
+          orderId: orderResult.orderId
         };
       }
     } else {
@@ -1696,8 +1659,8 @@ async function executeAutoTrade(
         quantity,
         symbolInfo.quantityPrecision,
         symbolInfo.stepSize,
-        adjustedTakeProfit,
-        adjustedStopLoss,
+        takeProfit,
+        stopLoss,
         symbolInfo.pricePrecision,
         symbolInfo.tickSize
       );
@@ -1709,11 +1672,8 @@ async function executeAutoTrade(
     const leverageText = marketType === "futures" ? ` (${leverage}x)` : "";
     return {
       success: true,
-      message: `✅ ${direction} ${quantity} ${symbol}${leverageText} @ $${effectiveEntryPrice.toFixed(symbolInfo.pricePrecision)}`,
-      orderId: orderResult.orderId,
-      executedEntryPrice: effectiveEntryPrice,
-      executedTakeProfit: adjustedTakeProfit,
-      executedStopLoss: adjustedStopLoss
+      message: `✅ ${direction} ${quantity} ${symbol}${leverageText} @ $${entryPrice.toFixed(symbolInfo.pricePrecision)}`,
+      orderId: orderResult.orderId
     };
   } catch (e) {
     console.error(`❌ Auto-trade error for ${userId}:`, e);
@@ -3485,18 +3445,7 @@ async function checkAndTriggerUserAlarms(
         }
 
         // 🚀 AUTO TRADE EXECUTION
-        let tradeResult = {
-          success: false,
-          message: "Auto-trade not triggered"
-        } as {
-          success: boolean;
-          message: string;
-          orderId?: string;
-          blockedByOpenPosition?: boolean;
-          executedEntryPrice?: number;
-          executedTakeProfit?: number;
-          executedStopLoss?: number;
-        };
+        let tradeResult = { success: false, message: "Auto-trade not triggered" } as { success: boolean; message: string; orderId?: string; blockedByOpenPosition?: boolean };
         let tradeNotificationText = "";
         const autoTradeEnabled = await resolveAutoTradeEnabled(alarm, alarmMarketType);
         let autoTradeAttempted = false;
@@ -3515,27 +3464,6 @@ async function checkAndTriggerUserAlarms(
 
           if (tradeResult.success) {
             tradeNotificationText = `\n\n🤖 <b>OTOMATİK İŞLEM:</b>\n${escapeHtml(tradeResult.message)}`;
-
-            if (insertedSignalId && Number.isFinite(tradeResult.executedEntryPrice) && Number(tradeResult.executedEntryPrice) > 0) {
-              try {
-                await supabase
-                  .from("active_signals")
-                  .update({
-                    entry_price: Number(tradeResult.executedEntryPrice),
-                    take_profit: Number.isFinite(tradeResult.executedTakeProfit)
-                      ? Number(tradeResult.executedTakeProfit)
-                      : tpPrice,
-                    stop_loss: Number.isFinite(tradeResult.executedStopLoss)
-                      ? Number(tradeResult.executedStopLoss)
-                      : slPrice,
-                  })
-                  .eq("id", insertedSignalId)
-                  .in("status", ACTIVE_SIGNAL_STATUSES);
-              } catch (e) {
-                console.warn(`⚠️ Failed to sync executed prices for signal ${insertedSignalId}:`, e);
-              }
-            }
-
             if (tradeResult.orderId) {
               await supabase
                 .from("alarms")
@@ -3618,20 +3546,11 @@ async function checkAndTriggerUserAlarms(
         const safeDirection = escapeHtml(directionTR);
         const safeMarketType = escapeHtml(marketType);
         const safeTimeframe = escapeHtml(timeframe);
-        const displayEntryPrice = Number.isFinite(tradeResult.executedEntryPrice)
-          ? Number(tradeResult.executedEntryPrice)
-          : entryPrice;
-        const displayTpPrice = Number.isFinite(tradeResult.executedTakeProfit)
-          ? Number(tradeResult.executedTakeProfit)
-          : tpPrice;
-        const displaySlPrice = Number.isFinite(tradeResult.executedStopLoss)
-          ? Number(tradeResult.executedStopLoss)
-          : slPrice;
-        const safePrice = escapeHtml(formatPriceWithPrecision(displayEntryPrice, decimals));
+        const safePrice = escapeHtml(formatPriceWithPrecision(entryPrice, decimals));
         const safeConfidence = escapeHtml(String(userConfidenceThreshold));
         const safeSignalScore = escapeHtml(String(signalAnalysis.score));
-        const safeTpPrice = escapeHtml(formatPriceWithPrecision(displayTpPrice, decimals));
-        const safeSlPrice = escapeHtml(formatPriceWithPrecision(displaySlPrice, decimals));
+        const safeTpPrice = escapeHtml(formatPriceWithPrecision(tpPrice, decimals));
+        const safeSlPrice = escapeHtml(formatPriceWithPrecision(slPrice, decimals));
         const safeDate = escapeHtml(formattedDateTime);
 
         let telegramMessage = `
