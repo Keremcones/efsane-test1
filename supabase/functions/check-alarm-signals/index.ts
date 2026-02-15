@@ -1150,9 +1150,21 @@ async function hasOpenFuturesPosition(apiKey: string, apiSecret: string, symbol:
   const data = await response.json();
   const upperSymbol = String(symbol || "").toUpperCase();
   const positions = Array.isArray(data) ? data : [data];
-  const position = positions.find((p: any) => String(p?.symbol || "").toUpperCase() === upperSymbol);
-  const positionAmt = Number(position?.positionAmt || 0);
-  return Math.abs(positionAmt) > 0;
+  return hasAnyOpenFuturesPositionForSymbol(positions, upperSymbol);
+}
+
+function hasAnyOpenFuturesPositionForSymbol(positions: any[], symbol: string): boolean {
+  const upperSymbol = String(symbol || "").toUpperCase();
+  if (!upperSymbol || !Array.isArray(positions) || positions.length === 0) return false;
+
+  const POSITION_EPSILON = 1e-10;
+  return positions
+    .filter((p: any) => String(p?.symbol || "").toUpperCase() === upperSymbol)
+    .some((p: any) => {
+      const positionAmt = Number(p?.positionAmt || 0);
+      const notional = Number(p?.notional || 0);
+      return Math.abs(positionAmt) > POSITION_EPSILON || Math.abs(notional) > POSITION_EPSILON;
+    });
 }
 
 async function hasOpenFuturesOrders(apiKey: string, apiSecret: string, symbol: string): Promise<boolean> {
@@ -3814,9 +3826,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
       const futuresSymbol = String(signal?.symbol || "");
       const upperSymbol = futuresSymbol.toUpperCase();
       const positions = await ensureFuturesPositions(userId, userKeys);
-      const positionRow = positions.find((p: any) => String(p?.symbol || "").toUpperCase() === upperSymbol);
-      const positionAmt = Number(positionRow?.positionAmt || 0);
-      const position = Math.abs(positionAmt) > 0;
+      const position = hasAnyOpenFuturesPositionForSymbol(positions, upperSymbol);
 
       const openOrders = (await ensureFuturesOpenOrders(userId, userKeys))
         .some((o: any) => String(o?.symbol || "").toUpperCase() === upperSymbol);
@@ -3899,9 +3909,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
           const futuresSymbol = String(signal?.symbol || "");
           let positions = await ensureFuturesPositions(userId, userKeys);
           const upperSymbol = futuresSymbol.toUpperCase();
-          const position = positions.find((p: any) => String(p?.symbol || "").toUpperCase() === upperSymbol);
-          const positionAmt = Number(position?.positionAmt || 0);
-          const hasOpen = Math.abs(positionAmt) > 0;
+          const hasOpen = hasAnyOpenFuturesPositionForSymbol(positions, upperSymbol);
           if (!hasOpen) return false;
           let openOrders = await ensureFuturesOpenOrders(userId, userKeys);
           const hasOrders = openOrders.some((o: any) => String(o?.symbol || "").toUpperCase() === upperSymbol);

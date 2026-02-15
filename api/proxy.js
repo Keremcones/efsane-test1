@@ -20,6 +20,7 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const telegramBotToken = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const cronSecret = Deno.env.get("CRON_SECRET") ?? ""; // set this to protect endpoint
+const enableLegacyProxy = (Deno.env.get("ENABLE_LEGACY_PROXY") ?? "false").toLowerCase() === "true";
 
 if (!supabaseUrl || !supabaseServiceRoleKey || !telegramBotToken) {
   console.error("❌ Missing env. Need SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, TELEGRAM_BOT_TOKEN");
@@ -405,6 +406,16 @@ serve(async (req) => {
     return new Response("Method not allowed", {
       status: 405,
       headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
+  }
+
+  if (!enableLegacyProxy) {
+    return new Response(JSON.stringify({
+      error: "Deprecated endpoint",
+      message: "Use Supabase Edge Function 'check-alarm-signals' instead."
+    }), {
+      status: 410,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
