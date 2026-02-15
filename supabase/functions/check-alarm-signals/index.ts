@@ -3489,7 +3489,7 @@ async function checkAndTriggerUserAlarms(
         const autoTradeOpenFailed = autoTradeAttempted && !tradeResult.success;
         if (autoTradeOpenFailed && insertedSignalId) {
           try {
-            await supabase
+            const closeResult = await supabase
               .from("active_signals")
               .update({
                 status: "CLOSED",
@@ -3498,7 +3498,30 @@ async function checkAndTriggerUserAlarms(
                 closed_at: new Date().toISOString()
               })
               .eq("id", insertedSignalId)
-                .in("status", ACTIVE_SIGNAL_STATUSES);
+                .in("status", ACTIVE_SIGNAL_STATUSES)
+                .select("id");
+
+            if (!closeResult.error) {
+              const updatedRows = Array.isArray(closeResult.data) ? closeResult.data.length : 0;
+              if (updatedRows === 0) {
+                const forceCloseResult = await supabase
+                  .from("active_signals")
+                  .update({
+                    status: "CLOSED",
+                    close_reason: "NOT_FILLED",
+                    profit_loss: 0,
+                    closed_at: new Date().toISOString()
+                  })
+                  .eq("id", insertedSignalId)
+                  .select("id");
+
+                if (forceCloseResult.error) {
+                  console.warn(`⚠️ Force-close failed for NOT_FILLED signal ${insertedSignalId}:`, forceCloseResult.error);
+                }
+              }
+            } else {
+              console.warn(`⚠️ Failed to close signal after auto-trade open failure for ${symbol}:`, closeResult.error);
+            }
           } catch (e) {
             console.warn(`⚠️ Failed to close signal after auto-trade open failure for ${symbol}:`, e);
           }
@@ -3602,10 +3625,11 @@ type CloseCheckStats = {
 };
 
 function normalizeCloseReasonForDb(reason: string): "TP_HIT" | "SL_HIT" | "TIMEOUT" | "NOT_FILLED" {
-  if (reason === "TP_HIT" || reason === "TP_HIT_NO_POSITION") return "TP_HIT";
-  if (reason === "SL_HIT" || reason === "SL_HIT_NO_POSITION") return "SL_HIT";
+  if (reason === "TP_HIT") return "TP_HIT";
+  if (reason === "SL_HIT") return "SL_HIT";
+  if (reason === "TP_HIT_NO_POSITION" || reason === "SL_HIT_NO_POSITION" || reason === "ORPHAN_ACTIVE_NO_TRADE") return "NOT_FILLED";
   if (reason === "NOT_FILLED") return "NOT_FILLED";
-  if (reason === "TIMEOUT" || reason === "ORPHAN_ACTIVE_NO_TRADE") return "TIMEOUT";
+  if (reason === "TIMEOUT") return "TIMEOUT";
   return "TIMEOUT";
 }
 
@@ -4280,6 +4304,8 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
           profitLoss = Math.abs(tpPercent);
         } else if (closeReason === "SL_HIT" && Number.isFinite(slPercent)) {
           profitLoss = -Math.abs(slPercent);
+        } else if (closeReason === "TP_HIT_NO_POSITION" || closeReason === "SL_HIT_NO_POSITION" || closeReason === "ORPHAN_ACTIVE_NO_TRADE" || closeReason === "NOT_FILLED") {
+          profitLoss = 0;
         }
 
         const closeReasonForDb = normalizeCloseReasonForDb(closeReason);
@@ -4897,6 +4923,9 @@ serve(async (req: any) => {
       if (signal.close_reason === "TP_HIT") {
         statusMessage = "✅ KAPANDI - TP HIT!";
         emoji = "🎉";
+      } else if (signal.close_reason === "NOT_FILLED") {
+        statusMessage = "⚠️ İŞLEM AÇILMADI - LIMIT DOLMADI";
+        emoji = "🚫";
       } else if (signal.close_reason === "TIMEOUT") {
         statusMessage = "⏱️ KAPANDI - TIMEOUT";
         emoji = "⏱️";
