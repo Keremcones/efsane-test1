@@ -6,6 +6,7 @@ export default function handler(req, res) {
     SUPABASE_URL: process.env.SUPABASE_URL || "",
     SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY || "",
     TELEGRAM_FUNCTION_URL: process.env.TELEGRAM_FUNCTION_URL || "",
+    GA_MEASUREMENT_ID: process.env.GA_MEASUREMENT_ID || "",
     CORS_PROXY: process.env.CORS_PROXY || ""
   };
 
@@ -13,6 +14,7 @@ export default function handler(req, res) {
     `window.__ENV_SUPABASE_URL=${JSON.stringify(env.SUPABASE_URL)};` +
       `window.__ENV_SUPABASE_ANON_KEY=${JSON.stringify(env.SUPABASE_ANON_KEY)};` +
       `window.__ENV_TELEGRAM_FUNCTION_URL=${JSON.stringify(env.TELEGRAM_FUNCTION_URL)};` +
+      `window.__ENV_GA_MEASUREMENT_ID=${JSON.stringify(env.GA_MEASUREMENT_ID)};` +
         `window.__ENV_CORS_PROXY=${JSON.stringify(env.CORS_PROXY)};`
   );
 }
