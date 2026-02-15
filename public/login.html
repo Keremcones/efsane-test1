@@ -865,6 +865,18 @@ Bu metni onaylamadan kayıt olamazsınız.
                     } catch (profileTouchError) {
                         console.warn('Profil giriş zamanı güncellenemedi:', profileTouchError?.message || profileTouchError);
                     }
+
+                    try {
+                        await supabaseClient
+                            .from('login_events')
+                            .insert({
+                                user_id: data.user.id,
+                                email: data.user.email || email,
+                                created_at: new Date().toISOString()
+                            });
+                    } catch (loginEventError) {
+                        console.warn('Giriş eventi kaydedilemedi:', loginEventError?.message || loginEventError);
+                    }
                 }
                 
                 // Giriş başarılı - dashboard'a yönlendir

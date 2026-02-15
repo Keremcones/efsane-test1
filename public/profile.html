@@ -1572,12 +1572,20 @@
                     </div>
                     <div class="admin-site-stats-grid">
                         <div class="admin-site-stat-card">
-                            <div class="admin-site-stat-label">Siteye Giriş (Son 1 Saat)</div>
+                            <div class="admin-site-stat-label">Tekil Giriş Yapan (Son 1 Saat)</div>
                             <div class="admin-site-stat-value" id="adminVisit1h">-</div>
                         </div>
                         <div class="admin-site-stat-card">
-                            <div class="admin-site-stat-label">Siteye Giriş (Son 7 Gün)</div>
+                            <div class="admin-site-stat-label">Tekil Giriş Yapan (Son 7 Gün)</div>
                             <div class="admin-site-stat-value" id="adminVisit7d">-</div>
+                        </div>
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">Toplam Giriş (Son 1 Saat)</div>
+                            <div class="admin-site-stat-value" id="adminTotalLogin1h">-</div>
+                        </div>
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">Toplam Giriş (Son 7 Gün)</div>
+                            <div class="admin-site-stat-value" id="adminTotalLogin7d">-</div>
                         </div>
                         <div class="admin-site-stat-card">
                             <div class="admin-site-stat-label">Yeni Kayıt (Son 1 Saat)</div>
@@ -1846,12 +1854,16 @@
         function setAdminSiteStatsValues(values) {
             const visit1hEl = document.getElementById('adminVisit1h');
             const visit7dEl = document.getElementById('adminVisit7d');
+            const totalLogin1hEl = document.getElementById('adminTotalLogin1h');
+            const totalLogin7dEl = document.getElementById('adminTotalLogin7d');
             const signup1hEl = document.getElementById('adminSignup1h');
             const signup7dEl = document.getElementById('adminSignup7d');
             const updatedAtEl = document.getElementById('adminSiteStatsUpdatedAt');
 
             if (visit1hEl) visit1hEl.textContent = toCountText(values?.visit1h);
             if (visit7dEl) visit7dEl.textContent = toCountText(values?.visit7d);
+            if (totalLogin1hEl) totalLogin1hEl.textContent = toCountText(values?.totalLogin1h);
+            if (totalLogin7dEl) totalLogin7dEl.textContent = toCountText(values?.totalLogin7d);
             if (signup1hEl) signup1hEl.textContent = toCountText(values?.signup1h);
             if (signup7dEl) signup7dEl.textContent = toCountText(values?.signup7d);
             if (updatedAtEl) {
@@ -1867,7 +1879,7 @@
             const sevenDaysAgoIso = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000)).toISOString();
 
             try {
-                const [visit1hRes, visit7dRes, signup1hRes, signup7dRes] = await Promise.all([
+                const [visit1hRes, visit7dRes, signup1hRes, signup7dRes, totalLogin1hRes, totalLogin7dRes] = await Promise.all([
                     supabaseClient
                         .from('user_profiles')
                         .select('id', { count: 'exact', head: true })
@@ -1883,22 +1895,32 @@
                     supabaseClient
                         .from('user_profiles')
                         .select('id', { count: 'exact', head: true })
+                        .gte('created_at', sevenDaysAgoIso),
+                    supabaseClient
+                        .from('login_events')
+                        .select('id', { count: 'exact', head: true })
+                        .gte('created_at', oneHourAgoIso),
+                    supabaseClient
+                        .from('login_events')
+                        .select('id', { count: 'exact', head: true })
                         .gte('created_at', sevenDaysAgoIso)
                 ]);
 
-                if (visit1hRes.error || visit7dRes.error || signup1hRes.error || signup7dRes.error) {
-                    throw visit1hRes.error || visit7dRes.error || signup1hRes.error || signup7dRes.error;
+                if (visit1hRes.error || visit7dRes.error || signup1hRes.error || signup7dRes.error || totalLogin1hRes.error || totalLogin7dRes.error) {
+                    throw visit1hRes.error || visit7dRes.error || signup1hRes.error || signup7dRes.error || totalLogin1hRes.error || totalLogin7dRes.error;
                 }
 
                 setAdminSiteStatsValues({
                     visit1h: visit1hRes.count || 0,
                     visit7d: visit7dRes.count || 0,
+                    totalLogin1h: totalLogin1hRes.count || 0,
+                    totalLogin7d: totalLogin7dRes.count || 0,
                     signup1h: signup1hRes.count || 0,
                     signup7d: signup7dRes.count || 0
                 });
             } catch (error) {
                 console.warn('Admin site istatistikleri yüklenemedi:', error?.message || error);
-                setAdminSiteStatsValues({ visit1h: NaN, visit7d: NaN, signup1h: NaN, signup7d: NaN });
+                setAdminSiteStatsValues({ visit1h: NaN, visit7d: NaN, totalLogin1h: NaN, totalLogin7d: NaN, signup1h: NaN, signup7d: NaN });
             }
         }
 
