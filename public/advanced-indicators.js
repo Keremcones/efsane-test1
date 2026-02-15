@@ -1421,7 +1421,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             const stopLoss = roundToTick(rawStopLoss, safeTick);
             
             // Tarih ve saat (Türkiye saati)
-            const tradeTimestamp = resolveKlineOpenTimeMs(backtestKlines[i]);
+            const tradeTimestamp = resolveKlineCloseTimeMs(backtestKlines[i]);
             const tradeDate = new Date(tradeTimestamp);
             const tradeTime = tradeDate.toLocaleTimeString('tr-TR', {
                 hour: '2-digit',
@@ -1605,7 +1605,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 }
                 
                 if (canShowLastTrade) {
-                    const lastBarTimestamp = resolveKlineOpenTimeMs(backtestKlines[closedBarIndex]);
+                    const lastBarTimestamp = resolveKlineCloseTimeMs(backtestKlines[closedBarIndex]);
                     const lastBarTimeUTC = new Date(lastBarTimestamp);
                     const lastTimeStr = lastBarTimeUTC.toLocaleTimeString('tr-TR', {
                         hour: '2-digit',

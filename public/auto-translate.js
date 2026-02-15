@@ -8,6 +8,8 @@ window.autoTranslate = {
     rerunRequested: false,
     scheduleTimer: null,
     loadingShown: false,
+    pendingRoots: new Set(),
+    fullScanRequested: false,
 
     dictionary: {
         'Canlı sinyaller aktif — 7/24 piyasa takibi': {
@@ -135,46 +137,101 @@ window.autoTranslate = {
         return resolved;
     },
 
-    collectTextNodes() {
+    needsNetworkTranslation(uniqueTexts) {
+        if (!uniqueTexts.length || this.currentLanguage === 'tr') return false;
+        const cacheStore = this.getCacheStore();
+        return uniqueTexts.some(text => {
+            if (!text) return false;
+            if (this.lookupDictionary(text)) return false;
+            if (cacheStore[text]) return false;
+            return true;
+        });
+    },
+
+    normalizeRoots(roots) {
+        const normalized = [];
+        const seen = new Set();
+
+        (roots || []).forEach(root => {
+            if (!root) return;
+
+            let element = null;
+            if (root.nodeType === Node.DOCUMENT_NODE) {
+                element = root.body || null;
+            } else if (root.nodeType === Node.ELEMENT_NODE) {
+                element = root;
+            } else if (root.nodeType === Node.TEXT_NODE) {
+                element = root.parentElement;
+            }
+
+            if (!element || !document.body?.contains(element)) return;
+            if (seen.has(element)) return;
+
+            seen.add(element);
+            normalized.push(element);
+        });
+
+        return normalized;
+    },
+
+    collectTextNodes(roots) {
         const nodes = [];
         if (!document.body) return nodes;
 
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-        let node;
-        while ((node = walker.nextNode())) {
-            const parent = node.parentElement;
-            if (!parent) continue;
-            if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'CODE', 'PRE'].includes(parent.tagName)) continue;
-            if (parent.classList.contains('language-option')) continue;
+        const rootElements = this.normalizeRoots(roots);
+        const targets = rootElements.length ? rootElements : [document.body];
 
-            const baseText = this.textNodeBaseMap.get(node) ?? node.textContent;
-            this.textNodeBaseMap.set(node, baseText);
+        targets.forEach(target => {
+            const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+            let node;
+            while ((node = walker.nextNode())) {
+                const parent = node.parentElement;
+                if (!parent) continue;
+                if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'CODE', 'PRE'].includes(parent.tagName)) continue;
+                if (parent.classList.contains('language-option')) continue;
 
-            if (!this.shouldTranslateText(baseText)) continue;
-            nodes.push({ node, baseText });
-        }
+                const baseText = this.textNodeBaseMap.get(node) ?? node.textContent;
+                this.textNodeBaseMap.set(node, baseText);
+
+                if (!this.shouldTranslateText(baseText)) continue;
+                nodes.push({ node, baseText });
+            }
+        });
 
         return nodes;
     },
 
-    collectAttributeTargets() {
+    collectAttributeTargets(roots) {
         const targets = [];
         const attrs = ['placeholder', 'title', 'aria-label'];
+        const rootElements = this.normalizeRoots(roots);
+
+        const collectForElement = (el, attr) => {
+            let elementBase = this.attrBaseMap.get(el);
+            if (!elementBase) {
+                elementBase = {};
+                this.attrBaseMap.set(el, elementBase);
+            }
+
+            const base = elementBase[attr] ?? el.getAttribute(attr) ?? '';
+            if (!base) return;
+            elementBase[attr] = base;
+
+            if (!this.shouldTranslateText(base)) return;
+            targets.push({ el, attr, baseText: base });
+        };
 
         attrs.forEach(attr => {
-            document.querySelectorAll(`[${attr}]`).forEach(el => {
-                let elementBase = this.attrBaseMap.get(el);
-                if (!elementBase) {
-                    elementBase = {};
-                    this.attrBaseMap.set(el, elementBase);
+            if (!rootElements.length) {
+                document.querySelectorAll(`[${attr}]`).forEach(el => collectForElement(el, attr));
+                return;
+            }
+
+            rootElements.forEach(root => {
+                if (root.hasAttribute?.(attr)) {
+                    collectForElement(root, attr);
                 }
-
-                const base = elementBase[attr] ?? el.getAttribute(attr) ?? '';
-                if (!base) return;
-                elementBase[attr] = base;
-
-                if (!this.shouldTranslateText(base)) return;
-                targets.push({ el, attr, baseText: base });
+                root.querySelectorAll?.(`[${attr}]`).forEach(el => collectForElement(el, attr));
             });
         });
 
@@ -197,17 +254,19 @@ window.autoTranslate = {
             return;
         }
 
+        const roots = this.fullScanRequested ? [] : Array.from(this.pendingRoots);
+        this.pendingRoots.clear();
+        this.fullScanRequested = false;
+
         this.isRunning = true;
-        if (this.currentLanguage !== 'tr') {
-            this.setLoadingState(true);
-        }
 
         try {
-            const nodeTargets = this.collectTextNodes();
-            const attrTargets = this.collectAttributeTargets();
+            const nodeTargets = this.collectTextNodes(roots);
+            const attrTargets = this.collectAttributeTargets(roots);
 
             if (this.currentLanguage === 'tr') {
                 this.applyOriginalLanguage(nodeTargets, attrTargets);
+                this.setLoadingState(false);
                 return;
             }
 
@@ -216,6 +275,10 @@ window.autoTranslate = {
                 ...attrTargets.map(t => t.baseText)
             ];
             const uniqueTexts = Array.from(new Set(allTexts));
+
+            if (this.needsNetworkTranslation(uniqueTexts)) {
+                this.setLoadingState(true);
+            }
 
             const translatedMap = await this.resolveTranslations(uniqueTexts);
 
@@ -228,6 +291,8 @@ window.autoTranslate = {
                 const translated = translatedMap[item.baseText] || item.baseText;
                 item.el.setAttribute(item.attr, this.preserveWhitespace(item.baseText, translated));
             });
+
+            this.setLoadingState(false);
         } finally {
             this.isRunning = false;
 
@@ -251,7 +316,11 @@ window.autoTranslate = {
         }));
     },
 
-    scheduleTranslate(delay = 150) {
+    scheduleTranslate(delay = 150, fullScan = false) {
+        if (fullScan) {
+            this.fullScanRequested = true;
+            this.pendingRoots.clear();
+        }
         clearTimeout(this.scheduleTimer);
         this.scheduleTimer = setTimeout(() => {
             this.runTranslation();
@@ -267,7 +336,7 @@ window.autoTranslate = {
     },
 
     translateDOM() {
-        this.scheduleTranslate(0);
+        this.scheduleTranslate(0, true);
     },
 
     setLanguage(lang) {
@@ -275,14 +344,53 @@ window.autoTranslate = {
         if (lang === 'tr') {
             this.setLoadingState(false);
         }
-        this.scheduleTranslate(0);
+        this.scheduleTranslate(0, true);
+    },
+
+    queueRoot(node) {
+        if (!node || !document.body) return;
+        let element = null;
+
+        if (node.nodeType === Node.DOCUMENT_NODE) {
+            element = node.body || null;
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+            element = node;
+        } else if (node.nodeType === Node.TEXT_NODE) {
+            element = node.parentElement;
+        }
+
+        if (!element || !document.body.contains(element)) return;
+        this.pendingRoots.add(element);
+    },
+
+    handleMutations(mutations) {
+        mutations.forEach(mutation => {
+            if (mutation.type === 'characterData') {
+                this.queueRoot(mutation.target);
+                return;
+            }
+
+            if (mutation.type === 'attributes') {
+                this.queueRoot(mutation.target);
+                return;
+            }
+
+            if (mutation.type === 'childList') {
+                mutation.addedNodes?.forEach(node => this.queueRoot(node));
+                if (mutation.target) {
+                    this.queueRoot(mutation.target);
+                }
+            }
+        });
+
+        this.scheduleTranslate(140, false);
     },
 
     setupMutationObserver() {
         if (this.observer || !document.body) return;
 
-        this.observer = new MutationObserver(() => {
-            this.scheduleTranslate(180);
+        this.observer = new MutationObserver((mutations) => {
+            this.handleMutations(mutations);
         });
 
         this.observer.observe(document.body, {
