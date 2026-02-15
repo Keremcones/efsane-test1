@@ -254,7 +254,10 @@ const INDICATOR_KLINES_LIMIT = 300; // reduce per-alarm klines load
 const MAX_REQUEST_RUNTIME_MS = 30000; // keep below Edge 60s timeout
 const HARD_TIMEOUT_MS = 25000; // emergency hard stop
 const MAX_ALARMS_PER_CRON = 1000; // safety cap per cron (high enough to avoid practical starvation)
-const MAX_CLOSE_CHECKS_PER_CRON = 300; // safety cap for large backlogs
+const MAX_CLOSE_CHECKS_PER_CRON = Math.min(
+  2000,
+  Math.max(100, Number(Deno.env.get("MAX_CLOSE_CHECKS_PER_CRON") || "600"))
+); // configurable safety cap for large backlogs
 const DISABLE_ALARM_PROCESSING = false; // temporary: close-only mode
 const CLOSE_NEAR_TARGET_PCT = 0.3; // only run heavy checks when near TP/SL
 const TRIGGER_NEAR_TARGET_PCT = 0.1; // skip indicator klines if far from targets
