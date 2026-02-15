@@ -2846,6 +2846,10 @@ async function retryFailedCloseTelegrams(): Promise<void> {
     }
 
     const reason = String(signal?.close_reason || "").toUpperCase();
+    if (reason === "NOT_FILLED" || reason === "EXTERNAL_CLOSE") {
+      await updateActiveSignalCloseTelegramStatus(signal.id, "SKIPPED", "no_close_notification_for_non_opened_or_external_close");
+      continue;
+    }
     let price = Number(signal?.entry_price);
     if (reason === "TP_HIT") {
       price = Number(signal?.take_profit);
@@ -5145,6 +5149,11 @@ serve(async (req: any) => {
 
     // ✅ Notify - 🚀 PARALLELIZED
     const notificationPromises = closedSignals.map(async signal => {
+      const closeReason = String(signal.close_reason || "").toUpperCase();
+      if (closeReason === "NOT_FILLED" || closeReason === "EXTERNAL_CLOSE") {
+        await updateActiveSignalCloseTelegramStatus(signal.id, "SKIPPED", "no_close_notification_for_non_opened_or_external_close");
+        return;
+      }
       const telegramMessage = await buildClosedSignalTelegramMessage(signal);
       await updateActiveSignalCloseTelegramStatus(signal.id, "QUEUED", null);
       const sendResult = await sendTelegramNotification(signal.user_id, telegramMessage);
