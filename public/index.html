@@ -2557,6 +2557,27 @@
             });
             return `${datePart} ${timePart}`;
         }
+
+        function timeframeToMs(timeframe) {
+            const tf = String(timeframe || '').trim().toLowerCase();
+            const match = tf.match(/^(\d+)(m|h|d|w)$/);
+            if (!match) return 60 * 60 * 1000;
+            const value = Number(match[1]);
+            if (!Number.isFinite(value) || value <= 0) return 60 * 60 * 1000;
+            const unit = match[2];
+            if (unit === 'm') return value * 60 * 1000;
+            if (unit === 'h') return value * 60 * 60 * 1000;
+            if (unit === 'd') return value * 24 * 60 * 60 * 1000;
+            if (unit === 'w') return value * 7 * 24 * 60 * 60 * 1000;
+            return 60 * 60 * 1000;
+        }
+
+        function formatSignalCloseDateTime(signalTimestamp, createdAt, timeframe) {
+            const baseTs = Date.parse(String(signalTimestamp || createdAt || ''));
+            if (!Number.isFinite(baseTs)) return '-';
+            const closeTs = baseTs + timeframeToMs(timeframe);
+            return formatDateTime(closeTs);
+        }
         
         // Coin logosu için HTML elementi oluştur
         function createCoinLogoElement(symbol, size = 32) {
@@ -5240,7 +5261,7 @@
                                 if (!isClosed && !Number.isFinite(livePrice)) {
                                     ensureAlarmSignalPrice(sig.symbol, sig.market_type || 'spot');
                                 }
-                                const signalCreatedAt = formatDateTime(sig.signal_timestamp || sig.created_at);
+                                const signalCreatedAt = formatSignalCloseDateTime(sig.signal_timestamp, sig.created_at, sig.timeframe);
                                 const rawPnl = !isClosed && Number.isFinite(livePrice)
                                     ? (sig.direction === 'SHORT'
                                         ? ((entryPrice - livePrice) / entryPrice) * 100
