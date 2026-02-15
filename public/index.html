@@ -5202,6 +5202,30 @@
             const closedContainerEl = document.getElementById('closedAlarmContainer');
             const alarmQuotaTextEl = document.getElementById('alarmQuotaText');
             if (!activeGrid) return;
+
+            const currentLang = String(window?.i18n?.currentLanguage || localStorage.getItem('language') || 'tr').toLowerCase();
+            const alarmText = {
+                remaining_quota: { tr: 'Kalan alarm hakkı', en: 'Remaining alarm quota', de: 'Verbleibendes Alarmkontingent' },
+                unlimited: { tr: 'Sınırsız', en: 'Unlimited', de: 'Unbegrenzt' },
+                no_active_alarm: { tr: 'Henüz aktif alarm yok.', en: 'No active alarms yet.', de: 'Noch keine aktiven Alarme.' },
+                auto_trade_label: { tr: ' - OTOMATİK TRADE', en: ' - AUTO TRADE', de: ' - AUTO-TRADE' },
+                auto_trade_title: { tr: 'Otomatik İşlem', en: 'Auto Trade', de: 'Auto-Trade' },
+                alarm_default_title: { tr: 'Alarm', en: 'Alarm', de: 'Alarm' },
+                go_chart: { tr: 'Grafiğe Git', en: 'Go to Chart', de: 'Zum Chart' },
+                confidence_score: { tr: 'Güven Skoru', en: 'Confidence Score', de: 'Vertrauensscore' },
+                market: { tr: 'Piyasa', en: 'Market', de: 'Markt' },
+                date_time: { tr: 'Tarih/Saat', en: 'Date/Time', de: 'Datum/Uhrzeit' },
+                active: { tr: 'Aktif', en: 'Active', de: 'Aktiv' },
+                delete: { tr: 'Sil', en: 'Delete', de: 'Löschen' },
+                signals_load_error: { tr: 'Alarm sinyalleri yüklenemedi.', en: 'Alarm signals could not be loaded.', de: 'Alarm-Signale konnten nicht geladen werden.' },
+                no_signal: { tr: 'Henüz sinyal yok.', en: 'No signals yet.', de: 'Noch keine Signale.' },
+                status_not_filled: { tr: 'GIRILEMEDI', en: 'NOT FILLED', de: 'NICHT ERÖFFNET' },
+                status_closed: { tr: 'KAPALI', en: 'CLOSED', de: 'GESCHLOSSEN' },
+                status_active: { tr: 'AKTİF', en: 'ACTIVE', de: 'AKTIV' },
+                confidence_short: { tr: 'Güven', en: 'Confidence', de: 'Vertrauen' },
+                entry: { tr: 'Giriş', en: 'Entry', de: 'Einstieg' }
+            };
+            const L = (key) => (alarmText[key]?.[currentLang] || alarmText[key]?.tr || key);
             
             // Filtre kaldırıldı - TÜM alarmlar gösterilecek
             const allAlarms = (alarmSystem.alarms || []);
@@ -5212,20 +5236,20 @@
                 try {
                     const limitInfo = await alarmSystem.getAlarmLimitInfo();
                     if (limitInfo?.limit === null || limitInfo?.limit === undefined) {
-                        alarmQuotaTextEl.textContent = 'Kalan alarm hakkı: Sınırsız';
+                        alarmQuotaTextEl.textContent = `${L('remaining_quota')}: ${L('unlimited')}`;
                     } else {
                         const remaining = Math.max(0, Number(limitInfo.limit) - Number(limitInfo.activeCount || 0));
-                        alarmQuotaTextEl.textContent = `Kalan alarm hakkı: ${remaining} (${Number(limitInfo.activeCount || 0)}/${Number(limitInfo.limit)})`;
+                        alarmQuotaTextEl.textContent = `${L('remaining_quota')}: ${remaining} (${Number(limitInfo.activeCount || 0)}/${Number(limitInfo.limit)})`;
                     }
                 } catch (quotaError) {
                     console.warn('⚠️ Alarm hakkı bilgisi alınamadı:', quotaError);
-                    alarmQuotaTextEl.textContent = 'Kalan alarm hakkı: -';
+                    alarmQuotaTextEl.textContent = `${L('remaining_quota')}: -`;
                 }
             }
             
             // Aktif Alarmlar Grid'i
             if (activeAlarms.length === 0) {
-                activeGrid.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-secondary);">Henüz aktif alarm yok.</div>';
+                activeGrid.innerHTML = `<div style="text-align: center; padding: 40px; color: var(--text-secondary);">${L('no_active_alarm')}</div>`;
             } else {
                 let activeHtml = '';
                 activeAlarms.forEach(alarm => {
@@ -5233,8 +5257,8 @@
                     const logoHtml = createCoinLogoElement(coinSymbol, 24);
                     const marketLabel = (alarm.market_type || alarm.marketType || 'spot').toString().toUpperCase();
                     const isAutoTrade = alarm.auto_trade_enabled || alarm.autoTradeEnabled;
-                    const autoTradeLabel = isAutoTrade ? ' - OTOMATİK TRADE' : '';
-                    const alarmTitleSuffix = isAutoTrade ? 'Otomatik İşlem' : (alarm.name || 'Alarm');
+                    const autoTradeLabel = isAutoTrade ? L('auto_trade_label') : '';
+                    const alarmTitleSuffix = isAutoTrade ? L('auto_trade_title') : (alarm.name || L('alarm_default_title'));
                     const alarmCreatedAt = formatDateTime(alarm.createdAt || alarm.created_at || alarm.signalTimestamp || alarm.signal_time);
                     
                     // Description'dan TP/SL bilgilerini parse et
@@ -5247,9 +5271,9 @@
                     const slValue = Number.isFinite(Number(alarm.slPercent)) ? Number(alarm.slPercent) : (Number.isFinite(Number(sl)) ? Number(sl) : '');
 
                     if (alarm.type === 'ACTIVE_TRADE') {
-                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;">${logoHtml}<div><span style="font-weight: 600;">${coinSymbol} ${alarm.direction}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe}', '${alarm.market_type || alarm.marketType || 'spot'}', '${confidenceValue}', '${tpValue}', '${slValue}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span><br><span style="font-size: 0.75rem; color: var(--text-secondary);">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></span></div></div></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;"><div><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div><i class="fa-regular fa-clock"></i> Timeframe: <strong>${alarm.timeframe || '-'} </strong></div><div><i class="fa-regular fa-calendar"></i> Tarih/Saat: <strong>${alarmCreatedAt}</strong></div><div style="margin-top: 4px;"><i class="fa-solid fa-bullseye"></i> TP: ${alarm.tpPercent}% | <i class="fa-solid fa-circle-stop"></i> SL: ${alarm.slPercent}%</div></div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
+                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;">${logoHtml}<div><span style="font-weight: 600;">${coinSymbol} ${alarm.direction}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe}', '${alarm.market_type || alarm.marketType || 'spot'}', '${confidenceValue}', '${tpValue}', '${slValue}')"><i class="fa-solid fa-chart-line"></i> ${L('go_chart')}</span><br><span style="font-size: 0.75rem; color: var(--text-secondary);">${L('confidence_score')}: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></span></div></div></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;"><div><i class="fa-solid fa-store"></i> ${L('market')}: <strong>${marketLabel}${autoTradeLabel}</strong></div><div><i class="fa-regular fa-clock"></i> Timeframe: <strong>${alarm.timeframe || '-'} </strong></div><div><i class="fa-regular fa-calendar"></i> ${L('date_time')}: <strong>${alarmCreatedAt}</strong></div><div style="margin-top: 4px;"><i class="fa-solid fa-bullseye"></i> TP: ${alarm.tpPercent}% | <i class="fa-solid fa-circle-stop"></i> SL: ${alarm.slPercent}%</div></div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> ${L('delete')}</button></div>`;
                     } else {
-                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;"><div>${logoHtml}</div><div><span style="font-weight: 600;">${coinSymbol} - ${alarmTitleSuffix}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe || '1h'}', '${alarm.market_type || alarm.marketType || 'spot'}', '${confidenceValue}', '${tpValue}', '${slValue}')"><i class="fa-solid fa-chart-line"></i> Grafiğe Git</span></div></div><span style="font-size: 0.85rem; color: var(--text-secondary);"><i class="fa-solid fa-circle"></i> Aktif</span></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-solid fa-store"></i> Piyasa: <strong>${marketLabel}${autoTradeLabel}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">Güven Skoru: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-regular fa-calendar"></i> Tarih/Saat: <strong>${alarmCreatedAt}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">Timeframe: ${alarm.timeframe || '1h'} | TP: ${tp}% | SL: ${sl}%</div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> Sil</button></div>`;
+                        activeHtml += `<div class="alarm-card"><div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px;"><div style="display: flex; align-items: center; gap: 8px;"><div>${logoHtml}</div><div><span style="font-weight: 600;">${coinSymbol} - ${alarmTitleSuffix}</span><br><span style="font-size: 0.75rem; color: var(--accent); cursor: pointer; text-decoration: underline;" onclick="selectCoinForDashboard('${alarm.symbol}', '${alarm.timeframe || '1h'}', '${alarm.market_type || alarm.marketType || 'spot'}', '${confidenceValue}', '${tpValue}', '${slValue}')"><i class="fa-solid fa-chart-line"></i> ${L('go_chart')}</span></div></div><span style="font-size: 0.85rem; color: var(--text-secondary);"><i class="fa-solid fa-circle"></i> ${L('active')}</span></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-solid fa-store"></i> ${L('market')}: <strong>${marketLabel}${autoTradeLabel}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">${L('confidence_score')}: <strong style='color: var(--accent);'>${alarm.confidenceScore || '-'}%</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;"><i class="fa-regular fa-calendar"></i> ${L('date_time')}: <strong>${alarmCreatedAt}</strong></div><div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">Timeframe: ${alarm.timeframe || '1h'} | TP: ${tp}% | SL: ${sl}%</div><button class="btn btn-remove" onclick="removeAlarm('${alarm.id}')" style="width: 100%; padding: 8px; font-size: 0.85rem;"><i class="fa-solid fa-trash"></i> ${L('delete')}</button></div>`;
                     }
                 });
                 activeGrid.innerHTML = activeHtml;
@@ -5266,12 +5290,12 @@
 
                     if (error) {
                         console.error('❌ Alarm sinyalleri yüklenemedi:', error);
-                        closedContainerEl.innerHTML = '<div style="text-align: center; padding: 24px; color: var(--text-secondary);">Alarm sinyalleri yüklenemedi.</div>';
+                        closedContainerEl.innerHTML = `<div style="text-align: center; padding: 24px; color: var(--text-secondary);">${L('signals_load_error')}</div>`;
                     } else {
                         const filteredSignals = (activeSignals || []);
 
                         if (filteredSignals.length === 0) {
-                            closedContainerEl.innerHTML = '<div style="text-align: center; padding: 24px; color: var(--text-secondary);">Henüz sinyal yok.</div>';
+                            closedContainerEl.innerHTML = `<div style="text-align: center; padding: 24px; color: var(--text-secondary);">${L('no_signal')}</div>`;
                         } else {
                             closedContainerEl.innerHTML = filteredSignals.map(sig => {
                                 const coinSymbol = String(sig.symbol || '').replace('USDT', '');
@@ -5314,8 +5338,8 @@
                                 const tpText = Number.isFinite(tpPercent) ? `${tpPercent}%` : '-';
                                 const slText = Number.isFinite(slPercent) ? `${slPercent}%` : '-';
                                 const statusText = isClosed
-                                    ? (closeReason === 'NOT_FILLED' ? 'GIRILEMEDI' : 'KAPALI')
-                                    : 'AKTİF';
+                                    ? (closeReason === 'NOT_FILLED' ? L('status_not_filled') : L('status_closed'))
+                                    : L('status_active');
                                 const statusClass = isClosed ? 'negative' : 'positive';
                                 return `
                                     <div class="alarm-card" style="margin-bottom: 12px;">
@@ -5324,7 +5348,7 @@
                                                 ${logoHtml}
                                                 <div>
                                                     <div style="font-weight:700; font-size:0.98rem;">${coinSymbol} ${sig.direction}</div>
-                                                    <div style="font-size:0.75rem;color:var(--text-secondary);">Güven: <strong style="color:var(--accent);">${score}%</strong></div>
+                                                    <div style="font-size:0.75rem;color:var(--text-secondary);">${L('confidence_short')}: <strong style="color:var(--accent);">${score}%</strong></div>
                                                 </div>
                                             </div>
                                             <div style="display:flex;align-items:center;gap:8px;">
@@ -5337,8 +5361,8 @@
                                             <span class="price-change negative" style="padding:3px 8px;font-size:0.75rem;">SL: ${slText}</span>
                                         </div>
                                         <div style="font-size:0.85rem;color:var(--text-secondary);">
-                                            <div><i class="fa-regular fa-calendar"></i> Tarih/Saat: <strong>${signalCreatedAt}</strong></div>
-                                            Giriş: <strong>$${formatPrice(parseFloat(sig.entry_price))}</strong><br>
+                                            <div><i class="fa-regular fa-calendar"></i> ${L('date_time')}: <strong>${signalCreatedAt}</strong></div>
+                                            ${L('entry')}: <strong>$${formatPrice(parseFloat(sig.entry_price))}</strong><br>
                                             TP: <strong>$${formatPrice(parseFloat(sig.take_profit))}</strong> | SL: <strong>$${formatPrice(parseFloat(sig.stop_loss))}</strong>
                                         </div>
                                     </div>
@@ -5348,7 +5372,7 @@
                     }
                 } catch (e) {
                     console.error('❌ Alarm sinyalleri yükleme hatası:', e);
-                    closedContainerEl.innerHTML = '<div style="text-align: center; padding: 24px; color: var(--text-secondary);">Alarm sinyalleri yüklenemedi.</div>';
+                    closedContainerEl.innerHTML = `<div style="text-align: center; padding: 24px; color: var(--text-secondary);">${L('signals_load_error')}</div>`;
                 }
             }
             
