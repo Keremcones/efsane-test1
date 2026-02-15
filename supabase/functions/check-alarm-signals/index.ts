@@ -258,6 +258,10 @@ const MAX_CLOSE_CHECKS_PER_CRON = Math.min(
   2000,
   Math.max(100, Number(Deno.env.get("MAX_CLOSE_CHECKS_PER_CRON") || "600"))
 ); // configurable safety cap for large backlogs
+const EXTERNAL_CLOSE_GRACE_SECONDS = Math.min(
+  300,
+  Math.max(15, Number(Deno.env.get("EXTERNAL_CLOSE_GRACE_SECONDS") || "45"))
+); // wait briefly before syncing externally closed futures positions
 const DISABLE_ALARM_PROCESSING = false; // temporary: close-only mode
 const CLOSE_NEAR_TARGET_PCT = 0.3; // only run heavy checks when near TP/SL
 const TRIGGER_NEAR_TARGET_PCT = 0.1; // skip indicator klines if far from targets
@@ -3615,7 +3619,7 @@ type ClosedSignal = {
   id: string | number;
   symbol: string;
   direction: "LONG" | "SHORT";
-  close_reason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "NOT_FILLED" | "TP_HIT_NO_POSITION" | "SL_HIT_NO_POSITION" | "ORPHAN_ACTIVE_NO_TRADE";
+  close_reason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "NOT_FILLED" | "TP_HIT_NO_POSITION" | "SL_HIT_NO_POSITION" | "ORPHAN_ACTIVE_NO_TRADE" | "EXTERNAL_CLOSE";
   price: number;
   user_id: string;
   profitLoss?: number;
@@ -3627,11 +3631,12 @@ type CloseCheckStats = {
   closed: number;
 };
 
-function normalizeCloseReasonForDb(reason: string): "TP_HIT" | "SL_HIT" | "TIMEOUT" | "NOT_FILLED" {
+function normalizeCloseReasonForDb(reason: string): "TP_HIT" | "SL_HIT" | "TIMEOUT" | "NOT_FILLED" | "EXTERNAL_CLOSE" {
   if (reason === "TP_HIT") return "TP_HIT";
   if (reason === "SL_HIT") return "SL_HIT";
   if (reason === "TP_HIT_NO_POSITION" || reason === "SL_HIT_NO_POSITION" || reason === "ORPHAN_ACTIVE_NO_TRADE") return "NOT_FILLED";
   if (reason === "NOT_FILLED") return "NOT_FILLED";
+  if (reason === "EXTERNAL_CLOSE") return "EXTERNAL_CLOSE";
   if (reason === "TIMEOUT") return "TIMEOUT";
   return "TIMEOUT";
 }
@@ -4034,7 +4039,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
         let effectiveMarketType: "spot" | "futures" = marketType;
 
         let shouldClose = false;
-        let closeReason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "TP_HIT_NO_POSITION" | "SL_HIT_NO_POSITION" | "ORPHAN_ACTIVE_NO_TRADE" | "" = "";
+        let closeReason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "TP_HIT_NO_POSITION" | "SL_HIT_NO_POSITION" | "ORPHAN_ACTIVE_NO_TRADE" | "EXTERNAL_CLOSE" | "" = "";
         let closePrice: number | null = null;
 
         const symbolKey = String(symbol).toUpperCase();
@@ -4079,6 +4084,9 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
 
         const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
         const createdAtMs = Date.parse(String(signal.created_at || ""));
+        const ageSeconds = Number.isFinite(createdAtMs)
+          ? Math.max(0, Math.floor((Date.now() - createdAtMs) / 1000))
+          : 0;
         if (Number.isFinite(createdAtMs) && (Date.now() - createdAtMs) > maxAgeMs) {
           const updateResult = await supabase
             .from("active_signals")
@@ -4112,6 +4120,18 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
         const shouldRunHeavyChecks = !Number.isFinite(priceForClose)
           || (Math.min(Math.abs(Number(priceForClose) - takeProfit), Math.abs(Number(priceForClose) - stopLoss))
             / Math.max(1e-8, Math.abs(Number(priceForClose)))) * 100 <= CLOSE_NEAR_TARGET_PCT;
+
+        if (!shouldClose && !shouldRunHeavyChecks) {
+          if (effectiveMarketType === "futures" && ageSeconds >= EXTERNAL_CLOSE_GRACE_SECONDS) {
+            const state = await getFuturesCloseState(signal, alarmData);
+            if (state.canCheck && !state.position && !state.openOrders && !state.algoOrders) {
+              console.log(`🧭 External close sync: ${JSON.stringify({ signalId: signal.id, symbol, ageSeconds, reason: "EXTERNAL_CLOSE" })}`);
+              shouldClose = true;
+              closeReason = "EXTERNAL_CLOSE";
+              closePrice = Number(signal.entry_price);
+            }
+          }
+        }
 
         if (!shouldClose && !shouldRunHeavyChecks) {
           continue;
@@ -4263,9 +4283,6 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
 
         if (!shouldClose || !closeReason) continue;
 
-        const ageSeconds = Number.isFinite(createdAtMs)
-          ? Math.max(0, Math.floor((Date.now() - createdAtMs) / 1000))
-          : 0;
         const hasActiveTrade = activeTradeSet.has(`${String(signal?.user_id || "")}:${String(symbol).toUpperCase()}`);
         const tpHit = closeReason === "TP_HIT";
         const slHit = closeReason === "SL_HIT";
@@ -4307,7 +4324,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
           profitLoss = Math.abs(tpPercent);
         } else if (closeReason === "SL_HIT" && Number.isFinite(slPercent)) {
           profitLoss = -Math.abs(slPercent);
-        } else if (closeReason === "TP_HIT_NO_POSITION" || closeReason === "SL_HIT_NO_POSITION" || closeReason === "ORPHAN_ACTIVE_NO_TRADE" || closeReason === "NOT_FILLED") {
+        } else if (closeReason === "TP_HIT_NO_POSITION" || closeReason === "SL_HIT_NO_POSITION" || closeReason === "ORPHAN_ACTIVE_NO_TRADE" || closeReason === "NOT_FILLED" || closeReason === "EXTERNAL_CLOSE") {
           profitLoss = 0;
         }
 
