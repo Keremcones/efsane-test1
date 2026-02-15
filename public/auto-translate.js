@@ -50,7 +50,91 @@ window.autoTranslate = {
         'Yatırım danışmanlığı değildir; genel bilgilendirme amaçlıdır, sorumluluk kullanıcıya aittir.': { en: 'This is not investment advice; for general information only, responsibility belongs to the user.', de: 'Dies ist keine Anlageberatung; nur allgemeine Informationen, die Verantwortung liegt beim Nutzer.' },
         'Binance ayarları kaydedildi.': { en: 'Binance settings saved.', de: 'Binance-Einstellungen gespeichert.' },
         'Binance bağlantısı başarılı.': { en: 'Binance connection successful.', de: 'Binance-Verbindung erfolgreich.' },
-        'Bağlantı başarısız.': { en: 'Connection failed.', de: 'Verbindung fehlgeschlagen.' }
+        'Bağlantı başarısız.': { en: 'Connection failed.', de: 'Verbindung fehlgeschlagen.' },
+        'Gelişmiş Teknik Analiz Dashboard': { en: 'Advanced Technical Analysis Dashboard', de: 'Erweitertes Technisches Analyse-Dashboard' },
+        'Piyasa Tipi:': { en: 'Market Type:', de: 'Markttyp:' },
+        'Volume (Yüksek)': { en: 'Volume (High)', de: 'Volumen (Hoch)' },
+        '% Değişim (Yüksek)': { en: '% Change (High)', de: '% Änderung (Hoch)' },
+        '% Değişim (Düşük)': { en: '% Change (Low)', de: '% Änderung (Niedrig)' },
+        'İsim (A-Z)': { en: 'Name (A-Z)', de: 'Name (A-Z)' },
+        'Güncelleniyor...': { en: 'Updating...', de: 'Wird aktualisiert...' },
+        'Analiz sistemi henüz yüklenmedi. Lütfen sayfayı yenile.': { en: 'Analysis system has not loaded yet. Please refresh the page.', de: 'Das Analysesystem ist noch nicht geladen. Bitte aktualisiere die Seite.' },
+        'Gelişmiş analiz yapılıyor...': { en: 'Advanced analysis in progress...', de: 'Erweiterte Analyse läuft...' },
+        'Güçlü': { en: 'Strong', de: 'Stark' },
+        'Orta': { en: 'Medium', de: 'Mittel' },
+        'Zayıf': { en: 'Weak', de: 'Schwach' },
+        'Yükseliş': { en: 'Bullish', de: 'Bullisch' },
+        'Düşüş': { en: 'Bearish', de: 'Bärisch' },
+        'Nötr': { en: 'Neutral', de: 'Neutral' },
+        'Tespit Edildi!': { en: 'Detected!', de: 'Erkannt!' },
+        'Formasyon Tanıma': { en: 'Pattern Recognition', de: 'Mustererkennung' },
+        'Formasyon bulunamadı': { en: 'No pattern detected', de: 'Kein Muster erkannt' },
+        'Şu anda grafikte belirgin formasyon yok': { en: 'There is no clear pattern on the chart right now', de: 'Derzeit ist kein klares Muster im Chart erkennbar' },
+        'Multi-Timeframe Analiz': { en: 'Multi-Timeframe Analysis', de: 'Multi-Timeframe-Analyse' },
+        'Veri bekleniyor': { en: 'Waiting for data', de: 'Warte auf Daten' },
+        'Fibonacci Seviyeleri': { en: 'Fibonacci Levels', de: 'Fibonacci-Niveaus' },
+        'AI Tahmin': { en: 'AI Prediction', de: 'KI-Prognose' },
+        'ile tahmin': { en: 'prediction with', de: 'Prognose mit' },
+        'Tahmin Fiyat': { en: 'Predicted Price', de: 'Prognostizierter Preis' },
+        'Haberleri': { en: 'News', de: 'Nachrichten' },
+        'Güncel haber yok': { en: 'No current news', de: 'Keine aktuellen Nachrichten' },
+        'Bu coin ile ilgili haberleri yakında göreceksiniz': { en: 'You will see news about this coin soon', de: 'Du wirst bald Nachrichten zu diesem Coin sehen' },
+        'Pozitif': { en: 'Positive', de: 'Positiv' },
+        'Negatif': { en: 'Negative', de: 'Negativ' },
+        'Piyasa Sentimenti': { en: 'Market Sentiment', de: 'Marktstimmung' },
+        'Korku': { en: 'Fear', de: 'Angst' },
+        'Açgözlülük': { en: 'Greed', de: 'Gier' },
+        'Backtest Sonuçları': { en: 'Backtest Results', de: 'Backtest-Ergebnisse' },
+        'Backtest bölümünde işlem açıkken alarm kurarsanız, alarm kurulduktan sonra oluşan yeni sinyal şartlarına göre bildirim gelir. Bu nedenle backtestteki açık işlem ile canlı alarm birebir aynı zamanlamayı göstermez.': { en: 'If you set an alarm while a trade is open in Backtest, notifications are sent according to new signal conditions formed after the alarm is set. Therefore, an open trade in backtest and a live alarm may not show exactly the same timing.', de: 'Wenn du einen Alarm setzt, während im Backtest eine Position offen ist, kommen Benachrichtigungen nach neuen Signalbedingungen, die nach dem Alarm entstehen. Daher zeigen offene Backtest-Position und Live-Alarm nicht exakt dieselbe Zeit.' },
+        'TP/SL fiyatlarında coin’e göre farklı küsuratlar görülebilir. Bunun nedeni her sembolün fiyat adımı (tick size) ve ondalık hassasiyetinin farklı olmasıdır; yüzde hedefler fiyata çevrilirken borsa kurallarına göre yuvarlama/kırpma uygulanır.': { en: 'TP/SL prices may show different decimals per coin. This is because each symbol has different tick size and decimal precision; when percentage targets are converted to prices, exchange rounding/truncation rules are applied.', de: 'Bei TP/SL-Preisen können je Coin unterschiedliche Dezimalstellen auftreten. Der Grund sind verschiedene Tick-Size- und Präzisionsregeln je Symbol; bei der Umrechnung von Prozentzielen in Preise werden Börsen-Rundungsregeln angewendet.' },
+        'Toplam Kar': { en: 'Total Profit', de: 'Gesamtgewinn' },
+        'Backtest güncelleniyor...': { en: 'Backtest updating...', de: 'Backtest wird aktualisiert...' },
+        'Giriş Fiyatı': { en: 'Entry Price', de: 'Einstiegspreis' },
+        'Açık P&L': { en: 'Open P&L', de: 'Offenes P&L' },
+        'Çıkış Fiyatı': { en: 'Exit Price', de: 'Ausstiegspreis' },
+        'TP (Hedef Fiyat)': { en: 'TP (Target Price)', de: 'TP (Zielpreis)' },
+        'Kar/Zarar': { en: 'Profit/Loss', de: 'Gewinn/Verlust' },
+        'Sinyal Açılış': { en: 'Signal Open', de: 'Signalstart' },
+        'Süre': { en: 'Duration', de: 'Dauer' },
+        'Sinyal Gücü': { en: 'Signal Strength', de: 'Signalstärke' },
+        'AKTİF': { en: 'ACTIVE', de: 'AKTIV' },
+        'Filtreye uygun işlem yok': { en: 'No trades match the filter', de: 'Keine Trades entsprechen dem Filter' },
+        'Canlı': { en: 'Live', de: 'Live' },
+        'Son güncelleme:': { en: 'Last update:', de: 'Letzte Aktualisierung:' },
+        'Temel İndikatörler': { en: 'Core Indicators', de: 'Kernindikatoren' },
+        'Destek & Direnç Seviyeleri': { en: 'Support & Resistance Levels', de: 'Unterstützungs- & Widerstandsniveaus' },
+        'Destek Seviyeleri': { en: 'Support Levels', de: 'Unterstützungsniveaus' },
+        'Direnç Seviyeleri': { en: 'Resistance Levels', de: 'Widerstandsniveaus' },
+        'Trend Gücü Özeti': { en: 'Trend Strength Summary', de: 'Trendstärke-Zusammenfassung' },
+        'Trend Eğilimi': { en: 'Trend Bias', de: 'Trendrichtung' },
+        'Güç (ADX):': { en: 'Strength (ADX):', de: 'Stärke (ADX):' },
+        'Günlük & Haftalık Aralık': { en: 'Daily & Weekly Range', de: 'Tages- & Wochenbereich' },
+        'Trading Sinyali': { en: 'Trading Signal', de: 'Trading-Signal' },
+        'Sinyal Güven Eşiği': { en: 'Signal Confidence Threshold', de: 'Signal-Vertrauensschwelle' },
+        'Düşük (1-40):': { en: 'Low (1-40):', de: 'Niedrig (1-40):' },
+        'Çok fazla sinyal, yüksek zarar riski': { en: 'Too many signals, high loss risk', de: 'Zu viele Signale, hohes Verlustrisiko' },
+        'Orta (40-70):': { en: 'Medium (40-70):', de: 'Mittel (40-70):' },
+        'Dengeli sinyal akışı': { en: 'Balanced signal flow', de: 'Ausgeglichener Signalfluss' },
+        'Yüksek (70-100):': { en: 'High (70-100):', de: 'Hoch (70-100):' },
+        'Az ama güvenilir sinyaller': { en: 'Fewer but more reliable signals', de: 'Weniger, aber zuverlässigere Signale' },
+        'SİNYAL AKTİF': { en: 'SIGNAL ACTIVE', de: 'SIGNAL AKTIV' },
+        'Sinyal Saati': { en: 'Signal Time', de: 'Signalzeit' },
+        'Güven Skoru:': { en: 'Confidence Score:', de: 'Vertrauensscore:' },
+        'Giriş': { en: 'Entry', de: 'Einstieg' },
+        'Risk/Ödül:': { en: 'Risk/Reward:', de: 'Risiko/Ertrag:' },
+        'SİNYAL BEKLENIYOR': { en: 'WAITING FOR SIGNAL', de: 'SIGNAL WIRD ERWARTET' },
+        'Piyasa koşulları uygun olana kadar bekleyin.': { en: 'Wait until market conditions are suitable.', de: 'Warte, bis die Marktbedingungen geeignet sind.' },
+        'Güven skoru >= 40 gerekli.': { en: 'Confidence score >= 40 required.', de: 'Vertrauensscore >= 40 erforderlich.' },
+        'Fiyat Grafiği': { en: 'Price Chart', de: 'Preisdiagramm' },
+        'Alarm kurmak için Premium gerekli': { en: 'Premium is required to create an alarm', de: 'Premium ist erforderlich, um einen Alarm zu erstellen' },
+        'Lütfen önce bir coin seçin ve analiz yapılmasını bekleyin': { en: 'Please select a coin first and wait for analysis to complete', de: 'Bitte wähle zuerst einen Coin und warte, bis die Analyse abgeschlossen ist' },
+        'Stop Loss 0.1 - 99 araliginda olmali': { en: 'Stop Loss must be between 0.1 and 99', de: 'Stop Loss muss zwischen 0.1 und 99 liegen' },
+        'Alarm kuruldu! Otomatik trade aktif.': { en: 'Alarm created! Auto trade is active.', de: 'Alarm erstellt! Auto-Trade ist aktiv.' },
+        'Alarm kuruldu! Telegram\'da bildirim alacaksınız': { en: 'Alarm created! You will receive notifications on Telegram', de: 'Alarm erstellt! Du erhältst Benachrichtigungen auf Telegram' },
+        'Henüz işlem yok. Aktif alarm oluşturduktan sonra işlemler burada gösterilecek.': { en: 'No trades yet. Trades will appear here after you create an active alarm.', de: 'Noch keine Trades. Trades werden hier angezeigt, nachdem du einen aktiven Alarm erstellt hast.' },
+        'Henüz aktif sinyal yok.': { en: 'No active signals yet.', de: 'Noch keine aktiven Signale.' },
+        'KARDA': { en: 'IN PROFIT', de: 'IM GEWINN' },
+        'ZARARDA': { en: 'IN LOSS', de: 'IM VERLUST' }
     },
 
     shouldTranslateText(text) {
@@ -59,8 +143,9 @@ window.autoTranslate = {
         if (!normalized) return false;
         if (normalized.length < 2) return false;
         if (/^[\d\s.,:%+\-–—()\[\]{}\/\\|]+$/.test(normalized)) return false;
-        if (/\d/.test(normalized) && /[%$:+\-]/.test(normalized)) return false;
-        if (normalized.length > 80 && /\d/.test(normalized)) return false;
+        const alphaCount = (normalized.match(/[A-Za-zÀ-ÖØ-öø-ÿÇĞİÖŞÜçğıöşü]/g) || []).length;
+        if (/\d/.test(normalized) && alphaCount < 2) return false;
+        if (normalized.length > 120 && /\d/.test(normalized) && alphaCount < 10) return false;
         return true;
     },
 
@@ -463,7 +548,8 @@ window.autoTranslate = {
             const lang = event?.detail?.language;
             if (!lang) return;
             this.currentLanguage = lang;
-            this.scheduleTranslate(0);
+            this.loadingForManualSwitch = true;
+            this.scheduleTranslate(0, true);
         });
     },
 
