@@ -259,6 +259,7 @@ const DISABLE_ALARM_PROCESSING = false; // temporary: close-only mode
 const CLOSE_NEAR_TARGET_PCT = 0.3; // only run heavy checks when near TP/SL
 const TRIGGER_NEAR_TARGET_PCT = 0.1; // skip indicator klines if far from targets
 const BAR_CLOSE_TRIGGER_GRACE_MS = 2 * 60 * 1000; // only allow open signal creation within 2 min after bar close
+const OPEN_TELEGRAM_RETRY_MAX_AGE_MS = 3 * 60 * 1000; // do not deliver open-signal messages too late
 const ACTIVE_SIGNAL_STATUSES = ["ACTIVE", "active"];
 const ACTIVE_ALARM_STATUSES = ["ACTIVE", "active"];
 
@@ -2658,7 +2659,7 @@ async function buildActiveSignalOpenMessage(signal: any): Promise<string> {
 }
 
 async function retryFailedOpenTelegrams(): Promise<void> {
-  const since = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  const since = new Date(Date.now() - OPEN_TELEGRAM_RETRY_MAX_AGE_MS).toISOString();
   const { data: signals, error } = await supabase
     .from("active_signals")
     .select("id, user_id, symbol, market_type, timeframe, direction, entry_price, take_profit, stop_loss, tp_percent, sl_percent, signal_timestamp, created_at, telegram_status, telegram_error")
@@ -2669,6 +2670,12 @@ async function retryFailedOpenTelegrams(): Promise<void> {
   if (error || !signals?.length) return;
 
   for (const signal of signals) {
+    const signalTsMs = Date.parse(String(signal?.signal_timestamp || signal?.created_at || ""));
+    const signalAgeMs = Number.isFinite(signalTsMs) ? (Date.now() - signalTsMs) : Number.MAX_SAFE_INTEGER;
+    if (!Number.isFinite(signalTsMs) || signalAgeMs > OPEN_TELEGRAM_RETRY_MAX_AGE_MS) {
+      await updateActiveSignalTelegramStatus(signal.id, "SKIPPED", "stale_retry_window_exceeded");
+      continue;
+    }
     const errorText = String(signal?.telegram_error || "");
     if (errorText.includes("missing_chat_id") || errorText.includes("notifications_disabled")) {
       continue;
