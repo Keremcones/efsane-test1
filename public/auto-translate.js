@@ -1,6 +1,6 @@
 window.autoTranslate = {
     currentLanguage: localStorage.getItem('language') || 'tr',
-    sourceLanguage: 'tr',
+    sourceLanguage: 'auto',
     textNodeBaseMap: new WeakMap(),
     attrBaseMap: new WeakMap(),
     observer: null,
@@ -96,6 +96,27 @@ window.autoTranslate = {
         return direct[this.currentLanguage] || null;
     },
 
+    lookupDictionaryFlexible(text) {
+        const normalized = String(text || '').trim();
+        if (!normalized) return null;
+
+        const direct = this.lookupDictionary(normalized);
+        if (direct) return direct;
+
+        for (const [sourceTr, variants] of Object.entries(this.dictionary)) {
+            if (!variants || typeof variants !== 'object') continue;
+            const sourceEn = String(variants.en || '').trim();
+            const sourceDe = String(variants.de || '').trim();
+
+            if (normalized === sourceTr.trim() || normalized === sourceEn || normalized === sourceDe) {
+                const target = variants[this.currentLanguage];
+                if (target) return target;
+            }
+        }
+
+        return null;
+    },
+
     async translateBatchViaApi(texts) {
         if (!texts.length || this.currentLanguage === 'tr') return [];
 
@@ -129,7 +150,7 @@ window.autoTranslate = {
         const apiCandidates = [];
 
         uniqueTexts.forEach(text => {
-            const dictValue = this.lookupDictionary(text);
+            const dictValue = this.lookupDictionaryFlexible(text);
             if (dictValue) {
                 resolved[text] = dictValue;
                 return;
@@ -169,7 +190,7 @@ window.autoTranslate = {
         const cacheStore = this.getCacheStore();
         return uniqueTexts.some(text => {
             if (!text) return false;
-            if (this.lookupDictionary(text)) return false;
+            if (this.lookupDictionaryFlexible(text)) return false;
             if (cacheStore[text]) return false;
             return true;
         });
@@ -359,7 +380,7 @@ window.autoTranslate = {
     translate(text) {
         if (!text || this.currentLanguage === 'tr') return text;
 
-        const dict = this.lookupDictionary(text.trim());
+        const dict = this.lookupDictionaryFlexible(text.trim());
         if (dict) return this.preserveWhitespace(text, dict);
         return text;
     },
