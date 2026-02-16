@@ -1527,7 +1527,7 @@ async function executeAutoTrade(
   takeProfit: number,
   stopLoss: number,
   marketType: "spot" | "futures"
-): Promise<{ success: boolean; message: string; orderId?: string; blockedByOpenPosition?: boolean; executedEntryPrice?: number; executedTakeProfit?: number; executedStopLoss?: number }> {
+): Promise<{ success: boolean; message: string; orderId?: string; blockedByOpenPosition?: boolean; retryable?: boolean; executedEntryPrice?: number; executedTakeProfit?: number; executedStopLoss?: number }> {
   try {
     const { data: userProfile } = await supabase
       .from("user_profiles")
@@ -1592,7 +1592,7 @@ async function executeAutoTrade(
     } catch (e) {
       const errText = e instanceof Error ? e.message : "Unknown error";
       console.error("❌ Open position check failed:", errText);
-      return { success: false, message: "Açık pozisyon kontrolü başarısız. İşlem açılmadı." };
+      return { success: false, message: "Açık pozisyon kontrolü geçici olarak başarısız. Tekrar denenecek.", retryable: true };
     }
 
     const leverage = marketType === "futures" ? Number(futures_leverage || 10) : 1;
@@ -3702,6 +3702,7 @@ async function checkAndTriggerUserAlarms(
           message: string;
           orderId?: string;
           blockedByOpenPosition?: boolean;
+          retryable?: boolean;
           executedEntryPrice?: number;
           executedTakeProfit?: number;
           executedStopLoss?: number;
@@ -3762,6 +3763,10 @@ async function checkAndTriggerUserAlarms(
               skipOpenTelegram = true;
               skipOpenTelegramReason = "open_position_exists_no_open_notification";
               tradeNotificationText = "";
+            } else if (tradeResult.retryable) {
+              skipOpenTelegram = true;
+              skipOpenTelegramReason = "transient_open_position_check_failure_retry_later";
+              tradeNotificationText = "";
             } else {
               tradeNotificationText = `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${escapeHtml(tradeResult.message)}`;
             }
@@ -3784,7 +3789,7 @@ async function checkAndTriggerUserAlarms(
           }
         }
 
-        const autoTradeOpenFailed = autoTradeAttempted && !tradeResult.success;
+        const autoTradeOpenFailed = autoTradeAttempted && !tradeResult.success && !tradeResult.retryable;
         if (autoTradeOpenFailed && insertedSignalId) {
           try {
             const closeResult = await supabase
