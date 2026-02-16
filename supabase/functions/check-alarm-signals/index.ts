@@ -3026,6 +3026,49 @@ async function checkAndTriggerUserAlarms(
   }
   console.log(`📌 Open auto_signal count: ${openSignalKeys.size}`);
 
+  const openPositionCheckCache = new Map<string, boolean>();
+  const hasBlockingOpenPosition = async (
+    userIdRaw: any,
+    symbolRaw: any,
+    marketType: "spot" | "futures"
+  ): Promise<boolean> => {
+    try {
+      const userId = String(userIdRaw || "");
+      const symbol = String(symbolRaw || "").toUpperCase();
+      if (!userId || !symbol) return false;
+
+      const cacheKey = `${userId}:${symbol}:${marketType}`;
+      if (openPositionCheckCache.has(cacheKey)) {
+        return openPositionCheckCache.get(cacheKey) === true;
+      }
+
+      const userKeys = await getUserBinanceSettings(userId);
+      if (!userKeys?.api_key || !userKeys?.api_secret || !userKeys?.auto_trade_enabled) {
+        openPositionCheckCache.set(cacheKey, false);
+        return false;
+      }
+
+      let blocked = false;
+      if (marketType === "futures") {
+        if (userKeys.futures_enabled === true) {
+          blocked = await hasOpenFuturesPosition(userKeys.api_key, userKeys.api_secret, symbol);
+        }
+      } else {
+        if (userKeys.spot_enabled === true) {
+          const hasOrders = await hasOpenSpotOrders(userKeys.api_key, userKeys.api_secret, symbol);
+          const hasBalance = await isSpotPositionOpen(userKeys.api_key, userKeys.api_secret, symbol);
+          blocked = hasOrders || hasBalance;
+        }
+      }
+
+      openPositionCheckCache.set(cacheKey, blocked);
+      return blocked;
+    } catch (e) {
+      console.warn(`⚠️ Preflight open-position check failed for ${String(symbolRaw || "")}:`, e);
+      return false;
+    }
+  };
+
   const indicatorPromiseCache = new Map<string, Promise<TechnicalIndicators | null>>();
   const getCachedIndicators = (symbol: string, marketType: "spot" | "futures", timeframe: string) => {
     const cacheKey = `${symbol}:${marketType}:${timeframe}`;
@@ -3495,6 +3538,24 @@ async function checkAndTriggerUserAlarms(
           console.warn(`⚠️ Failed to check last signal for ${alarm.symbol}:`, e);
         }
 
+        const autoTradeEnabledPreflight = await resolveAutoTradeEnabled(alarm, alarmMarketType);
+        if (autoTradeEnabledPreflight) {
+          const hasBlockingPosition = await hasBlockingOpenPosition(alarm.user_id, alarm.symbol, alarmMarketType);
+          if (hasBlockingPosition) {
+            try {
+              await supabase
+                .from("alarms")
+                .update({ signal_timestamp: signalBarIso })
+                .eq("id", alarm.id);
+            } catch (e) {
+              console.warn(`⚠️ Failed to update alarm signal_timestamp after preflight skip for ${alarm.symbol}:`, e);
+            }
+            console.log(`⏭️ Preflight skip for ${String(alarm.symbol || "").toUpperCase()}: open Binance position/orders already exist`);
+            stats.skippedActive += 1;
+            return;
+          }
+        }
+
         try {
           await supabase
             .from("alarms")
@@ -3617,6 +3678,8 @@ async function checkAndTriggerUserAlarms(
           executedStopLoss?: number;
         };
         let tradeNotificationText = "";
+        let skipOpenTelegram = false;
+        let skipOpenTelegramReason: string | null = null;
         const autoTradeEnabled = await resolveAutoTradeEnabled(alarm, alarmMarketType);
         let autoTradeAttempted = false;
 
@@ -3666,7 +3729,13 @@ async function checkAndTriggerUserAlarms(
             tradeResult.message !== "Futures auto-trade not enabled" &&
             tradeResult.message !== "Spot auto-trade not enabled"
           ) {
-            tradeNotificationText = `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${escapeHtml(tradeResult.message)}`;
+            if (tradeResult.blockedByOpenPosition) {
+              skipOpenTelegram = true;
+              skipOpenTelegramReason = "open_position_exists_no_open_notification";
+              tradeNotificationText = "";
+            } else {
+              tradeNotificationText = `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${escapeHtml(tradeResult.message)}`;
+            }
             try {
               await supabase
                 .from("alarms")
@@ -3679,9 +3748,11 @@ async function checkAndTriggerUserAlarms(
         }
 
         if (!tradeNotificationText) {
-          tradeNotificationText = autoTradeEnabled
-            ? `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${escapeHtml(tradeResult.message)}`
-            : `\n\nℹ️ <b>Otomatik işlem:</b> Kapalı`;
+          if (!skipOpenTelegram) {
+            tradeNotificationText = autoTradeEnabled
+              ? `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${escapeHtml(tradeResult.message)}`
+              : `\n\nℹ️ <b>Otomatik işlem:</b> Kapalı`;
+          }
         }
 
         const autoTradeOpenFailed = autoTradeAttempted && !tradeResult.success;
@@ -3785,16 +3856,23 @@ ${tradeNotificationText}
         }
 
         if (insertedSignalId) {
-          await updateActiveSignalTelegramStatus(insertedSignalId, "QUEUED", null);
-          console.log(`📨 Telegram queued for signal ${insertedSignalId} (user ${alarm.user_id})`);
+          if (skipOpenTelegram) {
+            await updateActiveSignalTelegramStatus(insertedSignalId, "SKIPPED", skipOpenTelegramReason || "open_notification_skipped");
+            console.log(`⏭️ Open telegram skipped for signal ${insertedSignalId}: ${skipOpenTelegramReason || "open_notification_skipped"}`);
+          } else {
+            await updateActiveSignalTelegramStatus(insertedSignalId, "QUEUED", null);
+            console.log(`📨 Telegram queued for signal ${insertedSignalId} (user ${alarm.user_id})`);
+          }
         }
 
-        telegramPromises.push((async () => {
-          const sendResult = await sendTelegramNotification(alarm.user_id, telegramMessage);
-          if (insertedSignalId) {
-            await updateActiveSignalTelegramStatus(insertedSignalId, sendResult.status, sendResult.error ?? null);
-          }
-        })());
+        if (!skipOpenTelegram) {
+          telegramPromises.push((async () => {
+            const sendResult = await sendTelegramNotification(alarm.user_id, telegramMessage);
+            if (insertedSignalId) {
+              await updateActiveSignalTelegramStatus(insertedSignalId, sendResult.status, sendResult.error ?? null);
+            }
+          })());
+        }
         console.log(`✅ User alarm triggered for ${symbol}: ${triggerMessage}`);
       }
     } catch (e) {
@@ -4756,8 +4834,6 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
 
   if (existing?.id) {
     console.log(`⚠️ Duplicate signal attempt: ${newSignal.symbol} ${newSignal.signal_direction}`);
-    const duplicateMessage = `⚠️ <b>AKTIF SİNYAL VAR</b>\n\n💰 Çift: <b>${escapeHtml(newSignal.symbol)}</b>\n🎯 Yön: <b>${escapeHtml(newSignal.signal_direction)}</b>\n⏰ Zaman: <b>${escapeHtml(formatTurkeyDateTime(resolveBarCloseDisplayTimeMs(newSignal.signal_timestamp, String(newSignal.timeframe || "1h"))))}</b>`;
-    await sendTelegramNotification(newSignal.user_id, duplicateMessage);
     return { inserted: false, duplicate: true };
   }
 
