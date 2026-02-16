@@ -1614,9 +1614,14 @@
                     </div>
                     <div class="admin-site-stats-meta">
                         <span id="adminSignalHealthRuntime">Binance Ban: - · Algo Cooldown: -</span>
-                        <button class="btn btn-secondary" style="padding: 8px 12px; flex: 0 0 auto;" onclick="window.refreshAdminSignalHealth()">
-                            <i class="fa-solid fa-rotate"></i> Yenile
-                        </button>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <button class="btn btn-secondary" style="padding: 8px 12px; flex: 0 0 auto;" onclick="window.repairAdminSystemLinks()">
+                                <i class="fa-solid fa-screwdriver-wrench"></i> Düzelt
+                            </button>
+                            <button class="btn btn-secondary" style="padding: 8px 12px; flex: 0 0 auto;" onclick="window.refreshAdminSignalHealth()">
+                                <i class="fa-solid fa-rotate"></i> Yenile
+                            </button>
+                        </div>
                     </div>
                     <div class="admin-site-stats-meta" style="margin-top: 6px;">
                         <span id="adminSignalHealthUpdatedAt">Son güncelleme: -</span>
@@ -2328,7 +2333,37 @@
             showNotification('Sistem check guncellendi.', 'success');
         }
 
+        async function repairAdminSystemLinks() {
+            if (!currentIsAdmin) {
+                showNotification('Bu islem yalnizca adminler icin.', 'error');
+                return;
+            }
+
+            try {
+                const headers = await getSessionHeaders();
+                const response = await fetch(TELEGRAM_FUNCTION_URL, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ action: 'repair_not_filled_links' })
+                });
+
+                const rawText = await response.text();
+                const result = rawText ? JSON.parse(rawText) : {};
+
+                if (!response.ok || !result?.success) {
+                    throw new Error(result?.error || 'repair_not_filled_links başarısız');
+                }
+
+                showNotification(`Duzeltme tamamlandi. Temizlenen alarm link: ${Number(result?.cleaned || 0)}`, 'success');
+                await loadAdminSignalHealth();
+            } catch (error) {
+                console.error('Admin repair hatasi:', error);
+                showNotification(`Duzeltme basarisiz: ${error?.message || 'Bilinmeyen hata'}`, 'error');
+            }
+        }
+
         window.refreshAdminSignalHealth = refreshAdminSignalHealth;
+        window.repairAdminSystemLinks = repairAdminSystemLinks;
 
         async function saveAdminAnnouncement() {
             if (!currentIsAdmin) {

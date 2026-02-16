@@ -5160,7 +5160,7 @@ serve(async (req: any) => {
       }
     }
 
-    const isHealthAction = body?.action === "health_check" || body?.action === "stale_breakdown" || body?.action === "system_check";
+    const isHealthAction = body?.action === "health_check" || body?.action === "stale_breakdown" || body?.action === "system_check" || body?.action === "repair_not_filled_links";
 
     async function isAdminUserToken(token: string): Promise<boolean> {
       if (!token) return false;
@@ -5257,6 +5257,113 @@ serve(async (req: any) => {
       });
     }
 
+    if (body?.action === "repair_not_filled_links") {
+      const sevenDaysAgoIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+      const { data: suspiciousSignals, error: suspiciousError } = await supabase
+        .from("active_signals")
+        .select("id, alarm_id")
+        .eq("status", "CLOSED")
+        .eq("close_reason", "NOT_FILLED")
+        .gte("closed_at", sevenDaysAgoIso)
+        .limit(1000);
+
+      if (suspiciousError) {
+        return new Response(JSON.stringify({ success: false, error: suspiciousError.message || "repair_query_failed" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      const alarmIds = Array.from(new Set((suspiciousSignals || [])
+        .map((s: any) => s?.alarm_id ? String(s.alarm_id) : "")
+        .filter((id: string) => !!id)));
+
+      if (alarmIds.length === 0) {
+        return new Response(JSON.stringify({ success: true, cleaned: 0, scanned_alarm_ids: 0 }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      const { data: activeSignals } = await supabase
+        .from("active_signals")
+        .select("alarm_id")
+        .in("status", ACTIVE_SIGNAL_STATUSES)
+        .in("alarm_id", alarmIds)
+        .limit(1000);
+
+      const activeAlarmSet = new Set((activeSignals || [])
+        .map((row: any) => row?.alarm_id ? String(row.alarm_id) : "")
+        .filter((id: string) => !!id));
+
+      const candidateAlarmIds = alarmIds.filter((alarmId) => !activeAlarmSet.has(String(alarmId)));
+
+      if (candidateAlarmIds.length === 0) {
+        return new Response(JSON.stringify({
+          success: true,
+          cleaned: 0,
+          scanned_alarm_ids: alarmIds.length,
+          skipped_active_alarm_ids: alarmIds.length,
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      const { data: toClean, error: toCleanError } = await supabase
+        .from("alarms")
+        .select("id")
+        .in("id", candidateAlarmIds)
+        .not("binance_order_id", "is", null)
+        .limit(1000);
+
+      if (toCleanError) {
+        return new Response(JSON.stringify({ success: false, error: toCleanError.message || "repair_candidates_failed" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      const cleanIds = (toClean || [])
+        .map((row: any) => row?.id ? String(row.id) : "")
+        .filter((id: string) => !!id);
+
+      if (cleanIds.length === 0) {
+        return new Response(JSON.stringify({
+          success: true,
+          cleaned: 0,
+          scanned_alarm_ids: alarmIds.length,
+          skipped_active_alarm_ids: activeAlarmSet.size,
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      const { error: repairError } = await supabase
+        .from("alarms")
+        .update({ binance_order_id: null })
+        .in("id", cleanIds);
+
+      if (repairError) {
+        return new Response(JSON.stringify({ success: false, error: repairError.message || "repair_update_failed" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        cleaned: cleanIds.length,
+        scanned_alarm_ids: alarmIds.length,
+        skipped_active_alarm_ids: activeAlarmSet.size,
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
     if (body?.action === "system_check") {
       const nowIso = new Date().toISOString();
       const staleCutoffIso = new Date(Date.now() - 30 * 60 * 1000).toISOString();
@@ -5335,6 +5442,19 @@ serve(async (req: any) => {
         .map((s: any) => s?.alarm_id ? String(s.alarm_id) : "")
         .filter((id: string) => !!id)));
 
+      const activeByAlarmSet = new Set<string>();
+      if (suspiciousAlarmIds.length > 0) {
+        const { data: activeByAlarm } = await supabase
+          .from("active_signals")
+          .select("alarm_id")
+          .in("status", ACTIVE_SIGNAL_STATUSES)
+          .in("alarm_id", suspiciousAlarmIds)
+          .limit(1000);
+        (activeByAlarm || []).forEach((row: any) => {
+          if (row?.alarm_id) activeByAlarmSet.add(String(row.alarm_id));
+        });
+      }
+
       const allAlarmIds = Array.from(new Set([...staleAlarmIds, ...suspiciousAlarmIds]));
       const alarmMap = new Map<string, any>();
       if (allAlarmIds.length > 0) {
@@ -5374,6 +5494,7 @@ serve(async (req: any) => {
       }
 
       const dbClosedButBinanceOrderLinked = suspiciousSignals.filter((signal: any) => {
+        if (signal?.alarm_id && activeByAlarmSet.has(String(signal.alarm_id))) return false;
         const alarm = signal?.alarm_id ? alarmMap.get(String(signal.alarm_id)) : null;
         return Boolean(String(alarm?.binance_order_id || "").trim());
       }).length;
