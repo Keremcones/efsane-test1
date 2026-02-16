@@ -2688,13 +2688,23 @@
                 
                 testBtn.textContent = 'Telegram\'a gönderiliyor...';
 
-                const { data: { session } } = await supabaseClient.auth.getSession();
-                
+                const { data: { session: initialSession } } = await supabaseClient.auth.getSession();
+                let session = initialSession;
+                const nowSeconds = Math.floor(Date.now() / 1000);
+                if (!session || (session.expires_at && session.expires_at <= nowSeconds + 30)) {
+                    const { data: refreshData } = await supabaseClient.auth.refreshSession();
+                    session = refreshData?.session || session;
+                }
+
+                if (!session?.access_token) {
+                    throw new Error('Oturum bulunamadı. Lütfen çıkış yapıp tekrar giriş yapın.');
+                }
+
                 const headers = { 'Content-Type': 'application/json' };
                 if (SUPABASE_ANON_KEY) {
                     headers['apikey'] = SUPABASE_ANON_KEY;
-                    headers['Authorization'] = 'Bearer ' + SUPABASE_ANON_KEY;
                 }
+                headers['Authorization'] = 'Bearer ' + session.access_token;
                 
                 const response = await fetch(TELEGRAM_FUNCTION_URL, {
                     method: 'POST',

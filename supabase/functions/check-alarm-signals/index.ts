@@ -558,34 +558,40 @@ async function buildSignedQuery(apiSecret: string, params: string = ""): Promise
 }
 
 async function getBinanceBalance(apiKey: string, apiSecret: string, marketType: "spot" | "futures"): Promise<number> {
-  const timestamp = Date.now();
-  const queryString = `timestamp=${timestamp}`;
-  const signature = await createBinanceSignature(queryString, apiSecret);
-
   const baseUrl = marketType === "futures"
     ? "https://fapi.binance.com/fapi/v2/balance"
     : "https://api.binance.com/api/v3/account";
 
-  const url = `${baseUrl}?${queryString}&signature=${signature}`;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { queryString, signature } = await buildSignedQuery(apiSecret);
+    const url = `${baseUrl}?${queryString}&signature=${signature}`;
 
-  const response = await fetch(url, {
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
+    const response = await throttledFetch(url, {
+      headers: { "X-MBX-APIKEY": apiKey }
+    });
 
-  if (!response.ok) {
-    console.error("❌ Binance balance error:", await response.text());
-    return 0;
+    if (!response.ok) {
+      const errorText = await response.text();
+      if (errorText.includes("-1021") && attempt === 0) {
+        await syncBinanceServerTime(true);
+        continue;
+      }
+      console.error("❌ Binance balance error:", errorText);
+      return 0;
+    }
+
+    const data = await response.json();
+
+    if (marketType === "futures") {
+      const usdtBalance = data.find((b: any) => b.asset === "USDT");
+      return parseFloat(usdtBalance?.availableBalance || "0");
+    }
+
+    const usdtBalance = data.balances?.find((b: any) => b.asset === "USDT");
+    return parseFloat(usdtBalance?.free || "0");
   }
 
-  const data = await response.json();
-
-  if (marketType === "futures") {
-    const usdtBalance = data.find((b: any) => b.asset === "USDT");
-    return parseFloat(usdtBalance?.availableBalance || "0");
-  }
-
-  const usdtBalance = data.balances?.find((b: any) => b.asset === "USDT");
-  return parseFloat(usdtBalance?.free || "0");
+  return 0;
 }
 
 async function getSymbolInfo(symbol: string, marketType: "spot" | "futures"): Promise<{ quantityPrecision: number; minQty: number; pricePrecision: number; tickSize: number; stepSize: number } | null> {
@@ -1165,24 +1171,32 @@ async function placeSpotOco(
 }
 
 async function hasOpenFuturesPosition(apiKey: string, apiSecret: string, symbol: string): Promise<boolean> {
-  const timestamp = Date.now();
-  const queryString = `symbol=${symbol}&timestamp=${timestamp}`;
-  const signature = await createBinanceSignature(queryString, apiSecret);
-  const url = `https://fapi.binance.com/fapi/v2/positionRisk?${queryString}&signature=${signature}`;
+  const upperSymbol = String(symbol || "").toUpperCase();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const params = `symbol=${encodeURIComponent(symbol)}`;
+    const { queryString, signature } = await buildSignedQuery(apiSecret, params);
+    const url = `https://fapi.binance.com/fapi/v2/positionRisk?${queryString}&signature=${signature}`;
 
-  const response = await fetch(url, {
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
+    const response = await throttledFetch(url, {
+      headers: { "X-MBX-APIKEY": apiKey }
+    });
 
-  if (!response.ok) {
-    console.error("❌ Binance futures position check failed:", await response.text());
-    throw new Error("Futures position check failed");
+    if (!response.ok) {
+      const errorText = await response.text();
+      if (errorText.includes("-1021") && attempt === 0) {
+        await syncBinanceServerTime(true);
+        continue;
+      }
+      console.error("❌ Binance futures position check failed:", errorText);
+      throw new Error("Futures position check failed");
+    }
+
+    const data = await response.json();
+    const positions = Array.isArray(data) ? data : [data];
+    return hasAnyOpenFuturesPositionForSymbol(positions, upperSymbol);
   }
 
-  const data = await response.json();
-  const upperSymbol = String(symbol || "").toUpperCase();
-  const positions = Array.isArray(data) ? data : [data];
-  return hasAnyOpenFuturesPositionForSymbol(positions, upperSymbol);
+  throw new Error("Futures position check failed");
 }
 
 function hasAnyOpenFuturesPositionForSymbol(positions: any[], symbol: string): boolean {
@@ -1314,22 +1328,30 @@ async function hasOpenFuturesAlgoOrders(apiKey: string, apiSecret: string, symbo
 }
 
 async function hasOpenSpotOrders(apiKey: string, apiSecret: string, symbol: string): Promise<boolean> {
-  const timestamp = Date.now();
-  const queryString = `symbol=${symbol}&timestamp=${timestamp}`;
-  const signature = await createBinanceSignature(queryString, apiSecret);
-  const url = `https://api.binance.com/api/v3/openOrders?${queryString}&signature=${signature}`;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const params = `symbol=${encodeURIComponent(symbol)}`;
+    const { queryString, signature } = await buildSignedQuery(apiSecret, params);
+    const url = `https://api.binance.com/api/v3/openOrders?${queryString}&signature=${signature}`;
 
-  const response = await throttledFetch(url, {
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
+    const response = await throttledFetch(url, {
+      headers: { "X-MBX-APIKEY": apiKey }
+    });
 
-  if (!response.ok) {
-    console.error("❌ Binance spot open orders check failed:", await response.text());
-    throw new Error("Spot open orders check failed");
+    if (!response.ok) {
+      const errorText = await response.text();
+      if (errorText.includes("-1021") && attempt === 0) {
+        await syncBinanceServerTime(true);
+        continue;
+      }
+      console.error("❌ Binance spot open orders check failed:", errorText);
+      throw new Error("Spot open orders check failed");
+    }
+
+    const data = await response.json();
+    return Array.isArray(data) && data.length > 0;
   }
 
-  const data = await response.json();
-  return Array.isArray(data) && data.length > 0;
+  throw new Error("Spot open orders check failed");
 }
 
 function resolveSpotBaseAsset(symbol: string): string {
@@ -1344,25 +1366,32 @@ function resolveSpotBaseAsset(symbol: string): string {
 }
 
 async function getSpotAssetBalance(apiKey: string, apiSecret: string, asset: string): Promise<number> {
-  const timestamp = Date.now();
-  const queryString = `timestamp=${timestamp}`;
-  const signature = await createBinanceSignature(queryString, apiSecret);
-  const url = `https://api.binance.com/api/v3/account?${queryString}&signature=${signature}`;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { queryString, signature } = await buildSignedQuery(apiSecret);
+    const url = `https://api.binance.com/api/v3/account?${queryString}&signature=${signature}`;
 
-  const response = await throttledFetch(url, {
-    headers: { "X-MBX-APIKEY": apiKey }
-  });
+    const response = await throttledFetch(url, {
+      headers: { "X-MBX-APIKEY": apiKey }
+    });
 
-  if (!response.ok) {
-    console.error("❌ Binance spot balance check failed:", await response.text());
-    throw new Error("Spot balance check failed");
+    if (!response.ok) {
+      const errorText = await response.text();
+      if (errorText.includes("-1021") && attempt === 0) {
+        await syncBinanceServerTime(true);
+        continue;
+      }
+      console.error("❌ Binance spot balance check failed:", errorText);
+      throw new Error("Spot balance check failed");
+    }
+
+    const data = await response.json();
+    const balances = Array.isArray(data?.balances) ? data.balances : [];
+    const upperAsset = String(asset || "").toUpperCase();
+    const row = balances.find((b: any) => String(b?.asset || "").toUpperCase() === upperAsset);
+    return Number(row?.free || 0) + Number(row?.locked || 0);
   }
 
-  const data = await response.json();
-  const balances = Array.isArray(data?.balances) ? data.balances : [];
-  const upperAsset = String(asset || "").toUpperCase();
-  const row = balances.find((b: any) => String(b?.asset || "").toUpperCase() === upperAsset);
-  return Number(row?.free || 0) + Number(row?.locked || 0);
+  throw new Error("Spot balance check failed");
 }
 
 async function isSpotPositionOpen(apiKey: string, apiSecret: string, symbol: string): Promise<boolean> {
@@ -4993,16 +5022,6 @@ serve(async (req: any) => {
       });
     }
 
-    // ✅ Auth guard (optional - enforced only if CRON_SECRET is set)
-    if (cronSecret) {
-      if (authToken !== cronSecret) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-    }
-
     console.log("📥 [DEBUG] Request body:", JSON.stringify(sanitizeRequestBodyForLog(body), null, 2));
     console.log("📥 [DEBUG] body?.user_id:", body?.user_id);
     console.log("📥 [DEBUG] typeof body?.user_id:", typeof body?.user_id);
@@ -5021,6 +5040,21 @@ serve(async (req: any) => {
 
     // ✅ Test notification request
     if (body?.action === "test_notification") {
+      if (!authToken) {
+        return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      const { data: authData, error: authError } = await supabase.auth.getUser(authToken);
+      if (authError || !authData?.user?.id) {
+        return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
       if (!telegramBotToken) {
         return new Response(JSON.stringify({ ok: false, error: "Missing TELEGRAM_BOT_TOKEN" }), {
           status: 500,
@@ -5047,6 +5081,21 @@ serve(async (req: any) => {
 
     // ✅ Test Binance connection request
     if (body?.action === "test_binance_connection") {
+      if (!authToken) {
+        return new Response(JSON.stringify({ success: false, error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      const { data: authData, error: authError } = await supabase.auth.getUser(authToken);
+      if (authError || !authData?.user?.id) {
+        return new Response(JSON.stringify({ success: false, error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
       const apiKey = String(body?.api_key || "").trim();
       const apiSecret = String(body?.api_secret || "").trim();
 
@@ -5081,6 +5130,14 @@ serve(async (req: any) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
       }
+    }
+
+    // ✅ Auth guard for cron/internal calls (enforced only if CRON_SECRET is set)
+    if (cronSecret && authToken !== cronSecret) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     if (body?.action === "health_check") {
