@@ -5212,6 +5212,104 @@ serve(async (req: any) => {
       });
     }
 
+    if (body?.action === "stale_breakdown") {
+      const cutoffIso = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+      const { data: staleSignals, error: staleError } = await supabase
+        .from("active_signals")
+        .select("id, user_id, alarm_id, symbol, market_type, timeframe, direction, created_at, signal_timestamp, entry_price, take_profit, stop_loss")
+        .in("status", ACTIVE_SIGNAL_STATUSES)
+        .lt("created_at", cutoffIso)
+        .order("created_at", { ascending: true })
+        .limit(200);
+
+      if (staleError) {
+        return new Response(JSON.stringify({ success: false, error: staleError.message || "stale_query_failed" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      const alarmIds = Array.from(new Set((staleSignals || [])
+        .map((s: any) => s?.alarm_id ? String(s.alarm_id) : "")
+        .filter((id: string) => !!id)));
+
+      const alarmMap = new Map<string, any>();
+      if (alarmIds.length > 0) {
+        const { data: alarmsData } = await supabase
+          .from("alarms")
+          .select("id, type, status, market_type, auto_trade_enabled, binance_order_id")
+          .in("id", alarmIds);
+        (alarmsData || []).forEach((row: any) => {
+          if (row?.id) alarmMap.set(String(row.id), row);
+        });
+      }
+
+      const nowMs = Date.now();
+      const classified = (staleSignals || []).map((signal: any) => {
+        const createdMs = Date.parse(String(signal?.created_at || ""));
+        const ageMinutes = Number.isFinite(createdMs) ? Math.max(0, Math.floor((nowMs - createdMs) / 60000)) : null;
+        const timeframe = String(signal?.timeframe || "1h");
+        const timeframeMinutes = timeframeToMinutes(timeframe);
+        const alarm = signal?.alarm_id ? alarmMap.get(String(signal.alarm_id)) : null;
+        const hasOrder = Boolean(String(alarm?.binance_order_id || "").trim());
+        const marketType = normalizeMarketType(signal?.market_type || alarm?.market_type || "spot");
+
+        let category = "needs_review";
+        let reason = "requires_manual_review";
+
+        if (hasOrder) {
+          category = "normal";
+          reason = "linked_binance_order_present";
+        } else if (Number.isFinite(ageMinutes) && Number.isFinite(timeframeMinutes) && timeframeMinutes >= 60 && (ageMinutes as number) <= (timeframeMinutes * 3)) {
+          category = "normal";
+          reason = "within_expected_timeframe_window";
+        } else if (Number.isFinite(ageMinutes) && (ageMinutes as number) >= 240 && !hasOrder) {
+          category = "risky";
+          reason = "very_old_without_linked_order";
+        } else if (Number.isFinite(ageMinutes) && (ageMinutes as number) >= 120 && marketType === "spot" && !hasOrder) {
+          category = "risky";
+          reason = "spot_old_without_linked_order";
+        }
+
+        return {
+          id: signal?.id,
+          user_id: signal?.user_id,
+          symbol: signal?.symbol,
+          market_type: marketType,
+          timeframe,
+          age_minutes: ageMinutes,
+          created_at: signal?.created_at,
+          alarm_id: signal?.alarm_id,
+          alarm_type: alarm?.type || null,
+          alarm_status: alarm?.status || null,
+          has_linked_binance_order: hasOrder,
+          category,
+          reason
+        };
+      });
+
+      const normal = classified.filter((row: any) => row.category === "normal");
+      const risky = classified.filter((row: any) => row.category === "risky");
+      const review = classified.filter((row: any) => row.category === "needs_review");
+
+      return new Response(JSON.stringify({
+        success: true,
+        timestamp: new Date().toISOString(),
+        summary: {
+          total_stale: classified.length,
+          normal: normal.length,
+          risky: risky.length,
+          needs_review: review.length,
+        },
+        normal,
+        risky,
+        needs_review: review,
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
     // ✅ If request includes a new signal, insert it (with duplicate prevention)
     let insertResult = { inserted: false, duplicate: false };
     try {
