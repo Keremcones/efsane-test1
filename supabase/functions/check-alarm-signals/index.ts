@@ -5367,6 +5367,7 @@ serve(async (req: any) => {
     if (body?.action === "system_check") {
       const nowIso = new Date().toISOString();
       const staleCutoffIso = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+      const staleDeepCutoffIso = new Date(Date.now() - 90 * 60 * 1000).toISOString();
       const oneHourAgoIso = new Date(Date.now() - 60 * 60 * 1000).toISOString();
       const oneDayAgoIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
@@ -5375,12 +5376,17 @@ serve(async (req: any) => {
       const [
         activeSignalsCount,
         staleActiveSignalsCount,
+        staleDeepActiveSignalsCount,
         failedOpenTelegramCount,
         failedCloseTelegramCount,
+        failedCloseTelegramCount24h,
         failedOrMissingCloseTelegramCount,
         dbProbe,
+        activeSignalsRes,
         staleSignalsRes,
         suspiciousClosedSignalsRes,
+        activeTradeRes,
+        lastAlarmSignalRes,
       ] = await Promise.all([
         supabase
           .from("active_signals")
@@ -5391,6 +5397,11 @@ serve(async (req: any) => {
           .select("id", { count: "exact", head: true })
           .in("status", ACTIVE_SIGNAL_STATUSES)
           .lt("created_at", staleCutoffIso),
+        supabase
+          .from("active_signals")
+          .select("id", { count: "exact", head: true })
+          .in("status", ACTIVE_SIGNAL_STATUSES)
+          .lt("created_at", staleDeepCutoffIso),
         supabase
           .from("active_signals")
           .select("id", { count: "exact", head: true })
@@ -5406,6 +5417,12 @@ serve(async (req: any) => {
           .from("active_signals")
           .select("id", { count: "exact", head: true })
           .eq("status", "CLOSED")
+          .eq("telegram_close_status", "FAILED")
+          .gte("closed_at", oneDayAgoIso),
+        supabase
+          .from("active_signals")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "CLOSED")
           .gte("closed_at", oneHourAgoIso)
           .or("telegram_close_status.eq.FAILED,telegram_close_status.is.null,telegram_close_status.eq."),
         supabase
@@ -5414,17 +5431,35 @@ serve(async (req: any) => {
           .limit(1),
         supabase
           .from("active_signals")
-          .select("id, alarm_id, market_type, timeframe, created_at")
+          .select("id, alarm_id, user_id, symbol, created_at")
           .in("status", ACTIVE_SIGNAL_STATUSES)
-          .lt("created_at", staleCutoffIso)
-          .limit(300),
+          .limit(1000),
         supabase
           .from("active_signals")
-          .select("id, alarm_id")
+          .select("id, alarm_id, user_id, symbol, market_type, timeframe, created_at")
+          .in("status", ACTIVE_SIGNAL_STATUSES)
+          .lt("created_at", staleCutoffIso)
+          .limit(1000),
+        supabase
+          .from("active_signals")
+          .select("id, alarm_id, user_id, symbol, closed_at")
           .eq("status", "CLOSED")
           .eq("close_reason", "NOT_FILLED")
           .gte("closed_at", oneDayAgoIso)
-          .limit(300),
+          .limit(1000),
+        supabase
+          .from("alarms")
+          .select("user_id, symbol")
+          .eq("type", "ACTIVE_TRADE")
+          .in("status", ACTIVE_ALARM_STATUSES)
+          .limit(1000),
+        supabase
+          .from("alarms")
+          .select("signal_timestamp")
+          .not("signal_timestamp", "is", null)
+          .order("signal_timestamp", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
       ]);
 
       const dbHealthy = !dbProbe.error;
@@ -5433,6 +5468,7 @@ serve(async (req: any) => {
       }
 
       const staleSignals = staleSignalsRes.data || [];
+      const activeSignals = activeSignalsRes.data || [];
       const staleAlarmIds = Array.from(new Set(staleSignals
         .map((s: any) => s?.alarm_id ? String(s.alarm_id) : "")
         .filter((id: string) => !!id)));
@@ -5467,6 +5503,10 @@ serve(async (req: any) => {
         });
       }
 
+      const activeTradeSet = new Set((activeTradeRes.data || [])
+        .map((row: any) => `${String(row?.user_id || "")}:${String(row?.symbol || "").toUpperCase()}`)
+        .filter((key: string) => key !== ":"));
+
       const nowMs = Date.now();
       let staleNormal = 0;
       let staleRisky = 0;
@@ -5499,17 +5539,56 @@ serve(async (req: any) => {
         return Boolean(String(alarm?.binance_order_id || "").trim());
       }).length;
 
+      const dbClosedButBinanceOrderLinked1h = suspiciousSignals.filter((signal: any) => {
+        if (signal?.alarm_id && activeByAlarmSet.has(String(signal.alarm_id))) return false;
+        const alarm = signal?.alarm_id ? alarmMap.get(String(signal.alarm_id)) : null;
+        const linked = Boolean(String(alarm?.binance_order_id || "").trim());
+        const closedMs = Date.parse(String(signal?.closed_at || ""));
+        const isLast1h = Number.isFinite(closedMs) && closedMs >= (Date.now() - 60 * 60 * 1000);
+        return linked && isLast1h;
+      }).length;
+
+      const dbActiveWithoutBinanceLink30m = activeSignals.filter((signal: any) => {
+        const createdMs = Date.parse(String(signal?.created_at || ""));
+        if (!Number.isFinite(createdMs) || createdMs >= (Date.now() - 30 * 60 * 1000)) return false;
+        const alarm = signal?.alarm_id ? alarmMap.get(String(signal.alarm_id)) : null;
+        const hasLinkedOrder = Boolean(String(alarm?.binance_order_id || "").trim());
+        const activeTradeKey = `${String(signal?.user_id || "")}:${String(signal?.symbol || "").toUpperCase()}`;
+        const hasActiveTrade = activeTradeSet.has(activeTradeKey);
+        return !hasLinkedOrder && !hasActiveTrade;
+      }).length;
+
+      const symbolCounter = new Map<string, number>();
+      const userCounter = new Map<string, number>();
+      for (const row of [...staleSignals, ...suspiciousSignals]) {
+        const symbol = String(row?.symbol || "").toUpperCase();
+        const userId = String(row?.user_id || "");
+        if (symbol) symbolCounter.set(symbol, (symbolCounter.get(symbol) || 0) + 1);
+        if (userId) userCounter.set(userId, (userCounter.get(userId) || 0) + 1);
+      }
+      const topSymbols = Array.from(symbolCounter.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([symbol, count]) => ({ symbol, count }));
+      const topUsers = Array.from(userCounter.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([user_id, count]) => ({ user_id, count }));
+
       if ((failedOpenTelegramCount.count || 0) > 0) {
-        issues.push({ level: "warning", code: "open_telegram_failed_active", message: `${failedOpenTelegramCount.count || 0} active signal has open telegram failure` });
+        issues.push({ level: "warning", code: "open_telegram_failed_active", message: `${failedOpenTelegramCount.count || 0} aktif sinyalde açılış Telegram gönderimi başarısız.` });
       }
       if ((failedCloseTelegramCount.count || 0) > 0) {
-        issues.push({ level: "warning", code: "close_telegram_failed_1h", message: `${failedCloseTelegramCount.count || 0} closed signal has close telegram failure in last 1h` });
+        issues.push({ level: "warning", code: "close_telegram_failed_1h", message: `Son 1 saatte ${failedCloseTelegramCount.count || 0} kapanış Telegram gönderimi başarısız.` });
       }
       if (staleRisky > 0 || staleNeedsReview > 0) {
-        issues.push({ level: "warning", code: "stale_signals_attention", message: `stale risky=${staleRisky}, review=${staleNeedsReview}` });
+        issues.push({ level: "warning", code: "stale_signals_attention", message: `Stale sinyal uyarısı: risky=${staleRisky}, inceleme=${staleNeedsReview}.` });
       }
       if (dbClosedButBinanceOrderLinked > 0) {
-        issues.push({ level: "warning", code: "closed_not_filled_with_linked_order", message: `${dbClosedButBinanceOrderLinked} NOT_FILLED closed signals still linked to Binance order` });
+        issues.push({ level: "warning", code: "closed_not_filled_with_linked_order", message: `${dbClosedButBinanceOrderLinked} NOT_FILLED kayıt Binance order linki taşıyor.` });
+      }
+      if (dbActiveWithoutBinanceLink30m > 0) {
+        issues.push({ level: "warning", code: "db_active_without_link_30m", message: `${dbActiveWithoutBinanceLink30m} aktif sinyal 30dk+ olmasına rağmen Binance order linki yok.` });
       }
 
       let spotPingOk = false;
@@ -5534,8 +5613,8 @@ serve(async (req: any) => {
           level: (binanceBanUntil > Date.now()) ? "critical" : "warning",
           code: "binance_api_issue",
           message: binanceBanUntil > Date.now()
-            ? `binance ban active (${Math.ceil((binanceBanUntil - Date.now()) / 1000)}s)`
-            : (binancePingError || "binance ping failed")
+            ? `Binance erişim ban aktif (${Math.ceil((binanceBanUntil - Date.now()) / 1000)}s).`
+            : (binancePingError ? `Binance ping hatası: ${binancePingError}` : "Binance ping başarısız.")
         });
       }
 
@@ -5543,7 +5622,7 @@ serve(async (req: any) => {
       let telegramApiOk = false;
       let telegramApiError = "";
       if (!telegramConfigured) {
-        telegramApiError = "TELEGRAM_BOT_TOKEN missing";
+        telegramApiError = "TELEGRAM_BOT_TOKEN eksik";
         issues.push({ level: "critical", code: "telegram_token_missing", message: telegramApiError });
       } else {
         try {
@@ -5557,9 +5636,28 @@ serve(async (req: any) => {
           telegramApiError = e instanceof Error ? e.message : "telegram_check_failed";
         }
         if (!telegramApiOk) {
-          issues.push({ level: "warning", code: "telegram_api_unreachable", message: telegramApiError || "telegram check failed" });
+          issues.push({ level: "warning", code: "telegram_api_unreachable", message: telegramApiError ? `Telegram API erişim hatası: ${telegramApiError}` : "Telegram API kontrolü başarısız." });
         }
       }
+
+      const latestSignalAt = String(lastAlarmSignalRes.data?.signal_timestamp || "");
+      const latestSignalMs = Date.parse(latestSignalAt);
+      const cronFreshnessMinutes = Number.isFinite(latestSignalMs)
+        ? Math.max(0, Math.floor((Date.now() - latestSignalMs) / 60000))
+        : null;
+      const cronFresh = Number.isFinite(cronFreshnessMinutes) ? (cronFreshnessMinutes as number) <= 30 : false;
+      if (!cronFresh) {
+        issues.push({ level: "warning", code: "cron_freshness_old", message: `Cron tazeliği düşük: son sinyal ${Number.isFinite(cronFreshnessMinutes) ? `${cronFreshnessMinutes} dk önce` : "bilinmiyor"}.` });
+      }
+
+      const endpointEntries = Object.entries(endpointStats);
+      const binanceEndpointEntries = endpointEntries.filter(([key]) => /binance\.(com|vision)/i.test(key));
+      const binanceTotalCount = binanceEndpointEntries.reduce((sum, [, stat]) => sum + (stat?.count || 0), 0);
+      const binanceTotalMs = binanceEndpointEntries.reduce((sum, [, stat]) => sum + (stat?.totalMs || 0), 0);
+      const binanceAvgMs = binanceTotalCount > 0 ? Math.round(binanceTotalMs / binanceTotalCount) : 0;
+      const edgeTotalCount = endpointEntries.reduce((sum, [, stat]) => sum + (stat?.count || 0), 0);
+      const edgeTotalMs = endpointEntries.reduce((sum, [, stat]) => sum + (stat?.totalMs || 0), 0);
+      const edgeAvgMs = edgeTotalCount > 0 ? Math.round(edgeTotalMs / edgeTotalCount) : 0;
 
       const criticalCount = issues.filter(issue => issue.level === "critical").length;
       const warningCount = issues.filter(issue => issue.level === "warning").length;
@@ -5572,15 +5670,21 @@ serve(async (req: any) => {
         summary: {
           critical: criticalCount,
           warnings: warningCount,
-          checks_total: 6,
+          checks_total: 10,
         },
         checks: {
           edge: {
             ok: overallStatus !== "CRITICAL",
             request_count: requestCount,
             binance_request_count: binanceRequestCount,
+            avg_latency_ms: edgeAvgMs,
             algo_endpoint_cooldown_active: futuresAlgoEndpointBlockedUntil > Date.now(),
             algo_endpoint_cooldown_remaining_sec: futuresAlgoEndpointBlockedUntil > Date.now() ? Math.ceil((futuresAlgoEndpointBlockedUntil - Date.now()) / 1000) : 0,
+          },
+          cron: {
+            fresh: cronFresh,
+            last_signal_at: latestSignalAt || null,
+            freshness_minutes: cronFreshnessMinutes,
           },
           database: {
             ok: dbHealthy,
@@ -5592,12 +5696,14 @@ serve(async (req: any) => {
             api_error: telegramApiError || null,
             open_failed_active: failedOpenTelegramCount.count || 0,
             close_failed_last_1h: failedCloseTelegramCount.count || 0,
+            close_failed_last_24h: failedCloseTelegramCount24h.count || 0,
             close_pending_retry_last_1h: failedOrMissingCloseTelegramCount.count || 0,
           },
           binance: {
             spot_ping_ok: spotPingOk,
             futures_ping_ok: futuresPingOk,
             ping_error: binancePingError || null,
+            avg_latency_ms: binanceAvgMs,
             ban_active: binanceBanUntil > Date.now(),
             ban_remaining_sec: binanceBanUntil > Date.now() ? Math.ceil((binanceBanUntil - Date.now()) / 1000) : 0,
             time_offset_ms: binanceTimeOffsetMs,
@@ -5605,11 +5711,36 @@ serve(async (req: any) => {
           signals: {
             active: activeSignalsCount.count || 0,
             stale_30m: staleActiveSignalsCount.count || 0,
+            stale_90m: staleDeepActiveSignalsCount.count || 0,
             stale_normal: staleNormal,
             stale_risky: staleRisky,
             stale_needs_review: staleNeedsReview,
+            db_active_without_binance_link_30m: dbActiveWithoutBinanceLink30m,
             closed_not_filled_with_linked_order_24h: dbClosedButBinanceOrderLinked,
+            closed_not_filled_with_linked_order_1h: dbClosedButBinanceOrderLinked1h,
           },
+          queue: {
+            open_failed_active: failedOpenTelegramCount.count || 0,
+            close_failed_1h: failedCloseTelegramCount.count || 0,
+            close_failed_24h: failedCloseTelegramCount24h.count || 0,
+            close_pending_retry_1h: failedOrMissingCloseTelegramCount.count || 0,
+          },
+          drift: {
+            db_active_but_binance_unlinked_30m: dbActiveWithoutBinanceLink30m,
+            db_closed_but_binance_linked_24h: dbClosedButBinanceOrderLinked,
+          },
+        },
+        trend: {
+          wrong_close_last_1h: dbClosedButBinanceOrderLinked1h,
+          wrong_close_last_24h: dbClosedButBinanceOrderLinked,
+          close_telegram_failed_last_1h: failedCloseTelegramCount.count || 0,
+          close_telegram_failed_last_24h: failedCloseTelegramCount24h.count || 0,
+          stale_30m: staleActiveSignalsCount.count || 0,
+          stale_90m: staleDeepActiveSignalsCount.count || 0,
+        },
+        top_offenders: {
+          symbols: topSymbols,
+          users: topUsers,
         },
         issues,
       }), {

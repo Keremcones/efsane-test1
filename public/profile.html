@@ -1611,10 +1611,32 @@
                             <div class="admin-site-stat-label">NOT_FILLED ama Order Link (24s)</div>
                             <div class="admin-site-stat-value" id="adminHealthWrongCloseCount">-</div>
                         </div>
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">Cron Tazelik (dk)</div>
+                            <div class="admin-site-stat-value" id="adminSystemCronFreshness">-</div>
+                        </div>
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">Edge / Binance Ortalama Gecikme</div>
+                            <div class="admin-site-stat-value" id="adminSystemLatencySummary">-</div>
+                        </div>
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">Drift (Aktif Linksiz / Kapalı Linked)</div>
+                            <div class="admin-site-stat-value" id="adminSystemDriftSummary">-</div>
+                        </div>
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">Kuyruk (Open / Close / Retry)</div>
+                            <div class="admin-site-stat-value" id="adminSystemQueueSummary">-</div>
+                        </div>
                     </div>
                     <div class="admin-site-stats-meta">
                         <span id="adminSignalHealthRuntime">Binance Ban: - · Algo Cooldown: -</span>
                         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <button class="btn btn-secondary" style="padding: 8px 12px; flex: 0 0 auto;" onclick="window.exportAdminSystemJson()">
+                                <i class="fa-solid fa-file-code"></i> JSON
+                            </button>
+                            <button class="btn btn-secondary" style="padding: 8px 12px; flex: 0 0 auto;" onclick="window.exportAdminSystemCsv()">
+                                <i class="fa-solid fa-file-csv"></i> CSV
+                            </button>
                             <button class="btn btn-secondary" style="padding: 8px 12px; flex: 0 0 auto;" onclick="window.repairAdminSystemLinks()">
                                 <i class="fa-solid fa-screwdriver-wrench"></i> Düzelt
                             </button>
@@ -1627,7 +1649,19 @@
                         <span id="adminSignalHealthUpdatedAt">Son güncelleme: -</span>
                     </div>
                     <div class="admin-site-stats-meta" style="margin-top: 6px;">
-                        <span id="adminSystemIssueList">Issue list: -</span>
+                        <span id="adminSystemIssueList">Uyarı listesi: -</span>
+                    </div>
+                    <div class="admin-site-stats-meta" style="margin-top: 6px;">
+                        <span id="adminSystemPersistedAlerts">Kalıcı uyarı: -</span>
+                    </div>
+                    <div class="admin-site-stats-meta" style="margin-top: 6px;">
+                        <span id="adminSystemTrendLine">Trend: -</span>
+                    </div>
+                    <div class="admin-site-stats-meta" style="margin-top: 6px;">
+                        <span id="adminSystemTopLine">Top offender: -</span>
+                    </div>
+                    <div class="admin-site-stats-meta" style="margin-top: 6px;">
+                        <span id="adminSystemActionLog">İşlem logu: -</span>
                     </div>
                 </div>
 
@@ -1911,9 +1945,98 @@
         const ADMIN_EMAIL = 'asd@asd.com';
         let canUseTelegramChatId = false;
         let currentIsAdmin = false;
+        const ADMIN_SYSTEM_ALERT_STATE_KEY = 'admin_system_alert_state_v1';
+        const ADMIN_SYSTEM_ACTION_LOG_KEY = 'admin_system_action_log_v1';
+        let adminSystemLatestSnapshot = null;
+        let adminSystemAutoRefreshTimer = null;
 
         function toCountText(value) {
             return Number.isFinite(value) && value >= 0 ? String(value) : '-';
+        }
+
+        function loadJsonStorage(key, fallback) {
+            try {
+                const raw = localStorage.getItem(key);
+                return raw ? JSON.parse(raw) : fallback;
+            } catch {
+                return fallback;
+            }
+        }
+
+        function saveJsonStorage(key, value) {
+            try {
+                localStorage.setItem(key, JSON.stringify(value));
+            } catch {
+                // ignore quota errors
+            }
+        }
+
+        function updatePersistentAlertState(issues) {
+            const prev = loadJsonStorage(ADMIN_SYSTEM_ALERT_STATE_KEY, {});
+            const next = {};
+            (Array.isArray(issues) ? issues : []).forEach((issue) => {
+                const code = String(issue?.code || 'unknown');
+                next[code] = (Number(prev[code] || 0) + 1);
+            });
+            saveJsonStorage(ADMIN_SYSTEM_ALERT_STATE_KEY, next);
+            return Object.entries(next)
+                .filter(([, count]) => Number(count) >= 3)
+                .map(([code, count]) => ({ code, count }));
+        }
+
+        function appendAdminSystemActionLog(action, detail) {
+            const history = loadJsonStorage(ADMIN_SYSTEM_ACTION_LOG_KEY, []);
+            const entry = {
+                action,
+                detail,
+                at: new Date().toISOString(),
+                user: currentUser?.email || 'admin'
+            };
+            const next = [entry, ...history].slice(0, 20);
+            saveJsonStorage(ADMIN_SYSTEM_ACTION_LOG_KEY, next);
+            return next;
+        }
+
+        function renderAdminSystemActionLog() {
+            const el = document.getElementById('adminSystemActionLog');
+            if (!el) return;
+            const history = loadJsonStorage(ADMIN_SYSTEM_ACTION_LOG_KEY, []);
+            if (!history.length) {
+                el.textContent = 'İşlem logu: henüz kayıt yok';
+                return;
+            }
+            const preview = history.slice(0, 3).map(item => {
+                const timeText = new Date(item.at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+                return `${timeText} ${item.action} (${item.detail})`;
+            }).join(' | ');
+            el.textContent = `İşlem logu: ${preview}`;
+        }
+
+        function setupAdminSystemAutoRefresh() {
+            if (adminSystemAutoRefreshTimer) {
+                clearInterval(adminSystemAutoRefreshTimer);
+                adminSystemAutoRefreshTimer = null;
+            }
+            if (!currentIsAdmin) return;
+            adminSystemAutoRefreshTimer = setInterval(async () => {
+                try {
+                    await loadAdminSignalHealth(false);
+                } catch {
+                    // ignore background refresh errors
+                }
+            }, 60000);
+        }
+
+        function downloadTextFile(filename, content, mimeType) {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = filename;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            URL.revokeObjectURL(url);
         }
 
         function setAdminSiteStatsValues(values) {
@@ -1948,8 +2071,15 @@
             const staleSummaryEl = document.getElementById('adminHealthStaleSummary');
             const telegramSummaryEl = document.getElementById('adminHealthTelegramSummary');
             const wrongCloseEl = document.getElementById('adminHealthWrongCloseCount');
+            const cronFreshEl = document.getElementById('adminSystemCronFreshness');
+            const latencySummaryEl = document.getElementById('adminSystemLatencySummary');
+            const driftSummaryEl = document.getElementById('adminSystemDriftSummary');
+            const queueSummaryEl = document.getElementById('adminSystemQueueSummary');
             const runtimeEl = document.getElementById('adminSignalHealthRuntime');
             const issuesEl = document.getElementById('adminSystemIssueList');
+            const persistedEl = document.getElementById('adminSystemPersistedAlerts');
+            const trendEl = document.getElementById('adminSystemTrendLine');
+            const topEl = document.getElementById('adminSystemTopLine');
             const updatedAtEl = document.getElementById('adminSignalHealthUpdatedAt');
 
             if (overallEl) overallEl.textContent = values?.overallStatus || '-';
@@ -1962,6 +2092,10 @@
             if (staleSummaryEl) staleSummaryEl.textContent = `${toCountText(values?.riskyStale)} / ${toCountText(values?.needsReview)}`;
             if (telegramSummaryEl) telegramSummaryEl.textContent = `${toCountText(values?.openTelegramFailed)} / ${toCountText(values?.closeTelegramFailed)}`;
             if (wrongCloseEl) wrongCloseEl.textContent = toCountText(values?.wrongClosedCount);
+            if (cronFreshEl) cronFreshEl.textContent = toCountText(values?.cronFreshnessMinutes);
+            if (latencySummaryEl) latencySummaryEl.textContent = `${toCountText(values?.edgeAvgLatencyMs)}ms / ${toCountText(values?.binanceAvgLatencyMs)}ms`;
+            if (driftSummaryEl) driftSummaryEl.textContent = `${toCountText(values?.driftActiveWithoutLink)} / ${toCountText(values?.driftClosedWithLink)}`;
+            if (queueSummaryEl) queueSummaryEl.textContent = `${toCountText(values?.openTelegramFailed)} / ${toCountText(values?.closeTelegramFailed)} / ${toCountText(values?.closeRetryQueue)}`;
 
             if (runtimeEl) {
                 const banText = values?.binanceBanActive ? `Aktif (${toCountText(values?.binanceBanRemainingSec)}s)` : 'Yok';
@@ -1971,9 +2105,25 @@
 
             if (issuesEl) {
                 const issueItems = Array.isArray(values?.issues) ? values.issues : [];
+                const persisted = updatePersistentAlertState(issueItems);
                 issuesEl.textContent = issueItems.length > 0
-                    ? `Issue list: ${issueItems.slice(0, 5).map(i => `[${i.level}] ${i.code}`).join(' | ')}`
-                    : 'Issue list: temiz';
+                    ? `Uyarı listesi: ${issueItems.slice(0, 5).map(i => `[${i.level === 'critical' ? 'kritik' : 'uyarı'}] ${i.message || i.code}`).join(' | ')}`
+                    : 'Uyarı listesi: temiz';
+                if (persistedEl) {
+                    persistedEl.textContent = persisted.length
+                        ? `Kalıcı uyarı (3+ tur): ${persisted.map(item => `${item.code}(${item.count})`).join(' | ')}`
+                        : 'Kalıcı uyarı: yok';
+                }
+            }
+
+            if (trendEl) {
+                trendEl.textContent = `Trend: WrongClose 1s/24s ${toCountText(values?.wrongClose1h)}/${toCountText(values?.wrongClosedCount)} · CloseFail 1s/24s ${toCountText(values?.closeTelegramFailed)}/${toCountText(values?.closeTelegramFailed24h)} · Stale 30/90 ${toCountText(values?.staleSignals)}/${toCountText(values?.stale90m)}`;
+            }
+
+            if (topEl) {
+                const topSymbol = values?.topSymbol ? `${values.topSymbol.symbol}(${values.topSymbol.count})` : '-';
+                const topUser = values?.topUser ? `${values.topUser.user_id.slice(0, 8)}…(${values.topUser.count})` : '-';
+                topEl.textContent = `Top offender: Symbol ${topSymbol} · User ${topUser}`;
             }
 
             if (updatedAtEl) {
@@ -2018,6 +2168,8 @@
                 throw new Error(result?.error || 'system_check başarısız');
             }
 
+            adminSystemLatestSnapshot = result;
+
             return {
                 overallStatus: String(result?.overall_status || '-'),
                 criticalCount: Number(result?.summary?.critical ?? NaN),
@@ -2028,26 +2180,38 @@
                 binanceApiStatus: (result?.checks?.binance?.spot_ping_ok && result?.checks?.binance?.futures_ping_ok) ? 'OK' : 'DEGRADED',
                 activeSignals: Number(result?.checks?.signals?.active ?? NaN),
                 staleSignals: Number(result?.checks?.signals?.stale_30m ?? NaN),
+                stale90m: Number(result?.checks?.signals?.stale_90m ?? NaN),
                 riskyStale: Number(result?.checks?.signals?.stale_risky ?? NaN),
                 needsReview: Number(result?.checks?.signals?.stale_needs_review ?? NaN),
                 openTelegramFailed: Number(result?.checks?.telegram?.open_failed_active ?? NaN),
                 closeTelegramFailed: Number(result?.checks?.telegram?.close_failed_last_1h ?? NaN),
+                closeTelegramFailed24h: Number(result?.checks?.telegram?.close_failed_last_24h ?? NaN),
+                closeRetryQueue: Number(result?.checks?.telegram?.close_pending_retry_last_1h ?? NaN),
                 wrongClosedCount: Number(result?.checks?.signals?.closed_not_filled_with_linked_order_24h ?? NaN),
+                wrongClose1h: Number(result?.checks?.signals?.closed_not_filled_with_linked_order_1h ?? NaN),
+                driftActiveWithoutLink: Number(result?.checks?.drift?.db_active_but_binance_unlinked_30m ?? NaN),
+                driftClosedWithLink: Number(result?.checks?.drift?.db_closed_but_binance_linked_24h ?? NaN),
+                cronFreshnessMinutes: Number(result?.checks?.cron?.freshness_minutes ?? NaN),
+                edgeAvgLatencyMs: Number(result?.checks?.edge?.avg_latency_ms ?? 0),
+                binanceAvgLatencyMs: Number(result?.checks?.binance?.avg_latency_ms ?? 0),
                 binanceBanActive: !!result?.checks?.binance?.ban_active,
                 binanceBanRemainingSec: Number(result?.checks?.binance?.ban_remaining_sec ?? 0),
                 binanceTimeOffsetMs: Number(result?.checks?.binance?.time_offset_ms ?? 0),
                 algoCooldownActive: !!result?.checks?.edge?.algo_endpoint_cooldown_active,
                 algoCooldownRemainingSec: Number(result?.checks?.edge?.algo_endpoint_cooldown_remaining_sec ?? 0),
+                topSymbol: Array.isArray(result?.top_offenders?.symbols) ? result.top_offenders.symbols[0] : null,
+                topUser: Array.isArray(result?.top_offenders?.users) ? result.top_offenders.users[0] : null,
                 issues: Array.isArray(result?.issues) ? result.issues : []
             };
         }
 
-        async function loadAdminSignalHealth() {
+        async function loadAdminSignalHealth(showErrorNotification = true) {
             if (!currentIsAdmin) return;
 
             try {
                 const values = await fetchAdminSignalHealth();
                 setAdminSignalHealthValues(values);
+                renderAdminSystemActionLog();
             } catch (error) {
                 console.warn('Admin sinyal sağlığı yüklenemedi:', error?.message || error);
                 setAdminSignalHealthValues({
@@ -2072,6 +2236,9 @@
                     algoCooldownRemainingSec: 0,
                     issues: [{ level: 'critical', code: 'panel_load_failed' }]
                 });
+                if (showErrorNotification) {
+                    showNotification(`Sistem check yüklenemedi: ${error?.message || 'Bilinmeyen hata'}`, 'warning');
+                }
             }
         }
 
@@ -2179,7 +2346,11 @@
                 if (isAdmin) {
                     await loadAdminUserList();
                     await loadAdminSiteStats();
-                    await loadAdminSignalHealth();
+                    await loadAdminSignalHealth(false);
+                    setupAdminSystemAutoRefresh();
+                } else if (adminSystemAutoRefreshTimer) {
+                    clearInterval(adminSystemAutoRefreshTimer);
+                    adminSystemAutoRefreshTimer = null;
                 }
 
                 await loadAdminAnnouncement();
@@ -2330,6 +2501,8 @@
                 return;
             }
             await loadAdminSignalHealth();
+            appendAdminSystemActionLog('manuel_yenile', 'sistem_check');
+            renderAdminSystemActionLog();
             showNotification('Sistem check guncellendi.', 'success');
         }
 
@@ -2355,6 +2528,8 @@
                 }
 
                 showNotification(`Duzeltme tamamlandi. Temizlenen alarm link: ${Number(result?.cleaned || 0)}`, 'success');
+                appendAdminSystemActionLog('duzelt', `temizlenen=${Number(result?.cleaned || 0)}`);
+                renderAdminSystemActionLog();
                 await loadAdminSignalHealth();
             } catch (error) {
                 console.error('Admin repair hatasi:', error);
@@ -2362,8 +2537,52 @@
             }
         }
 
+        function exportAdminSystemJson() {
+            if (!adminSystemLatestSnapshot) {
+                showNotification('Önce sistem check verisi yüklenmeli.', 'warning');
+                return;
+            }
+            const filename = `sistem-check-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+            downloadTextFile(filename, JSON.stringify(adminSystemLatestSnapshot, null, 2), 'application/json');
+            appendAdminSystemActionLog('export_json', 'tamam');
+            renderAdminSystemActionLog();
+            showNotification('JSON dışa aktarıldı.', 'success');
+        }
+
+        function exportAdminSystemCsv() {
+            if (!adminSystemLatestSnapshot) {
+                showNotification('Önce sistem check verisi yüklenmeli.', 'warning');
+                return;
+            }
+            const checks = adminSystemLatestSnapshot?.checks || {};
+            const trend = adminSystemLatestSnapshot?.trend || {};
+            const lines = [
+                'alan,deger',
+                `overall_status,${adminSystemLatestSnapshot?.overall_status || ''}`,
+                `critical,${adminSystemLatestSnapshot?.summary?.critical ?? ''}`,
+                `warnings,${adminSystemLatestSnapshot?.summary?.warnings ?? ''}`,
+                `signals_active,${checks?.signals?.active ?? ''}`,
+                `signals_stale_30m,${checks?.signals?.stale_30m ?? ''}`,
+                `signals_stale_90m,${checks?.signals?.stale_90m ?? ''}`,
+                `wrong_close_1h,${trend?.wrong_close_last_1h ?? ''}`,
+                `wrong_close_24h,${trend?.wrong_close_last_24h ?? ''}`,
+                `close_fail_1h,${trend?.close_telegram_failed_last_1h ?? ''}`,
+                `close_fail_24h,${trend?.close_telegram_failed_last_24h ?? ''}`,
+                `cron_freshness_min,${checks?.cron?.freshness_minutes ?? ''}`,
+                `edge_avg_latency_ms,${checks?.edge?.avg_latency_ms ?? ''}`,
+                `binance_avg_latency_ms,${checks?.binance?.avg_latency_ms ?? ''}`,
+            ];
+            const filename = `sistem-check-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+            downloadTextFile(filename, lines.join('\n'), 'text/csv;charset=utf-8');
+            appendAdminSystemActionLog('export_csv', 'tamam');
+            renderAdminSystemActionLog();
+            showNotification('CSV dışa aktarıldı.', 'success');
+        }
+
         window.refreshAdminSignalHealth = refreshAdminSignalHealth;
         window.repairAdminSystemLinks = repairAdminSystemLinks;
+        window.exportAdminSystemJson = exportAdminSystemJson;
+        window.exportAdminSystemCsv = exportAdminSystemCsv;
 
         async function saveAdminAnnouncement() {
             if (!currentIsAdmin) {
