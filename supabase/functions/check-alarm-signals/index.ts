@@ -5160,7 +5160,7 @@ serve(async (req: any) => {
       }
     }
 
-    const isHealthAction = body?.action === "health_check" || body?.action === "stale_breakdown";
+    const isHealthAction = body?.action === "health_check" || body?.action === "stale_breakdown" || body?.action === "system_check";
 
     async function isAdminUserToken(token: string): Promise<boolean> {
       if (!token) return false;
@@ -5251,6 +5251,246 @@ serve(async (req: any) => {
           algo_endpoint_cooldown_active: futuresAlgoEndpointBlockedUntil > Date.now(),
           algo_endpoint_cooldown_remaining_sec: futuresAlgoEndpointBlockedUntil > Date.now() ? Math.ceil((futuresAlgoEndpointBlockedUntil - Date.now()) / 1000) : 0,
         }
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    if (body?.action === "system_check") {
+      const nowIso = new Date().toISOString();
+      const staleCutoffIso = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+      const oneHourAgoIso = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      const oneDayAgoIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+      const issues: Array<{ level: "warning" | "critical"; code: string; message: string }> = [];
+
+      const [
+        activeSignalsCount,
+        staleActiveSignalsCount,
+        failedOpenTelegramCount,
+        failedCloseTelegramCount,
+        failedOrMissingCloseTelegramCount,
+        dbProbe,
+        staleSignalsRes,
+        suspiciousClosedSignalsRes,
+      ] = await Promise.all([
+        supabase
+          .from("active_signals")
+          .select("id", { count: "exact", head: true })
+          .in("status", ACTIVE_SIGNAL_STATUSES),
+        supabase
+          .from("active_signals")
+          .select("id", { count: "exact", head: true })
+          .in("status", ACTIVE_SIGNAL_STATUSES)
+          .lt("created_at", staleCutoffIso),
+        supabase
+          .from("active_signals")
+          .select("id", { count: "exact", head: true })
+          .in("status", ACTIVE_SIGNAL_STATUSES)
+          .eq("telegram_status", "FAILED"),
+        supabase
+          .from("active_signals")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "CLOSED")
+          .eq("telegram_close_status", "FAILED")
+          .gte("closed_at", oneHourAgoIso),
+        supabase
+          .from("active_signals")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "CLOSED")
+          .gte("closed_at", oneHourAgoIso)
+          .or("telegram_close_status.eq.FAILED,telegram_close_status.is.null,telegram_close_status.eq."),
+        supabase
+          .from("alarms")
+          .select("id", { count: "exact", head: true })
+          .limit(1),
+        supabase
+          .from("active_signals")
+          .select("id, alarm_id, market_type, timeframe, created_at")
+          .in("status", ACTIVE_SIGNAL_STATUSES)
+          .lt("created_at", staleCutoffIso)
+          .limit(300),
+        supabase
+          .from("active_signals")
+          .select("id, alarm_id")
+          .eq("status", "CLOSED")
+          .eq("close_reason", "NOT_FILLED")
+          .gte("closed_at", oneDayAgoIso)
+          .limit(300),
+      ]);
+
+      const dbHealthy = !dbProbe.error;
+      if (!dbHealthy) {
+        issues.push({ level: "critical", code: "db_probe_failed", message: dbProbe.error?.message || "Database probe failed" });
+      }
+
+      const staleSignals = staleSignalsRes.data || [];
+      const staleAlarmIds = Array.from(new Set(staleSignals
+        .map((s: any) => s?.alarm_id ? String(s.alarm_id) : "")
+        .filter((id: string) => !!id)));
+
+      const suspiciousSignals = suspiciousClosedSignalsRes.data || [];
+      const suspiciousAlarmIds = Array.from(new Set(suspiciousSignals
+        .map((s: any) => s?.alarm_id ? String(s.alarm_id) : "")
+        .filter((id: string) => !!id)));
+
+      const allAlarmIds = Array.from(new Set([...staleAlarmIds, ...suspiciousAlarmIds]));
+      const alarmMap = new Map<string, any>();
+      if (allAlarmIds.length > 0) {
+        const { data: alarmsData } = await supabase
+          .from("alarms")
+          .select("id, market_type, timeframe, binance_order_id")
+          .in("id", allAlarmIds);
+        (alarmsData || []).forEach((alarm: any) => {
+          if (alarm?.id) alarmMap.set(String(alarm.id), alarm);
+        });
+      }
+
+      const nowMs = Date.now();
+      let staleNormal = 0;
+      let staleRisky = 0;
+      let staleNeedsReview = 0;
+      for (const signal of staleSignals) {
+        const createdMs = Date.parse(String(signal?.created_at || ""));
+        const ageMinutes = Number.isFinite(createdMs) ? Math.max(0, Math.floor((nowMs - createdMs) / 60000)) : null;
+        const alarm = signal?.alarm_id ? alarmMap.get(String(signal.alarm_id)) : null;
+        const timeframe = String(signal?.timeframe || alarm?.timeframe || "1h");
+        const timeframeMinutes = timeframeToMinutes(timeframe);
+        const hasOrder = Boolean(String(alarm?.binance_order_id || "").trim());
+        const marketType = normalizeMarketType(signal?.market_type || alarm?.market_type || "spot");
+
+        if (hasOrder) {
+          staleNormal += 1;
+        } else if (Number.isFinite(ageMinutes) && Number.isFinite(timeframeMinutes) && timeframeMinutes >= 60 && (ageMinutes as number) <= (timeframeMinutes * 3)) {
+          staleNormal += 1;
+        } else if (Number.isFinite(ageMinutes) && (ageMinutes as number) >= 240 && !hasOrder) {
+          staleRisky += 1;
+        } else if (Number.isFinite(ageMinutes) && (ageMinutes as number) >= 120 && marketType === "spot" && !hasOrder) {
+          staleRisky += 1;
+        } else {
+          staleNeedsReview += 1;
+        }
+      }
+
+      const dbClosedButBinanceOrderLinked = suspiciousSignals.filter((signal: any) => {
+        const alarm = signal?.alarm_id ? alarmMap.get(String(signal.alarm_id)) : null;
+        return Boolean(String(alarm?.binance_order_id || "").trim());
+      }).length;
+
+      if ((failedOpenTelegramCount.count || 0) > 0) {
+        issues.push({ level: "warning", code: "open_telegram_failed_active", message: `${failedOpenTelegramCount.count || 0} active signal has open telegram failure` });
+      }
+      if ((failedCloseTelegramCount.count || 0) > 0) {
+        issues.push({ level: "warning", code: "close_telegram_failed_1h", message: `${failedCloseTelegramCount.count || 0} closed signal has close telegram failure in last 1h` });
+      }
+      if (staleRisky > 0 || staleNeedsReview > 0) {
+        issues.push({ level: "warning", code: "stale_signals_attention", message: `stale risky=${staleRisky}, review=${staleNeedsReview}` });
+      }
+      if (dbClosedButBinanceOrderLinked > 0) {
+        issues.push({ level: "warning", code: "closed_not_filled_with_linked_order", message: `${dbClosedButBinanceOrderLinked} NOT_FILLED closed signals still linked to Binance order` });
+      }
+
+      let spotPingOk = false;
+      let futuresPingOk = false;
+      let binancePingError = "";
+      try {
+        const [spotPingRes, futuresPingRes] = await Promise.all([
+          fetch(`${BINANCE_SPOT_API_BASE}/ping`),
+          fetch(`${BINANCE_FUTURES_API_BASE}/ping`),
+        ]);
+        spotPingOk = spotPingRes.ok;
+        futuresPingOk = futuresPingRes.ok;
+        if (!spotPingOk || !futuresPingOk) {
+          binancePingError = `spot=${spotPingRes.status} futures=${futuresPingRes.status}`;
+        }
+      } catch (e) {
+        binancePingError = e instanceof Error ? e.message : "binance_ping_failed";
+      }
+
+      if (!spotPingOk || !futuresPingOk || binanceBanUntil > Date.now()) {
+        issues.push({
+          level: (binanceBanUntil > Date.now()) ? "critical" : "warning",
+          code: "binance_api_issue",
+          message: binanceBanUntil > Date.now()
+            ? `binance ban active (${Math.ceil((binanceBanUntil - Date.now()) / 1000)}s)`
+            : (binancePingError || "binance ping failed")
+        });
+      }
+
+      let telegramConfigured = Boolean(telegramBotToken);
+      let telegramApiOk = false;
+      let telegramApiError = "";
+      if (!telegramConfigured) {
+        telegramApiError = "TELEGRAM_BOT_TOKEN missing";
+        issues.push({ level: "critical", code: "telegram_token_missing", message: telegramApiError });
+      } else {
+        try {
+          const telegramRes = await fetch(`https://api.telegram.org/bot${telegramBotToken}/getMe`);
+          const telegramJson = await telegramRes.json();
+          telegramApiOk = telegramRes.ok && !!telegramJson?.ok;
+          if (!telegramApiOk) {
+            telegramApiError = String(telegramJson?.description || `telegram_http_${telegramRes.status}`);
+          }
+        } catch (e) {
+          telegramApiError = e instanceof Error ? e.message : "telegram_check_failed";
+        }
+        if (!telegramApiOk) {
+          issues.push({ level: "warning", code: "telegram_api_unreachable", message: telegramApiError || "telegram check failed" });
+        }
+      }
+
+      const criticalCount = issues.filter(issue => issue.level === "critical").length;
+      const warningCount = issues.filter(issue => issue.level === "warning").length;
+      const overallStatus: "OK" | "DEGRADED" | "CRITICAL" = criticalCount > 0 ? "CRITICAL" : (warningCount > 0 ? "DEGRADED" : "OK");
+
+      return new Response(JSON.stringify({
+        success: true,
+        timestamp: nowIso,
+        overall_status: overallStatus,
+        summary: {
+          critical: criticalCount,
+          warnings: warningCount,
+          checks_total: 6,
+        },
+        checks: {
+          edge: {
+            ok: overallStatus !== "CRITICAL",
+            request_count: requestCount,
+            binance_request_count: binanceRequestCount,
+            algo_endpoint_cooldown_active: futuresAlgoEndpointBlockedUntil > Date.now(),
+            algo_endpoint_cooldown_remaining_sec: futuresAlgoEndpointBlockedUntil > Date.now() ? Math.ceil((futuresAlgoEndpointBlockedUntil - Date.now()) / 1000) : 0,
+          },
+          database: {
+            ok: dbHealthy,
+            error: dbProbe.error?.message || null,
+          },
+          telegram: {
+            configured: telegramConfigured,
+            api_ok: telegramApiOk,
+            api_error: telegramApiError || null,
+            open_failed_active: failedOpenTelegramCount.count || 0,
+            close_failed_last_1h: failedCloseTelegramCount.count || 0,
+            close_pending_retry_last_1h: failedOrMissingCloseTelegramCount.count || 0,
+          },
+          binance: {
+            spot_ping_ok: spotPingOk,
+            futures_ping_ok: futuresPingOk,
+            ping_error: binancePingError || null,
+            ban_active: binanceBanUntil > Date.now(),
+            ban_remaining_sec: binanceBanUntil > Date.now() ? Math.ceil((binanceBanUntil - Date.now()) / 1000) : 0,
+            time_offset_ms: binanceTimeOffsetMs,
+          },
+          signals: {
+            active: activeSignalsCount.count || 0,
+            stale_30m: staleActiveSignalsCount.count || 0,
+            stale_normal: staleNormal,
+            stale_risky: staleRisky,
+            stale_needs_review: staleNeedsReview,
+            closed_not_filled_with_linked_order_24h: dbClosedButBinanceOrderLinked,
+          },
+        },
+        issues,
       }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" }

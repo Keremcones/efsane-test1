@@ -1568,32 +1568,48 @@
 
                 <div class="profile-section admin-announcement-panel" id="adminSignalHealthSection" style="display:none;">
                     <div class="section-title">
-                        <i class="fa-solid fa-heart-pulse"></i> Admin: Sinyal Sağlığı
+                        <i class="fa-solid fa-heart-pulse"></i> Admin: Sistem Check
                     </div>
                     <div class="admin-site-stats-grid">
                         <div class="admin-site-stat-card">
-                            <div class="admin-site-stat-label">Aktif Sinyal</div>
-                            <div class="admin-site-stat-value" id="adminHealthActiveSignals">-</div>
+                            <div class="admin-site-stat-label">Genel Durum</div>
+                            <div class="admin-site-stat-value" id="adminSystemOverallStatus">-</div>
                         </div>
                         <div class="admin-site-stat-card">
-                            <div class="admin-site-stat-label">Stale (30dk+)</div>
-                            <div class="admin-site-stat-value" id="adminHealthStaleSignals">-</div>
+                            <div class="admin-site-stat-label">Kritik / Uyarı</div>
+                            <div class="admin-site-stat-value" id="adminSystemIssueSummary">-</div>
                         </div>
                         <div class="admin-site-stat-card">
-                            <div class="admin-site-stat-label">Stale Risky</div>
-                            <div class="admin-site-stat-value" id="adminHealthRiskyStale">-</div>
+                            <div class="admin-site-stat-label">Edge</div>
+                            <div class="admin-site-stat-value" id="adminSystemEdgeStatus">-</div>
                         </div>
                         <div class="admin-site-stat-card">
-                            <div class="admin-site-stat-label">Stale İncele</div>
-                            <div class="admin-site-stat-value" id="adminHealthNeedsReview">-</div>
+                            <div class="admin-site-stat-label">Veritabanı</div>
+                            <div class="admin-site-stat-value" id="adminSystemDbStatus">-</div>
                         </div>
                         <div class="admin-site-stat-card">
-                            <div class="admin-site-stat-label">Open Telegram Fail</div>
-                            <div class="admin-site-stat-value" id="adminHealthOpenTelegramFailed">-</div>
+                            <div class="admin-site-stat-label">Telegram API</div>
+                            <div class="admin-site-stat-value" id="adminSystemTelegramApi">-</div>
                         </div>
                         <div class="admin-site-stat-card">
-                            <div class="admin-site-stat-label">Close Telegram Fail (1s)</div>
-                            <div class="admin-site-stat-value" id="adminHealthCloseTelegramFailed">-</div>
+                            <div class="admin-site-stat-label">Binance API</div>
+                            <div class="admin-site-stat-value" id="adminSystemBinanceApi">-</div>
+                        </div>
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">Aktif / Stale (30dk+)</div>
+                            <div class="admin-site-stat-value" id="adminHealthSignalSummary">-</div>
+                        </div>
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">Stale Risky / İncele</div>
+                            <div class="admin-site-stat-value" id="adminHealthStaleSummary">-</div>
+                        </div>
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">Open / Close Telegram Fail</div>
+                            <div class="admin-site-stat-value" id="adminHealthTelegramSummary">-</div>
+                        </div>
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">NOT_FILLED ama Order Link (24s)</div>
+                            <div class="admin-site-stat-value" id="adminHealthWrongCloseCount">-</div>
                         </div>
                     </div>
                     <div class="admin-site-stats-meta">
@@ -1604,6 +1620,9 @@
                     </div>
                     <div class="admin-site-stats-meta" style="margin-top: 6px;">
                         <span id="adminSignalHealthUpdatedAt">Son güncelleme: -</span>
+                    </div>
+                    <div class="admin-site-stats-meta" style="margin-top: 6px;">
+                        <span id="adminSystemIssueList">Issue list: -</span>
                     </div>
                 </div>
 
@@ -1914,26 +1933,42 @@
         }
 
         function setAdminSignalHealthValues(values) {
-            const activeEl = document.getElementById('adminHealthActiveSignals');
-            const staleEl = document.getElementById('adminHealthStaleSignals');
-            const riskyEl = document.getElementById('adminHealthRiskyStale');
-            const reviewEl = document.getElementById('adminHealthNeedsReview');
-            const openFailEl = document.getElementById('adminHealthOpenTelegramFailed');
-            const closeFailEl = document.getElementById('adminHealthCloseTelegramFailed');
+            const overallEl = document.getElementById('adminSystemOverallStatus');
+            const issueSummaryEl = document.getElementById('adminSystemIssueSummary');
+            const edgeEl = document.getElementById('adminSystemEdgeStatus');
+            const dbEl = document.getElementById('adminSystemDbStatus');
+            const telegramApiEl = document.getElementById('adminSystemTelegramApi');
+            const binanceApiEl = document.getElementById('adminSystemBinanceApi');
+            const signalSummaryEl = document.getElementById('adminHealthSignalSummary');
+            const staleSummaryEl = document.getElementById('adminHealthStaleSummary');
+            const telegramSummaryEl = document.getElementById('adminHealthTelegramSummary');
+            const wrongCloseEl = document.getElementById('adminHealthWrongCloseCount');
             const runtimeEl = document.getElementById('adminSignalHealthRuntime');
+            const issuesEl = document.getElementById('adminSystemIssueList');
             const updatedAtEl = document.getElementById('adminSignalHealthUpdatedAt');
 
-            if (activeEl) activeEl.textContent = toCountText(values?.activeSignals);
-            if (staleEl) staleEl.textContent = toCountText(values?.staleSignals);
-            if (riskyEl) riskyEl.textContent = toCountText(values?.riskyStale);
-            if (reviewEl) reviewEl.textContent = toCountText(values?.needsReview);
-            if (openFailEl) openFailEl.textContent = toCountText(values?.openTelegramFailed);
-            if (closeFailEl) closeFailEl.textContent = toCountText(values?.closeTelegramFailed);
+            if (overallEl) overallEl.textContent = values?.overallStatus || '-';
+            if (issueSummaryEl) issueSummaryEl.textContent = `${toCountText(values?.criticalCount)} / ${toCountText(values?.warningCount)}`;
+            if (edgeEl) edgeEl.textContent = values?.edgeStatus || '-';
+            if (dbEl) dbEl.textContent = values?.dbStatus || '-';
+            if (telegramApiEl) telegramApiEl.textContent = values?.telegramApiStatus || '-';
+            if (binanceApiEl) binanceApiEl.textContent = values?.binanceApiStatus || '-';
+            if (signalSummaryEl) signalSummaryEl.textContent = `${toCountText(values?.activeSignals)} / ${toCountText(values?.staleSignals)}`;
+            if (staleSummaryEl) staleSummaryEl.textContent = `${toCountText(values?.riskyStale)} / ${toCountText(values?.needsReview)}`;
+            if (telegramSummaryEl) telegramSummaryEl.textContent = `${toCountText(values?.openTelegramFailed)} / ${toCountText(values?.closeTelegramFailed)}`;
+            if (wrongCloseEl) wrongCloseEl.textContent = toCountText(values?.wrongClosedCount);
 
             if (runtimeEl) {
                 const banText = values?.binanceBanActive ? `Aktif (${toCountText(values?.binanceBanRemainingSec)}s)` : 'Yok';
                 const cooldownText = values?.algoCooldownActive ? `Aktif (${toCountText(values?.algoCooldownRemainingSec)}s)` : 'Yok';
-                runtimeEl.textContent = `Binance Ban: ${banText} · Algo Cooldown: ${cooldownText}`;
+                runtimeEl.textContent = `Binance Ban: ${banText} · Algo Cooldown: ${cooldownText} · Offset: ${toCountText(values?.binanceTimeOffsetMs)}ms`;
+            }
+
+            if (issuesEl) {
+                const issueItems = Array.isArray(values?.issues) ? values.issues : [];
+                issuesEl.textContent = issueItems.length > 0
+                    ? `Issue list: ${issueItems.slice(0, 5).map(i => `[${i.level}] ${i.code}`).join(' | ')}`
+                    : 'Issue list: temiz';
             }
 
             if (updatedAtEl) {
@@ -1965,44 +2000,40 @@
 
         async function fetchAdminSignalHealth() {
             const headers = await getSessionHeaders();
-            const [healthResponse, staleResponse] = await Promise.all([
-                fetch(TELEGRAM_FUNCTION_URL, {
-                    method: 'POST',
-                    headers,
-                    body: JSON.stringify({ action: 'health_check' })
-                }),
-                fetch(TELEGRAM_FUNCTION_URL, {
-                    method: 'POST',
-                    headers,
-                    body: JSON.stringify({ action: 'stale_breakdown' })
-                })
-            ]);
+            const response = await fetch(TELEGRAM_FUNCTION_URL, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ action: 'system_check' })
+            });
 
-            const healthText = await healthResponse.text();
-            const staleText = await staleResponse.text();
+            const rawText = await response.text();
+            const result = rawText ? JSON.parse(rawText) : {};
 
-            const healthResult = healthText ? JSON.parse(healthText) : {};
-            const staleResult = staleText ? JSON.parse(staleText) : {};
-
-            if (!healthResponse.ok || !healthResult?.success) {
-                throw new Error(healthResult?.error || 'health_check başarısız');
-            }
-
-            if (!staleResponse.ok || !staleResult?.success) {
-                throw new Error(staleResult?.error || 'stale_breakdown başarısız');
+            if (!response.ok || !result?.success) {
+                throw new Error(result?.error || 'system_check başarısız');
             }
 
             return {
-                activeSignals: Number(healthResult?.health?.active_signals ?? NaN),
-                staleSignals: Number(healthResult?.health?.stale_active_signals_30m ?? NaN),
-                riskyStale: Number(staleResult?.summary?.risky ?? NaN),
-                needsReview: Number(staleResult?.summary?.needs_review ?? NaN),
-                openTelegramFailed: Number(healthResult?.health?.open_telegram_failed_active ?? NaN),
-                closeTelegramFailed: Number(healthResult?.health?.close_telegram_failed_last_1h ?? NaN),
-                binanceBanActive: !!healthResult?.runtime?.binance_ban_active,
-                binanceBanRemainingSec: Number(healthResult?.runtime?.binance_ban_remaining_sec ?? 0),
-                algoCooldownActive: !!healthResult?.runtime?.algo_endpoint_cooldown_active,
-                algoCooldownRemainingSec: Number(healthResult?.runtime?.algo_endpoint_cooldown_remaining_sec ?? 0)
+                overallStatus: String(result?.overall_status || '-'),
+                criticalCount: Number(result?.summary?.critical ?? NaN),
+                warningCount: Number(result?.summary?.warnings ?? NaN),
+                edgeStatus: result?.checks?.edge?.ok ? 'OK' : 'DEGRADED',
+                dbStatus: result?.checks?.database?.ok ? 'OK' : 'FAIL',
+                telegramApiStatus: result?.checks?.telegram?.api_ok ? 'OK' : (result?.checks?.telegram?.configured ? 'DEGRADED' : 'MISSING_TOKEN'),
+                binanceApiStatus: (result?.checks?.binance?.spot_ping_ok && result?.checks?.binance?.futures_ping_ok) ? 'OK' : 'DEGRADED',
+                activeSignals: Number(result?.checks?.signals?.active ?? NaN),
+                staleSignals: Number(result?.checks?.signals?.stale_30m ?? NaN),
+                riskyStale: Number(result?.checks?.signals?.stale_risky ?? NaN),
+                needsReview: Number(result?.checks?.signals?.stale_needs_review ?? NaN),
+                openTelegramFailed: Number(result?.checks?.telegram?.open_failed_active ?? NaN),
+                closeTelegramFailed: Number(result?.checks?.telegram?.close_failed_last_1h ?? NaN),
+                wrongClosedCount: Number(result?.checks?.signals?.closed_not_filled_with_linked_order_24h ?? NaN),
+                binanceBanActive: !!result?.checks?.binance?.ban_active,
+                binanceBanRemainingSec: Number(result?.checks?.binance?.ban_remaining_sec ?? 0),
+                binanceTimeOffsetMs: Number(result?.checks?.binance?.time_offset_ms ?? 0),
+                algoCooldownActive: !!result?.checks?.edge?.algo_endpoint_cooldown_active,
+                algoCooldownRemainingSec: Number(result?.checks?.edge?.algo_endpoint_cooldown_remaining_sec ?? 0),
+                issues: Array.isArray(result?.issues) ? result.issues : []
             };
         }
 
@@ -2015,16 +2046,26 @@
             } catch (error) {
                 console.warn('Admin sinyal sağlığı yüklenemedi:', error?.message || error);
                 setAdminSignalHealthValues({
+                    overallStatus: 'FAIL',
+                    criticalCount: NaN,
+                    warningCount: NaN,
+                    edgeStatus: 'FAIL',
+                    dbStatus: 'FAIL',
+                    telegramApiStatus: 'FAIL',
+                    binanceApiStatus: 'FAIL',
                     activeSignals: NaN,
                     staleSignals: NaN,
                     riskyStale: NaN,
                     needsReview: NaN,
                     openTelegramFailed: NaN,
                     closeTelegramFailed: NaN,
+                    wrongClosedCount: NaN,
                     binanceBanActive: false,
                     binanceBanRemainingSec: 0,
+                    binanceTimeOffsetMs: NaN,
                     algoCooldownActive: false,
-                    algoCooldownRemainingSec: 0
+                    algoCooldownRemainingSec: 0,
+                    issues: [{ level: 'critical', code: 'panel_load_failed' }]
                 });
             }
         }
@@ -2284,7 +2325,7 @@
                 return;
             }
             await loadAdminSignalHealth();
-            showNotification('Sinyal sağlığı guncellendi.', 'success');
+            showNotification('Sistem check guncellendi.', 'success');
         }
 
         window.refreshAdminSignalHealth = refreshAdminSignalHealth;
