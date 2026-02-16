@@ -6120,21 +6120,47 @@ Detaylar:
                 const activeAlarms = alarmSystem.alarms.filter(a => a.active !== false);
                 if (activeAlarms.length > 0) {
                     // Telegram mesajı gönder
-                    const headers = { 'Content-Type': 'application/json' };
-                    if (SUPABASE_ANON_KEY) {
-                        headers['apikey'] = SUPABASE_ANON_KEY;
-                        headers['Authorization'] = 'Bearer ' + SUPABASE_ANON_KEY;
-                    }
+                    (async () => {
+                        try {
+                            const headers = { 'Content-Type': 'application/json' };
+                            if (SUPABASE_ANON_KEY) {
+                                headers['apikey'] = SUPABASE_ANON_KEY;
+                            }
 
-                    fetch(TELEGRAM_FUNCTION_URL, {
-                        method: 'POST',
-                        headers,
-                        body: JSON.stringify({
-                            chat_id: activeAlarms[0].chat_id || 'admin',
-                            message: message,
-                            type: 'new_trade'
-                        })
-                    }).catch(err => console.log('Telegram gönderimi başarısız:', err));
+                            if (!supabaseClient?.auth) return;
+                            const { data: { session: initialSession } } = await supabaseClient.auth.getSession();
+                            let session = initialSession;
+                            const nowSeconds = Math.floor(Date.now() / 1000);
+                            if (!session || (session.expires_at && session.expires_at <= nowSeconds + 30)) {
+                                const { data: refreshData } = await supabaseClient.auth.refreshSession();
+                                session = refreshData?.session || session;
+                            }
+                            if (!session?.access_token) return;
+
+                            headers['Authorization'] = 'Bearer ' + session.access_token;
+
+                            await fetch(TELEGRAM_FUNCTION_URL, {
+                                method: 'POST',
+                                headers,
+                                body: JSON.stringify({
+                                    action: 'alarm_notification',
+                                    notification_type: 'trigger',
+                                    alarm: {
+                                        symbol: currentSymbol,
+                                        market_type: CURRENT_MARKET_TYPE,
+                                        timeframe: currentTimeframe,
+                                        direction: trade.signal,
+                                        entry_price: trade.entry,
+                                        take_profit: trade.tp,
+                                        stop_loss: trade.sl,
+                                        triggerReason: message,
+                                    }
+                                })
+                            });
+                        } catch (err) {
+                            console.log('Telegram gönderimi başarısız:', err);
+                        }
+                    })();
                 }
             }
         }

@@ -2558,27 +2558,6 @@
 
             if (statusEl) statusEl.textContent = 'Test ediliyor...';
             try {
-                const headers = { 'Content-Type': 'application/json' };
-                if (SUPABASE_ANON_KEY) {
-                    headers['apikey'] = SUPABASE_ANON_KEY;
-                }
-                if (supabaseClient?.auth) {
-                    const { data: { session: initialSession } } = await supabaseClient.auth.getSession();
-                    let session = initialSession;
-                    const nowSeconds = Math.floor(Date.now() / 1000);
-                    if (!session || (session.expires_at && session.expires_at <= nowSeconds + 30)) {
-                        const { data: refreshData } = await supabaseClient.auth.refreshSession();
-                        session = refreshData?.session || session;
-                    }
-                    if (session?.access_token) {
-                        headers['Authorization'] = 'Bearer ' + session.access_token;
-                    } else if (SUPABASE_ANON_KEY) {
-                        showNotification('Oturum bulunamadı. Lütfen çıkış yapıp tekrar giriş yapın.', 'warning');
-                        if (statusEl) statusEl.textContent = 'Bağlı Değil';
-                        return;
-                    }
-                }
-
                 const { data: { session: initialSession } } = await supabaseClient.auth.getSession();
                 let session = initialSession;
                 const nowSeconds = Math.floor(Date.now() / 1000);
@@ -2593,7 +2572,11 @@
                     return;
                 }
 
-                headers['authorization'] = 'Bearer ' + session.access_token;
+                const headers = { 'Content-Type': 'application/json' };
+                if (SUPABASE_ANON_KEY) {
+                    headers['apikey'] = SUPABASE_ANON_KEY;
+                }
+                headers['Authorization'] = 'Bearer ' + session.access_token;
 
                 const response = await fetch(TELEGRAM_FUNCTION_URL, {
                     method: 'POST',
@@ -2605,7 +2588,14 @@
                     })
                 });
 
-                const result = await response.json();
+                const rawText = await response.text();
+                let result = {};
+                try {
+                    result = rawText ? JSON.parse(rawText) : {};
+                } catch {
+                    result = { error: rawText || 'Connection failed' };
+                }
+
                 if (!response.ok) {
                     throw new Error(result?.error || 'Connection failed');
                 }
@@ -2621,7 +2611,7 @@
                 }
             } catch (e) {
                 if (statusEl) statusEl.textContent = 'Bağlı Değil';
-                showNotification('Bağlantı başarısız.', 'error');
+                showNotification('Bağlantı başarısız: ' + (e?.message || 'Hata'), 'error');
             }
         };
 
