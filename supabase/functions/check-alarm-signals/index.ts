@@ -147,7 +147,12 @@ let binanceBanUntil = 0;
 let binanceTimeOffsetMs = 0;
 let lastBinanceTimeSyncMs = 0;
 let futuresAlgoEndpointBlockedUntil = 0;
+let cronRunLockUntil = 0;
+const futuresPermissionCooldownUntilByApiKey = new Map<string, number>();
+const FUTURES_PERMISSION_COOLDOWN_MS = 30 * 60 * 1000;
 const BINANCE_TIME_SYNC_TTL_MS = 5 * 60 * 1000;
+const CRON_DISTRIBUTED_LOCK_NAME = "check_alarm_signals_cron";
+const CRON_DISTRIBUTED_LOCK_TTL_MS = 90 * 1000;
 
 // Cache prices to avoid redundant API calls
 const priceCache: Record<string, { price: number; timestamp: number }> = {};
@@ -159,6 +164,80 @@ const allTickerCache: Record<"spot" | "futures", { timestamp: number; prices: Re
 const ALL_TICKER_TTL = 15000; // 15 seconds
 const markPriceCache: { timestamp: number; prices: Record<string, number> } = { timestamp: 0, prices: {} };
 const MARK_PRICE_TTL = 15000; // 15 seconds
+const MAX_STALE_MARKET_DATA_MS = Math.max(
+  15000,
+  Number(Deno.env.get("MAX_STALE_MARKET_DATA_MS") || "60000")
+);
+
+function isFreshTimestamp(timestamp: number, maxAgeMs: number = MAX_STALE_MARKET_DATA_MS): boolean {
+  return Number.isFinite(timestamp) && timestamp > 0 && (Date.now() - timestamp) <= maxAgeMs;
+}
+
+async function tryAcquireDistributedCronLock(supabaseClient: any, ownerId: string): Promise<{ acquired: boolean; retryAfterMs: number }> {
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const lockedUntilIso = new Date(now.getTime() + CRON_DISTRIBUTED_LOCK_TTL_MS).toISOString();
+
+  try {
+    const { data: inserted, error: insertError } = await supabaseClient
+      .from("system_locks")
+      .insert({
+        lock_name: CRON_DISTRIBUTED_LOCK_NAME,
+        owner_id: ownerId,
+        locked_until: lockedUntilIso,
+        updated_at: nowIso,
+      })
+      .select("lock_name")
+      .maybeSingle();
+
+    if (!insertError && inserted?.lock_name) {
+      return { acquired: true, retryAfterMs: CRON_DISTRIBUTED_LOCK_TTL_MS };
+    }
+
+    const { data: updated, error: updateError } = await supabaseClient
+      .from("system_locks")
+      .update({ owner_id: ownerId, locked_until: lockedUntilIso, updated_at: nowIso })
+      .eq("lock_name", CRON_DISTRIBUTED_LOCK_NAME)
+      .lt("locked_until", nowIso)
+      .select("lock_name")
+      .maybeSingle();
+
+    if (!updateError && updated?.lock_name) {
+      return { acquired: true, retryAfterMs: CRON_DISTRIBUTED_LOCK_TTL_MS };
+    }
+
+    const { data: existing } = await supabaseClient
+      .from("system_locks")
+      .select("locked_until")
+      .eq("lock_name", CRON_DISTRIBUTED_LOCK_NAME)
+      .maybeSingle();
+
+    const lockedUntilMs = Date.parse(String(existing?.locked_until || ""));
+    const retryAfterMs = Number.isFinite(lockedUntilMs)
+      ? Math.max(0, lockedUntilMs - Date.now())
+      : CRON_DISTRIBUTED_LOCK_TTL_MS;
+    return { acquired: false, retryAfterMs };
+  } catch (e) {
+    console.warn("⚠️ Distributed cron lock unavailable, falling back to in-memory lock:", e);
+    return { acquired: true, retryAfterMs: CRON_DISTRIBUTED_LOCK_TTL_MS };
+  }
+}
+
+async function releaseDistributedCronLock(supabaseClient: any, ownerId: string): Promise<void> {
+  try {
+    await supabaseClient
+      .from("system_locks")
+      .update({
+        owner_id: null,
+        locked_until: new Date(0).toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("lock_name", CRON_DISTRIBUTED_LOCK_NAME)
+      .eq("owner_id", ownerId);
+  } catch (e) {
+    console.warn("⚠️ Failed to release distributed cron lock:", e);
+  }
+}
 
 // =====================
 // Request throttling & queueing (prevent rate limiting)
@@ -251,8 +330,14 @@ const klinesCache: Record<string, { data: any[]; timestamp: number }> = {};
 const KLINES_CACHE_TTL = 60000; // 60 seconds - reduce API pressure
 const MIN_KLINES_REFRESH_MS = 10000; // prevent burst refresh
 const INDICATOR_KLINES_LIMIT = 300; // reduce per-alarm klines load
-const MAX_REQUEST_RUNTIME_MS = 30000; // keep below Edge 60s timeout
-const HARD_TIMEOUT_MS = 25000; // emergency hard stop
+const MAX_REQUEST_RUNTIME_MS = Math.min(
+  55000,
+  Math.max(30000, Number(Deno.env.get("MAX_REQUEST_RUNTIME_MS") || "45000"))
+); // keep below Edge timeout while reducing partial scans
+const HARD_TIMEOUT_MS = Math.min(
+  52000,
+  Math.max(25000, Number(Deno.env.get("HARD_TIMEOUT_MS") || "40000"))
+); // emergency hard stop
 const MAX_ALARMS_PER_CRON = 1000; // safety cap per cron (high enough to avoid practical starvation)
 const MAX_CLOSE_CHECKS_PER_CRON = Math.min(
   2000,
@@ -265,15 +350,24 @@ const EXTERNAL_CLOSE_GRACE_SECONDS = Math.min(
 const FORCE_EXTERNAL_CLOSE_MAX_AGE_SECONDS = Math.min(
   24 * 60 * 60,
   Math.max(300, Number(Deno.env.get("FORCE_EXTERNAL_CLOSE_MAX_AGE_SECONDS") || "1800"))
-); // hard fallback: do not leave futures signals ACTIVE forever when verification is unavailable
+); // retained for diagnostics compatibility (forced fallback is disabled for safety)
+const ENABLE_EXTERNAL_CLOSE_SYNC = String(Deno.env.get("ENABLE_EXTERNAL_CLOSE_SYNC") || "false").toLowerCase() === "true";
 const DISABLE_ALARM_PROCESSING = false; // temporary: close-only mode
 const CLOSE_NEAR_TARGET_PCT = 0.3; // only run heavy checks when near TP/SL
 const TRIGGER_NEAR_TARGET_PCT = 0.1; // skip indicator klines if far from targets
-const BAR_CLOSE_TRIGGER_GRACE_MS = 2 * 60 * 1000; // only allow open signal creation within 2 min after bar close
+const BAR_CLOSE_TRIGGER_GRACE_MS = Math.max(
+  2 * 60 * 1000,
+  Number(Deno.env.get("BAR_CLOSE_TRIGGER_GRACE_MS") || (5 * 60 * 1000))
+); // base grace after bar close
+const MAX_BAR_CLOSE_TRIGGER_GRACE_BY_TIMEFRAME_MS = Math.max(
+  BAR_CLOSE_TRIGGER_GRACE_MS,
+  Number(Deno.env.get("MAX_BAR_CLOSE_TRIGGER_GRACE_BY_TIMEFRAME_MS") || (2 * 60 * 60 * 1000))
+); // dynamic upper grace by timeframe
 const OPEN_TELEGRAM_RETRY_MAX_AGE_MS = 3 * 60 * 1000; // do not deliver open-signal messages too late
 const CLOSE_TELEGRAM_RETRY_MAX_AGE_MS = 24 * 60 * 60 * 1000; // retry failed close notifications within 24h
 const ACTIVE_SIGNAL_STATUSES = ["ACTIVE", "active"];
 const ACTIVE_ALARM_STATUSES = ["ACTIVE", "active"];
+const ENABLE_FUTURES_ALGO_OPEN_ORDERS_CHECK = String(Deno.env.get("ENABLE_FUTURES_ALGO_OPEN_ORDERS_CHECK") || "false").toLowerCase() === "true";
 
 function isActiveLikeStatus(status: any): boolean {
   const normalized = String(status || "").toUpperCase();
@@ -324,6 +418,11 @@ function normalizeMarketType(value: any): "spot" | "futures" {
   return v === "futures" || v === "future" || v === "perp" || v === "perpetual" ? "futures" : "spot";
 }
 
+function isCanonicalBinanceSymbol(symbol: string): boolean {
+  const upper = String(symbol || "").toUpperCase().trim();
+  return /^[A-Z0-9]{5,24}$/.test(upper);
+}
+
 function timeframeToMinutes(timeframe: string): number {
   const tf = String(timeframe || "").trim().toLowerCase();
   const match = tf.match(/^(\d+)(m|h|d|w)$/);
@@ -350,7 +449,8 @@ function isWithinBarCloseTriggerWindow(nowMs: number, evaluatedBarOpenMs: number
     return false;
   }
   const evaluatedBarCloseMs = evaluatedBarOpenMs + timeframeMs;
-  return nowMs >= evaluatedBarCloseMs && nowMs <= (evaluatedBarCloseMs + BAR_CLOSE_TRIGGER_GRACE_MS);
+  const dynamicGraceMs = Math.min(MAX_BAR_CLOSE_TRIGGER_GRACE_BY_TIMEFRAME_MS, Math.max(BAR_CLOSE_TRIGGER_GRACE_MS, timeframeMs));
+  return nowMs >= evaluatedBarCloseMs && nowMs <= (evaluatedBarCloseMs + dynamicGraceMs);
 }
 
 function resolveBarCloseDisplayTimeMs(barOpenOrIso: number | string | undefined, timeframe: string): number {
@@ -407,7 +507,9 @@ async function getTickerPrice(symbol: string, marketType: "spot" | "futures", fo
   const cacheKey = `${symbol}:${marketType}:ticker`;
   const now = Date.now();
   if (binanceBanUntil && now < binanceBanUntil) {
-    if (priceCache[cacheKey]) return priceCache[cacheKey].price;
+    if (priceCache[cacheKey] && (now - priceCache[cacheKey].timestamp) <= MAX_STALE_MARKET_DATA_MS) {
+      return priceCache[cacheKey].price;
+    }
     console.warn(`⛔ Binance ban active. Skipping ticker for ${symbol}`);
     return null;
   }
@@ -440,7 +542,7 @@ async function getAllTickerPrices(marketType: "spot" | "futures", forceFresh: bo
   }
 
   if (binanceBanUntil && now < binanceBanUntil) {
-    return cached?.prices || {};
+    return isFreshTimestamp(Number(cached?.timestamp || 0)) ? (cached?.prices || {}) : {};
   }
 
   const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
@@ -448,7 +550,7 @@ async function getAllTickerPrices(marketType: "spot" | "futures", forceFresh: bo
   const res = await throttledFetch(url);
   if (!res.ok) {
     console.error(`❌ all ticker fetch failed for ${marketType}:`, await res.text());
-    return cached?.prices || {};
+    return isFreshTimestamp(Number(cached?.timestamp || 0)) ? (cached?.prices || {}) : {};
   }
   const data = await res.json();
   const prices = Array.isArray(data)
@@ -487,14 +589,14 @@ async function getAllFuturesMarkPrices(forceFresh: boolean): Promise<Record<stri
     return markPriceCache.prices;
   }
   if (binanceBanUntil && now < binanceBanUntil) {
-    return markPriceCache.prices;
+    return isFreshTimestamp(markPriceCache.timestamp) ? markPriceCache.prices : {};
   }
 
   const url = "https://fapi.binance.com/fapi/v1/premiumIndex";
   const res = await throttledFetch(url);
   if (!res.ok) {
     console.error("❌ mark price batch fetch failed:", await res.text());
-    return markPriceCache.prices;
+    return isFreshTimestamp(markPriceCache.timestamp) ? markPriceCache.prices : {};
   }
   const data = await res.json();
   const prices = Array.isArray(data)
@@ -1249,9 +1351,9 @@ async function getOpenFuturesOrdersAll(apiKey: string, apiSecret: string): Promi
       continue;
     }
     console.error("❌ Binance futures open orders (all) failed:", errorText);
-    return [];
+    throw new Error(`futures_open_orders_all_failed:${errorText}`);
   }
-  return [];
+  throw new Error("futures_open_orders_all_failed_after_retries");
 }
 
 async function getOpenSpotOrdersAll(apiKey: string, apiSecret: string): Promise<any[]> {
@@ -1290,9 +1392,9 @@ async function getFuturesPositionsAll(apiKey: string, apiSecret: string): Promis
       continue;
     }
     console.error("❌ Binance futures positionRisk (all) failed:", errorText);
-    return [];
+    throw new Error(`futures_position_risk_all_failed:${errorText}`);
   }
-  return [];
+  throw new Error("futures_position_risk_all_failed_after_retries");
 }
 
 async function hasOpenFuturesAlgoOrders(apiKey: string, apiSecret: string, symbol: string): Promise<boolean> {
@@ -1413,6 +1515,9 @@ async function isSpotPositionOpen(apiKey: string, apiSecret: string, symbol: str
 }
 
 async function getOpenFuturesAlgoOrdersAll(apiKey: string, apiSecret: string): Promise<any[]> {
+  if (!ENABLE_FUTURES_ALGO_OPEN_ORDERS_CHECK) {
+    return [];
+  }
   if (futuresAlgoEndpointBlockedUntil && Date.now() < futuresAlgoEndpointBlockedUntil) {
     return [];
   }
@@ -1450,6 +1555,11 @@ async function getOpenFuturesAlgoOrdersAll(apiKey: string, apiSecret: string): P
 
   const data = await response.json();
   return Array.isArray(data) ? data : [];
+}
+
+function isFuturesAlgoEndpointAvailable(): boolean {
+  if (!ENABLE_FUTURES_ALGO_OPEN_ORDERS_CHECK) return false;
+  return !(futuresAlgoEndpointBlockedUntil && Date.now() < futuresAlgoEndpointBlockedUntil);
 }
 
 async function getSpotBalancesAll(apiKey: string, apiSecret: string): Promise<Record<string, number>> {
@@ -1517,6 +1627,14 @@ async function resolveAutoTradeEnabled(alarm: any, marketType: "spot" | "futures
   if (marketType === "futures") return userKeys.futures_enabled === true;
   if (marketType === "spot") return userKeys.spot_enabled === true;
   return false;
+}
+
+function isBinancePermissionError(raw: string): boolean {
+  const text = String(raw || "").toLowerCase();
+  return text.includes("\"code\":-2015")
+    || text.includes("invalid api-key")
+    || text.includes("permissions for action")
+    || text.includes("api-key") && text.includes("permission");
 }
 
 async function executeAutoTrade(
@@ -1644,6 +1762,13 @@ async function executeAutoTrade(
     }
 
     if (marketType === "futures") {
+      const apiKeyId = String(api_key || "");
+      const permissionBlockedUntil = futuresPermissionCooldownUntilByApiKey.get(apiKeyId) || 0;
+      if (permissionBlockedUntil > Date.now()) {
+        const remainingSec = Math.ceil((permissionBlockedUntil - Date.now()) / 1000);
+        return { success: false, message: `Binance futures işlem izni geçici blokta (${remainingSec}s). API izinlerini kontrol edin.` };
+      }
+
       const positionMode = await getFuturesPositionMode(api_key, api_secret);
       if (positionMode === "HEDGE") {
         return { success: false, message: "Futures Hedge mode is not supported. Use One-Way." };
@@ -1653,10 +1778,19 @@ async function executeAutoTrade(
       try {
         await setFuturesMarginType(api_key, api_secret, symbol, resolvedMarginType as "CROSS" | "ISOLATED");
       } catch (e) {
-        console.error("❌ Margin type set failed:", e);
+        const errText = e instanceof Error ? e.message : String(e);
+        if (isBinancePermissionError(errText)) {
+          futuresPermissionCooldownUntilByApiKey.set(apiKeyId, Date.now() + FUTURES_PERMISSION_COOLDOWN_MS);
+          console.warn("⚠️ Binance permission error while setting margin type");
+          return { success: false, message: "Binance API anahtarı / IP whitelist / işlem izni hatalı. İşlem açılmadı." };
+        }
+        console.warn("⚠️ Margin type set failed:", errText);
         return { success: false, message: "Marjin türü ayarlanamadı. İşlem açılmadı." };
       }
-      await setLeverage(api_key, api_secret, symbol, leverage);
+      const leverageSet = await setLeverage(api_key, api_secret, symbol, leverage);
+      if (!leverageSet) {
+        return { success: false, message: "Kaldıraç ayarlanamadı. API izinlerini kontrol edin." };
+      }
     }
 
     const orderOptions: OpenTradeOptions = marketType === "futures"
@@ -1757,8 +1891,13 @@ async function executeAutoTrade(
       executedStopLoss: adjustedStopLoss
     };
   } catch (e) {
+    const errText = e instanceof Error ? e.message : String(e);
+    if (isBinancePermissionError(errText)) {
+      console.warn(`⚠️ Auto-trade permission error for ${userId}`);
+      return { success: false, message: "Binance API anahtarı / IP whitelist / işlem izni hatalı. İşlem açılmadı." };
+    }
     console.error(`❌ Auto-trade error for ${userId}:`, e);
-    return { success: false, message: e instanceof Error ? e.message : "Unknown error" };
+    return { success: false, message: errText || "Unknown error" };
   }
 }
 
@@ -2182,7 +2321,7 @@ async function getKlines(
   marketType: "spot" | "futures",
   timeframe: string = "1h",
   limit: number = 100,
-  retries: number = 3,
+  retries: number = 2,
   forceRefresh: boolean = false
 ): Promise<any[] | null> {
   const cacheKey = `${symbol}:${marketType}:${timeframe}`;
@@ -2190,7 +2329,7 @@ async function getKlines(
 
   if (binanceBanUntil && now < binanceBanUntil) {
     const waitMs = binanceBanUntil - now;
-    if (klinesCache[cacheKey]) return klinesCache[cacheKey].data;
+    if (klinesCache[cacheKey] && isFreshTimestamp(klinesCache[cacheKey].timestamp)) return klinesCache[cacheKey].data;
     console.warn(`⛔ Binance ban active. Skipping klines for ${symbol} (wait ${(waitMs / 1000).toFixed(0)}s)`);
     return null;
   }
@@ -2227,8 +2366,13 @@ async function getKlines(
           binanceBanUntil = now + 5 * 60 * 1000;
         }
 
-        // ULTRA-AGGRESSIVE backoff: 4s, 16s, 64s with random jitter (±20%)
-        const baseBackoff = Math.pow(4, attempt) * 1000; // 4s, 16s, 64s
+        if (res.status === 418 && binanceBanUntil > Date.now()) {
+          console.warn(`⛔ Binance ban detected for ${symbol}; aborting klines retries early.`);
+          return null;
+        }
+
+        // bounded backoff to avoid request runtime blowups under throttling
+        const baseBackoff = Math.min(5000, Math.pow(2, attempt) * 1000); // 1s, 2s, capped
         const jitter = baseBackoff * (0.8 + Math.random() * 0.4); // ±20% random
         const backoffMs = Math.round(jitter);
         console.warn(`⚠️ Rate limited (${res.status}) for ${symbol}, attempt ${attempt + 1}/${retries}, waiting ${backoffMs}ms (${(backoffMs / 1000).toFixed(1)}s)...`);
@@ -2882,8 +3026,8 @@ async function retryFailedCloseTelegrams(): Promise<void> {
     }
 
     const reason = String(signal?.close_reason || "").toUpperCase();
-    if (reason === "NOT_FILLED" || reason === "EXTERNAL_CLOSE") {
-      await updateActiveSignalCloseTelegramStatus(signal.id, "SKIPPED", "no_close_notification_for_non_opened_or_external_close");
+    if (reason === "NOT_FILLED") {
+      await updateActiveSignalCloseTelegramStatus(signal.id, "SKIPPED", "no_close_notification_for_non_opened");
       continue;
     }
     let price = Number(signal?.entry_price);
@@ -3101,7 +3245,7 @@ async function checkAndTriggerUserAlarms(
       return blocked;
     } catch (e) {
       console.warn(`⚠️ Preflight open-position check failed for ${String(symbolRaw || "")}:`, e);
-      return false;
+      return true;
     }
   };
 
@@ -3134,6 +3278,12 @@ async function checkAndTriggerUserAlarms(
     try {
       if (deadlineMs && Date.now() >= deadlineMs) {
         return;
+      }
+      if (binanceBanUntil && Date.now() < binanceBanUntil) {
+        const alarmType = String(alarm?.type || "").toUpperCase();
+        if (alarmType === "USER_ALARM" || alarmType === "SIGNAL") {
+          return;
+        }
       }
       stats.alarmsProcessed += 1;
       if (!validateAlarm(alarm)) {
@@ -4099,6 +4249,9 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
     const spotTickerMap = await getAllTickerPrices("spot", true);
     const futuresTickerMap = await getAllTickerPrices("futures", true);
     const futuresMarkPriceMap = await getAllFuturesMarkPrices(true);
+    const spotTickerFresh = isFreshTimestamp(allTickerCache.spot.timestamp);
+    const futuresTickerFresh = isFreshTimestamp(allTickerCache.futures.timestamp);
+    const futuresMarkFresh = isFreshTimestamp(markPriceCache.timestamp);
     const futuresPositionsCache = new Map<string, any[]>();
     const futuresOpenOrdersCache = new Map<string, any[]>();
     const futuresAlgoOrdersCache = new Map<string, any[]>();
@@ -4198,10 +4351,54 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
 
       const openOrders = (await ensureFuturesOpenOrders(userId, userKeys))
         .some((o: any) => String(o?.symbol || "").toUpperCase() === upperSymbol);
+
+      if (!isFuturesAlgoEndpointAvailable()) {
+        return { position, openOrders, algoOrders: false, canCheck: true };
+      }
+
       const algoOrders = (await ensureFuturesAlgoOrders(userId, userKeys))
         .some((o: any) => String(o?.symbol || "").toUpperCase() === upperSymbol);
 
       return { position, openOrders, algoOrders, canCheck: true };
+    };
+
+    const getSpotCloseState = async (
+      signal: any,
+      alarmData: { user_id: string; auto_trade_enabled?: boolean | null } | null
+    ): Promise<{ position: boolean; openOrders: boolean; canCheck: boolean }> => {
+      if (binanceBanUntil && Date.now() < binanceBanUntil) {
+        return { position: false, openOrders: false, canCheck: false };
+      }
+      const alarmPayload = alarmData || { user_id: String(signal?.user_id || "") };
+      const autoTradeEnabled = await resolveAutoTradeEnabled(alarmPayload, "spot");
+      if (!autoTradeEnabled) return { position: false, openOrders: false, canCheck: false };
+
+      const userId = String(signal?.user_id || "");
+      const userKeys = userKeysMap.get(userId);
+      if (!userKeys?.api_key) return { position: false, openOrders: false, canCheck: false };
+
+      const spotSymbol = String(signal?.symbol || "");
+      const upperSymbol = spotSymbol.toUpperCase();
+      const openOrders = (await ensureSpotOpenOrders(userId, userKeys))
+        .some((o: any) => String(o?.symbol || "").toUpperCase() === upperSymbol);
+
+      const baseAsset = resolveSpotBaseAsset(spotSymbol);
+      const balances = await ensureSpotBalances(userId, userKeys);
+      const balance = Number(balances[String(baseAsset).toUpperCase()] || 0);
+
+      let position = false;
+      if (Number.isFinite(balance) && balance > 0) {
+        const info = await getSymbolInfo(spotSymbol, "spot");
+        const minQty = Number(info?.minQty || 0);
+        const price = spotTickerMap[upperSymbol];
+        const notional = Number.isFinite(price) ? price * balance : NaN;
+        const minNotional = 5;
+        const qtyBelow = Number.isFinite(minQty) && minQty > 0 ? balance < minQty : false;
+        const notionalBelow = Number.isFinite(notional) ? notional < minNotional : true;
+        position = !(qtyBelow && notionalBelow);
+      }
+
+      return { position, openOrders, canCheck: true };
     };
 
     const alarmIds = Array.from(
@@ -4259,7 +4456,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
       try {
         if (binanceBanUntil && Date.now() < binanceBanUntil) {
           console.warn(`⛔ Binance ban active. Skipping close verification for ${signal?.symbol || ""}`);
-          return false;
+          return true;
         }
         const alarmPayload = alarmData || { user_id: String(signal?.user_id || "") };
         const autoTradeEnabled = await resolveAutoTradeEnabled(alarmPayload, marketType);
@@ -4281,9 +4478,13 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
           if (!hasOpen) return false;
           let openOrders = await ensureFuturesOpenOrders(userId, userKeys);
           const hasOrders = openOrders.some((o: any) => String(o?.symbol || "").toUpperCase() === upperSymbol);
-          let algoOrders = await ensureFuturesAlgoOrders(userId, userKeys);
-          const hasAlgoOrders = algoOrders.some((o: any) => String(o?.symbol || "").toUpperCase() === upperSymbol);
-          if (!hasOrders && !hasAlgoOrders) {
+          const algoEndpointAvailable = isFuturesAlgoEndpointAvailable();
+          let hasAlgoOrders = false;
+          if (algoEndpointAvailable) {
+            let algoOrders = await ensureFuturesAlgoOrders(userId, userKeys);
+            hasAlgoOrders = algoOrders.some((o: any) => String(o?.symbol || "").toUpperCase() === upperSymbol);
+          }
+          if (algoEndpointAvailable && !hasOrders && !hasAlgoOrders) {
             try {
               const symbolInfo = await getSymbolInfo(futuresSymbol, "futures");
               if (symbolInfo) {
@@ -4305,7 +4506,11 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
               console.warn(`⚠️ Failed to re-place TP/SL for ${futuresSymbol}:`, e);
             }
           }
-          console.log(`⏳ Skip reason ${futuresSymbol}: position=${hasOpen} openOrders=${hasOrders} algoOrders=${hasAlgoOrders}`);
+          if (algoEndpointAvailable) {
+            console.log(`⏳ Skip reason ${futuresSymbol}: position=${hasOpen} openOrders=${hasOrders} algoOrders=${hasAlgoOrders}`);
+          } else {
+            console.log(`⏳ Skip reason ${futuresSymbol}: position=${hasOpen} openOrders=${hasOrders} algoOrders=unavailable`);
+          }
           return true;
         }
 
@@ -4380,12 +4585,12 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
 
         const symbolKey = String(symbol).toUpperCase();
         const lastPrice = effectiveMarketType === "futures"
-          ? futuresTickerMap[symbolKey]
-          : spotTickerMap[symbolKey];
+          ? (futuresTickerFresh ? futuresTickerMap[symbolKey] : undefined)
+          : (spotTickerFresh ? spotTickerMap[symbolKey] : undefined);
         let markPrice: number | undefined;
         let priceForClose = lastPrice;
         if (effectiveMarketType === "futures") {
-          markPrice = futuresMarkPriceMap[symbolKey];
+          markPrice = futuresMarkFresh ? futuresMarkPriceMap[symbolKey] : undefined;
           if (Number.isFinite(markPrice)) {
             priceForClose = markPrice;
           } else if (Number.isFinite(lastPrice)) {
@@ -4457,8 +4662,12 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
           || (Math.min(Math.abs(Number(priceForClose) - takeProfit), Math.abs(Number(priceForClose) - stopLoss))
             / Math.max(1e-8, Math.abs(Number(priceForClose)))) * 100 <= CLOSE_NEAR_TARGET_PCT;
 
-        if (!shouldClose && !shouldRunHeavyChecks) {
-          if (effectiveMarketType === "futures" && ageSeconds >= EXTERNAL_CLOSE_GRACE_SECONDS) {
+        if (ENABLE_EXTERNAL_CLOSE_SYNC && !shouldClose && !shouldRunHeavyChecks && ageSeconds >= EXTERNAL_CLOSE_GRACE_SECONDS) {
+          if (effectiveMarketType === "futures") {
+            if (!isCanonicalBinanceSymbol(symbol)) {
+              console.warn(`⏸️ External close skipped for non-canonical symbol: ${symbol}`);
+              continue;
+            }
             const state = await getFuturesCloseState(signal, alarmData);
             if (state.canCheck && !state.position && !state.openOrders && !state.algoOrders) {
               console.log(`🧭 External close sync: ${JSON.stringify({ signalId: signal.id, symbol, ageSeconds, reason: "EXTERNAL_CLOSE" })}`);
@@ -4466,7 +4675,12 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
               closeReason = "EXTERNAL_CLOSE";
               closePrice = Number(signal.entry_price);
             } else if (!state.canCheck && ageSeconds >= FORCE_EXTERNAL_CLOSE_MAX_AGE_SECONDS) {
-              console.warn(`🧯 Forced stale close fallback: ${JSON.stringify({ signalId: signal.id, symbol, ageSeconds, reason: "EXTERNAL_CLOSE", mode: "no_verification_available" })}`);
+              console.warn(`⏸️ External close deferred: ${JSON.stringify({ signalId: signal.id, symbol, ageSeconds, mode: "verification_unavailable" })}`);
+            }
+          } else {
+            const state = await getSpotCloseState(signal, alarmData);
+            if (state.canCheck && !state.position && !state.openOrders) {
+              console.log(`🧭 External close sync (spot): ${JSON.stringify({ signalId: signal.id, symbol, ageSeconds, reason: "EXTERNAL_CLOSE" })}`);
               shouldClose = true;
               closeReason = "EXTERNAL_CLOSE";
               closePrice = Number(signal.entry_price);
@@ -4972,6 +5186,9 @@ serve(async (req: any) => {
   requestMetrics = { klinesFetched: 0, klinesSkippedByProximity: 0, exchangeInfoFetches: 0 };
   let closeStats: CloseCheckStats = { closesChecked: 0, closed: 0 };
   let triggerStats: TriggerCheckStats = { alarmsProcessed: 0, triggersChecked: 0, triggered: 0, skippedActive: 0 };
+  let acquiredCronRunLock = false;
+  let acquiredDistributedCronLock = false;
+  const cronRunOwnerId = crypto.randomUUID();
   // CORS headers
   const origin = req.headers.get("origin") || "*";
   const corsHeaders = {
@@ -5005,8 +5222,6 @@ serve(async (req: any) => {
   }
 
   try {
-    console.log("🚀 [CRON] Starting alarm signals check");
-
     // Body optional
     let body: any = null;
     try {
@@ -5018,6 +5233,8 @@ serve(async (req: any) => {
     body = body || {};
     const authHeader = req.headers.get("authorization") || req.headers.get("Authorization") || "";
     const authToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+    const requestMode = body?.action ? `action:${String(body.action)}` : `source:${String(body?.source || "cron")}`;
+    console.log(`🚀 [REQUEST] Starting check-alarm-signals (${requestMode})`);
 
     if (body?.action === "alarm_notification") {
       if (!authToken) {
@@ -5050,18 +5267,23 @@ serve(async (req: any) => {
       });
     }
 
-    console.log("📥 [DEBUG] Request body:", JSON.stringify(sanitizeRequestBodyForLog(body), null, 2));
-    console.log("📥 [DEBUG] body?.user_id:", body?.user_id);
-    console.log("📥 [DEBUG] typeof body?.user_id:", typeof body?.user_id);
-    console.log("📥 [DEBUG] Boolean(body?.user_id):", Boolean(body?.user_id));
+    const debugRequestLogs = String(Deno.env.get("DEBUG_REQUEST_LOGS") || "false").toLowerCase() === "true";
+    if (debugRequestLogs) {
+      console.log("📥 [DEBUG] Request body:", JSON.stringify(sanitizeRequestBodyForLog(body), null, 2));
+      console.log("📥 [DEBUG] body?.user_id:", body?.user_id);
+      console.log("📥 [DEBUG] typeof body?.user_id:", typeof body?.user_id);
+      console.log("📥 [DEBUG] Boolean(body?.user_id):", Boolean(body?.user_id));
+    }
 
     // Try to get user_id from auth header if not in body
     if (!body?.user_id && authToken) {
       const extractedUserId = extractUserIdFromJwt(authToken);
       if (extractedUserId) {
         body.user_id = extractedUserId;
-        console.log("📥 [DEBUG] Extracted user_id from JWT:", body.user_id);
-      } else {
+        if (debugRequestLogs) {
+          console.log("📥 [DEBUG] Extracted user_id from JWT:", body.user_id);
+        }
+      } else if (debugRequestLogs) {
         console.log("📥 [DEBUG] Could not decode JWT token");
       }
     }
@@ -5847,6 +6069,45 @@ serve(async (req: any) => {
       });
     }
 
+    const isPrimaryCronRun = !body?.action && !body?.user_id;
+    if (isPrimaryCronRun) {
+      const distributed = await tryAcquireDistributedCronLock(supabase, cronRunOwnerId);
+      if (!distributed.acquired) {
+        console.warn(`⏭️ Skipping overlapping cron run (distributed lock active ${distributed.retryAfterMs}ms)`);
+        return new Response(JSON.stringify({
+          success: true,
+          skipped: true,
+          reason: "cron_run_in_progress_distributed",
+          retry_after_ms: distributed.retryAfterMs,
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+      acquiredDistributedCronLock = true;
+
+      const now = Date.now();
+      if (now < cronRunLockUntil) {
+        const lockRemainingMs = Math.max(0, cronRunLockUntil - now);
+        console.warn(`⏭️ Skipping overlapping cron run (lock active ${lockRemainingMs}ms)`);
+        if (acquiredDistributedCronLock) {
+          await releaseDistributedCronLock(supabase, cronRunOwnerId);
+          acquiredDistributedCronLock = false;
+        }
+        return new Response(JSON.stringify({
+          success: true,
+          skipped: true,
+          reason: "cron_run_in_progress",
+          retry_after_ms: lockRemainingMs,
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+      cronRunLockUntil = now + HARD_TIMEOUT_MS + 10000;
+      acquiredCronRunLock = true;
+    }
+
     // ✅ If request includes a new signal, insert it (with duplicate prevention)
     let insertResult = { inserted: false, duplicate: false };
     try {
@@ -5928,8 +6189,8 @@ serve(async (req: any) => {
     // ✅ Notify - 🚀 PARALLELIZED
     const notificationPromises = closedSignals.map(async signal => {
       const closeReason = String(signal.close_reason || "").toUpperCase();
-      if (closeReason === "NOT_FILLED" || closeReason === "EXTERNAL_CLOSE") {
-        await updateActiveSignalCloseTelegramStatus(signal.id, "SKIPPED", "no_close_notification_for_non_opened_or_external_close");
+      if (closeReason === "NOT_FILLED") {
+        await updateActiveSignalCloseTelegramStatus(signal.id, "SKIPPED", "no_close_notification_for_non_opened");
         return;
       }
       const telegramMessage = await buildClosedSignalTelegramMessage(signal);
@@ -5956,6 +6217,15 @@ serve(async (req: any) => {
     console.log(`✅ Summary: alarmsProcessed=${triggerStats.alarmsProcessed} closesChecked=${closeStats.closesChecked} closed=${closeStats.closed} triggersChecked=${triggerStats.triggersChecked} triggered=${triggerStats.triggered} skippedActive=${triggerStats.skippedActive}`);
     console.log(`⏱️ Request duration: ${elapsedMs}ms`);
 
+    if (acquiredCronRunLock) {
+      cronRunLockUntil = 0;
+      acquiredCronRunLock = false;
+    }
+    if (acquiredDistributedCronLock) {
+      await releaseDistributedCronLock(supabase, cronRunOwnerId);
+      acquiredDistributedCronLock = false;
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -5969,6 +6239,14 @@ serve(async (req: any) => {
     );
   } catch (e) {
     console.error("❌ Fatal error:", e);
+    if (acquiredCronRunLock) {
+      cronRunLockUntil = 0;
+      acquiredCronRunLock = false;
+    }
+    if (acquiredDistributedCronLock) {
+      await releaseDistributedCronLock(supabase, cronRunOwnerId);
+      acquiredDistributedCronLock = false;
+    }
     const elapsedMs = Date.now() - requestStartMs;
     console.log(`📊 Request counts (error): total=${requestCount - startRequestCount}, binance=${binanceRequestCount - startBinanceCount}`);
     const endpointSummary = Object.entries(endpointStats)
