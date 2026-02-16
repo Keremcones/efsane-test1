@@ -1736,7 +1736,14 @@ async function executeAutoTrade(
         symbolInfo.tickSize
       );
       if (!ocoResult.success) {
-        return { success: false, message: `Spot TP/SL OCO failed: ${ocoResult.error || "unknown"}` };
+        return {
+          success: true,
+          message: `✅ ${direction} ${quantity} ${symbol} @ $${effectiveEntryPrice.toFixed(symbolInfo.pricePrecision)}\n⚠️ Spot TP/SL OCO oluşturulamadı: ${escapeTelegram(ocoResult.error || "unknown")}`,
+          orderId: orderResult.orderId,
+          executedEntryPrice: effectiveEntryPrice,
+          executedTakeProfit: adjustedTakeProfit,
+          executedStopLoss: adjustedStopLoss
+        };
       }
     }
 
@@ -3791,6 +3798,16 @@ async function checkAndTriggerUserAlarms(
 
         const autoTradeOpenFailed = autoTradeAttempted && !tradeResult.success && !tradeResult.retryable;
         if (autoTradeOpenFailed && insertedSignalId) {
+          let binanceStillOpen = false;
+          try {
+            binanceStillOpen = await hasBlockingOpenPosition(alarm.user_id, symbol, alarmMarketType);
+          } catch (e) {
+            console.warn(`⚠️ Failed to re-check Binance open state before NOT_FILLED close for ${symbol}:`, e);
+          }
+
+          if (binanceStillOpen) {
+            console.warn(`🛡️ Skip NOT_FILLED auto-close for ${symbol}: Binance still has open position/order`);
+          } else {
           try {
             const closeResult = await supabase
               .from("active_signals")
@@ -3827,6 +3844,7 @@ async function checkAndTriggerUserAlarms(
             }
           } catch (e) {
             console.warn(`⚠️ Failed to close signal after auto-trade open failure for ${symbol}:`, e);
+          }
           }
         }
         
