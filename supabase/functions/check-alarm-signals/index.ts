@@ -4607,10 +4607,11 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
         if (!shouldClose || !closeReason) continue;
 
         const hasActiveTrade = activeTradeSet.has(`${String(signal?.user_id || "")}:${String(symbol).toUpperCase()}`);
+        const hasRecordedBinanceOrder = Boolean(String(alarmData?.binance_order_id || "").trim());
         const tpHit = closeReason === "TP_HIT";
         const slHit = closeReason === "SL_HIT";
-        if ((tpHit || slHit) && !hasActiveTrade && ageSeconds > 300) {
-          console.log(`🧹 Orphan cleanup: ${JSON.stringify({ signalId: signal.id, symbol, ageSeconds, tpHit, slHit, hasActiveTrade: false })}`);
+        if ((tpHit || slHit) && !hasActiveTrade && !hasRecordedBinanceOrder && ageSeconds > 300) {
+          console.log(`🧹 Orphan cleanup: ${JSON.stringify({ signalId: signal.id, symbol, ageSeconds, tpHit, slHit, hasActiveTrade: false, hasRecordedBinanceOrder: false })}`);
           closeReason = "ORPHAN_ACTIVE_NO_TRADE";
           closePrice = tpHit ? takeProfit : stopLoss;
         }
@@ -4622,7 +4623,11 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
             const slHit = closeReason === "SL_HIT";
             console.log(`🧩 TP/SL reconciliation ${JSON.stringify({ symbol, tpHit, slHit, position: state.position, openOrders: state.openOrders, algoOrders: state.algoOrders })}`);
             if ((tpHit || slHit) && !state.position && !state.openOrders && !state.algoOrders) {
-              closeReason = tpHit ? "TP_HIT_NO_POSITION" : "SL_HIT_NO_POSITION";
+              if (hasRecordedBinanceOrder || hasActiveTrade) {
+                console.log(`✅ TP/SL close confirmed without open state: ${JSON.stringify({ signalId: signal.id, symbol, closeReason, hasRecordedBinanceOrder, hasActiveTrade })}`);
+              } else {
+                closeReason = tpHit ? "TP_HIT_NO_POSITION" : "SL_HIT_NO_POSITION";
+              }
             }
           }
         }
