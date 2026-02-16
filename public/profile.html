@@ -1566,6 +1566,47 @@
                     </p>
                 </div>
 
+                <div class="profile-section admin-announcement-panel" id="adminSignalHealthSection" style="display:none;">
+                    <div class="section-title">
+                        <i class="fa-solid fa-heart-pulse"></i> Admin: Sinyal Sağlığı
+                    </div>
+                    <div class="admin-site-stats-grid">
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">Aktif Sinyal</div>
+                            <div class="admin-site-stat-value" id="adminHealthActiveSignals">-</div>
+                        </div>
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">Stale (30dk+)</div>
+                            <div class="admin-site-stat-value" id="adminHealthStaleSignals">-</div>
+                        </div>
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">Stale Risky</div>
+                            <div class="admin-site-stat-value" id="adminHealthRiskyStale">-</div>
+                        </div>
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">Stale İncele</div>
+                            <div class="admin-site-stat-value" id="adminHealthNeedsReview">-</div>
+                        </div>
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">Open Telegram Fail</div>
+                            <div class="admin-site-stat-value" id="adminHealthOpenTelegramFailed">-</div>
+                        </div>
+                        <div class="admin-site-stat-card">
+                            <div class="admin-site-stat-label">Close Telegram Fail (1s)</div>
+                            <div class="admin-site-stat-value" id="adminHealthCloseTelegramFailed">-</div>
+                        </div>
+                    </div>
+                    <div class="admin-site-stats-meta">
+                        <span id="adminSignalHealthRuntime">Binance Ban: - · Algo Cooldown: -</span>
+                        <button class="btn btn-secondary" style="padding: 8px 12px; flex: 0 0 auto;" onclick="window.refreshAdminSignalHealth()">
+                            <i class="fa-solid fa-rotate"></i> Yenile
+                        </button>
+                    </div>
+                    <div class="admin-site-stats-meta" style="margin-top: 6px;">
+                        <span id="adminSignalHealthUpdatedAt">Son güncelleme: -</span>
+                    </div>
+                </div>
+
                 <div class="profile-section" id="adminSiteStatsSection" style="display:none;">
                     <div class="section-title">
                         <i class="fa-solid fa-chart-column"></i> Admin: Site İstatistikleri
@@ -1872,6 +1913,122 @@
             }
         }
 
+        function setAdminSignalHealthValues(values) {
+            const activeEl = document.getElementById('adminHealthActiveSignals');
+            const staleEl = document.getElementById('adminHealthStaleSignals');
+            const riskyEl = document.getElementById('adminHealthRiskyStale');
+            const reviewEl = document.getElementById('adminHealthNeedsReview');
+            const openFailEl = document.getElementById('adminHealthOpenTelegramFailed');
+            const closeFailEl = document.getElementById('adminHealthCloseTelegramFailed');
+            const runtimeEl = document.getElementById('adminSignalHealthRuntime');
+            const updatedAtEl = document.getElementById('adminSignalHealthUpdatedAt');
+
+            if (activeEl) activeEl.textContent = toCountText(values?.activeSignals);
+            if (staleEl) staleEl.textContent = toCountText(values?.staleSignals);
+            if (riskyEl) riskyEl.textContent = toCountText(values?.riskyStale);
+            if (reviewEl) reviewEl.textContent = toCountText(values?.needsReview);
+            if (openFailEl) openFailEl.textContent = toCountText(values?.openTelegramFailed);
+            if (closeFailEl) closeFailEl.textContent = toCountText(values?.closeTelegramFailed);
+
+            if (runtimeEl) {
+                const banText = values?.binanceBanActive ? `Aktif (${toCountText(values?.binanceBanRemainingSec)}s)` : 'Yok';
+                const cooldownText = values?.algoCooldownActive ? `Aktif (${toCountText(values?.algoCooldownRemainingSec)}s)` : 'Yok';
+                runtimeEl.textContent = `Binance Ban: ${banText} · Algo Cooldown: ${cooldownText}`;
+            }
+
+            if (updatedAtEl) {
+                const now = new Date();
+                updatedAtEl.textContent = `Son güncelleme: ${now.toLocaleString('tr-TR')}`;
+            }
+        }
+
+        async function getSessionHeaders() {
+            const { data: { session: initialSession } } = await supabaseClient.auth.getSession();
+            let session = initialSession;
+            const nowSeconds = Math.floor(Date.now() / 1000);
+            if (!session || (session.expires_at && session.expires_at <= nowSeconds + 30)) {
+                const { data: refreshData } = await supabaseClient.auth.refreshSession();
+                session = refreshData?.session || session;
+            }
+
+            if (!session?.access_token) {
+                throw new Error('Oturum bulunamadı. Lütfen tekrar giriş yapın.');
+            }
+
+            const headers = { 'Content-Type': 'application/json' };
+            if (SUPABASE_ANON_KEY) {
+                headers['apikey'] = SUPABASE_ANON_KEY;
+            }
+            headers['Authorization'] = 'Bearer ' + session.access_token;
+            return headers;
+        }
+
+        async function fetchAdminSignalHealth() {
+            const headers = await getSessionHeaders();
+            const [healthResponse, staleResponse] = await Promise.all([
+                fetch(TELEGRAM_FUNCTION_URL, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ action: 'health_check' })
+                }),
+                fetch(TELEGRAM_FUNCTION_URL, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ action: 'stale_breakdown' })
+                })
+            ]);
+
+            const healthText = await healthResponse.text();
+            const staleText = await staleResponse.text();
+
+            const healthResult = healthText ? JSON.parse(healthText) : {};
+            const staleResult = staleText ? JSON.parse(staleText) : {};
+
+            if (!healthResponse.ok || !healthResult?.success) {
+                throw new Error(healthResult?.error || 'health_check başarısız');
+            }
+
+            if (!staleResponse.ok || !staleResult?.success) {
+                throw new Error(staleResult?.error || 'stale_breakdown başarısız');
+            }
+
+            return {
+                activeSignals: Number(healthResult?.health?.active_signals ?? NaN),
+                staleSignals: Number(healthResult?.health?.stale_active_signals_30m ?? NaN),
+                riskyStale: Number(staleResult?.summary?.risky ?? NaN),
+                needsReview: Number(staleResult?.summary?.needs_review ?? NaN),
+                openTelegramFailed: Number(healthResult?.health?.open_telegram_failed_active ?? NaN),
+                closeTelegramFailed: Number(healthResult?.health?.close_telegram_failed_last_1h ?? NaN),
+                binanceBanActive: !!healthResult?.runtime?.binance_ban_active,
+                binanceBanRemainingSec: Number(healthResult?.runtime?.binance_ban_remaining_sec ?? 0),
+                algoCooldownActive: !!healthResult?.runtime?.algo_endpoint_cooldown_active,
+                algoCooldownRemainingSec: Number(healthResult?.runtime?.algo_endpoint_cooldown_remaining_sec ?? 0)
+            };
+        }
+
+        async function loadAdminSignalHealth() {
+            if (!currentIsAdmin) return;
+
+            try {
+                const values = await fetchAdminSignalHealth();
+                setAdminSignalHealthValues(values);
+            } catch (error) {
+                console.warn('Admin sinyal sağlığı yüklenemedi:', error?.message || error);
+                setAdminSignalHealthValues({
+                    activeSignals: NaN,
+                    staleSignals: NaN,
+                    riskyStale: NaN,
+                    needsReview: NaN,
+                    openTelegramFailed: NaN,
+                    closeTelegramFailed: NaN,
+                    binanceBanActive: false,
+                    binanceBanRemainingSec: 0,
+                    algoCooldownActive: false,
+                    algoCooldownRemainingSec: 0
+                });
+            }
+        }
+
         async function loadAdminSiteStats() {
             if (!currentIsAdmin) return;
 
@@ -1976,10 +2133,12 @@
                 if (isAdmin) {
                     await loadAdminUserList();
                     await loadAdminSiteStats();
+                    await loadAdminSignalHealth();
                 }
 
                 await loadAdminAnnouncement();
                 updateAdminAnnouncementPanel();
+                updateAdminSignalHealthPanel();
                 updateAdminSiteStatsPanel();
 
                 // Son şifre değiştirme tarihini yükle
@@ -2104,6 +2263,12 @@
             panelEl.style.display = currentIsAdmin ? 'block' : 'none';
         }
 
+        function updateAdminSignalHealthPanel() {
+            const panelEl = document.getElementById('adminSignalHealthSection');
+            if (!panelEl) return;
+            panelEl.style.display = currentIsAdmin ? 'block' : 'none';
+        }
+
         async function refreshAdminSiteStats() {
             if (!currentIsAdmin) {
                 showNotification('Bu islem yalnizca adminler icin.', 'error');
@@ -2112,6 +2277,17 @@
             await loadAdminSiteStats();
             showNotification('Site istatistikleri guncellendi.', 'success');
         }
+
+        async function refreshAdminSignalHealth() {
+            if (!currentIsAdmin) {
+                showNotification('Bu islem yalnizca adminler icin.', 'error');
+                return;
+            }
+            await loadAdminSignalHealth();
+            showNotification('Sinyal sağlığı guncellendi.', 'success');
+        }
+
+        window.refreshAdminSignalHealth = refreshAdminSignalHealth;
 
         async function saveAdminAnnouncement() {
             if (!currentIsAdmin) {

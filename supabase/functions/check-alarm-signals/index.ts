@@ -5142,8 +5142,35 @@ serve(async (req: any) => {
       }
     }
 
-    // ✅ Auth guard for cron/internal calls (enforced only if CRON_SECRET is set)
-    if (cronSecret && authToken !== cronSecret) {
+    const isHealthAction = body?.action === "health_check" || body?.action === "stale_breakdown";
+
+    async function isAdminUserToken(token: string): Promise<boolean> {
+      if (!token) return false;
+      const { data: authData, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !authData?.user?.id) return false;
+
+      const { data: userProfile, error: profileError } = await supabase
+        .from("user_profiles")
+        .select("is_admin")
+        .eq("id", authData.user.id)
+        .maybeSingle();
+
+      if (profileError) return false;
+      return !!userProfile?.is_admin;
+    }
+
+    // ✅ Auth guard
+    // - health/stale diagnostics: CRON_SECRET OR admin JWT
+    // - other cron/internal calls: CRON_SECRET only (if set)
+    if (isHealthAction) {
+      const canUseHealthDiagnostics = (cronSecret && authToken === cronSecret) || await isAdminUserToken(authToken);
+      if (!canUseHealthDiagnostics) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    } else if (cronSecret && authToken !== cronSecret) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
