@@ -3733,7 +3733,7 @@
                 
                 // SENKRONIZASYON: Backtest'in son bar sinyalini sinyal göster tarafından kullan
                 let displaySignal = signal;
-                let signalTimestamp = new Date(openBarTimestamp).toISOString();
+                let signalTimestamp = new Date(lastClosedTimestamp).toISOString();
                 
                 // ÖNEMLI: Eğer backtest'te AÇIK işlem varsa, onu göster (yeni sinyal üretme!)
                 // Açık işlem = duration: 'AÇIK' veya isOpen: true
