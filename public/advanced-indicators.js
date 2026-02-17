@@ -1737,7 +1737,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         
         // ⚠️ ÖNEMLİ: Eğer backtest'in sonunda AÇIK işlem varsa, o HERŞEYİ GEÇER!
         // Signal'tan gelen lastTrade'i kaldır, yerine lastOpenTradeFromBacktest'i kullan
-        if (lastOpenTradeFromBacktest && (lastOpenTradeFromBacktest.duration === 'AÇIK' || lastOpenTradeFromBacktest.isOpen === true) && !(hasLiveOpenBar && lastTrade && (lastTrade.duration === 'AÇIK' || lastTrade.isOpen === true))) {
+        if (lastOpenTradeFromBacktest && (lastOpenTradeFromBacktest.duration === 'AÇIK' || lastOpenTradeFromBacktest.isOpen === true)) {
             lastTrade = lastOpenTradeFromBacktest; // Kesin olarak set et
             console.log('🔴 BACKTEST AÇIK İŞLEM VAR - Signal\'den gelen işlem çıkarılıyor');
         } else if (lastOpenTradeFromBacktest && lastTrade === null) {
