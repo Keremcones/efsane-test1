@@ -4733,6 +4733,18 @@
 
             const miniChartPrecision = inferMiniChartPrecision(klines);
             const miniChartMinMove = Math.pow(10, -miniChartPrecision);
+
+            const formatIstanbulDateTime = (epochSeconds) => {
+                const date = new Date(Number(epochSeconds) * 1000);
+                const d = date.toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' });
+                const t = date.toLocaleTimeString('tr-TR', {
+                    timeZone: 'Europe/Istanbul',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                });
+                return `${d} ${t}`;
+            };
             
             container.innerHTML = '';
             
@@ -4774,15 +4786,7 @@
                         return hm;
                     },
                     timeFormatter: (time) => {
-                        const date = new Date(time * 1000);
-                        const d = date.toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' });
-                        const t = date.toLocaleTimeString('tr-TR', {
-                            timeZone: 'Europe/Istanbul',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            hour12: false
-                        });
-                        return `${d} ${t}`;
+                        return formatIstanbulDateTime(time);
                     }
                 },
                 rightPriceScale: {
@@ -4795,7 +4799,8 @@
                     horzLines: { color: 'rgba(45, 55, 72, 0.3)' }
                 },
                 localization: {
-                    priceFormatter: (value) => Number(value).toFixed(miniChartPrecision)
+                    priceFormatter: (value) => Number(value).toFixed(miniChartPrecision),
+                    timeFormatter: (time) => formatIstanbulDateTime(time)
                 },
                 crosshair: {
                     mode: LightweightCharts.CrosshairMode.Normal,
