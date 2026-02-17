@@ -1146,6 +1146,8 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 closedEndIndex = lastBarIndex - 1;
             }
         }
+        const hasLiveOpenBar = lastBarIndex > closedEndIndex;
+        const liveOpenBar = hasLiveOpenBar ? trimmedKlines[lastBarIndex] : null;
         const backtestKlines = closedEndIndex >= 0
             ? trimmedKlines.slice(0, closedEndIndex + 1)
             : [];
@@ -1603,9 +1605,10 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         try {
             // Son barı kontrol et, bar açılışı için bir önceki bar verileriyle sinyal üret
             const lastBarIndex = closes.length - 1;
-            const closedBarIndex = lastBarIndex;
+            const closedBarIndex = hasLiveOpenBar ? closes.length : lastBarIndex;
+            const signalBarIndex = closedBarIndex - 1;
             
-            if (closedBarIndex < MIN_BACKTEST_WINDOW) {
+            if (signalBarIndex < MIN_BACKTEST_WINDOW) {
                 // Yeterli bar yok
                 return { trades: results, lastTrade: null, averages };
             }
@@ -1660,7 +1663,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 }
                 
                 if (canShowLastTrade) {
-                    const lastSignalBarIndex = Math.max(0, closedBarIndex - 1);
+                    const lastSignalBarIndex = Math.max(0, signalBarIndex);
                     const lastBarTimestamp = resolveKlineCloseTimeMs(backtestKlines[lastSignalBarIndex]);
                     const lastBarTimeUTC = new Date(lastBarTimestamp);
                     const lastTimeStr = lastBarTimeUTC.toLocaleTimeString('tr-TR', {
@@ -1672,7 +1675,13 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                     const lastBarDateTurkey = new Date(lastBarTimestamp);
                     
                     const lastEntrySide = lastSignal.direction === 'SHORT' ? 'SELL' : 'BUY';
-                    const lastEntryRaw = applySlippage(opens[closedBarIndex], lastEntrySide, slippageBpsValue);
+                    const entryOpenPrice = hasLiveOpenBar
+                        ? Number(liveOpenBar?.[1])
+                        : Number(opens[closedBarIndex]);
+                    const safeEntryOpenPrice = Number.isFinite(entryOpenPrice)
+                        ? entryOpenPrice
+                        : Number(closes[lastSignalBarIndex]);
+                    const lastEntryRaw = applySlippage(safeEntryOpenPrice, lastEntrySide, slippageBpsValue);
                     const lastEntryPrice = roundToTick(lastEntryRaw, safeTick);
                     const lastTakeProfitRaw = lastSignal.direction === 'SHORT'
                         ? lastEntryPrice * (1 - takeProfitPercent / 100)
@@ -1686,7 +1695,11 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                     // Kar/Zarar hesapla
                     let lastTradeProfit = 0;
                     const lastExitSide = lastSignal.direction === 'SHORT' ? 'BUY' : 'SELL';
-                    const lastExitRaw = applySlippage(closes[lastBarIndex], lastExitSide, slippageBpsValue);
+                    const markPrice = hasLiveOpenBar
+                        ? Number(liveOpenBar?.[4] ?? liveOpenBar?.[1])
+                        : Number(closes[lastBarIndex]);
+                    const safeMarkPrice = Number.isFinite(markPrice) ? markPrice : lastEntryPrice;
+                    const lastExitRaw = applySlippage(safeMarkPrice, lastExitSide, slippageBpsValue);
                     const lastExitPrice = roundToTick(lastExitRaw, safeTick);
                     if (lastSignal.direction === 'LONG') {
                         lastTradeProfit = ((lastExitPrice - lastEntryPrice) / lastEntryPrice) * 100;
@@ -1724,7 +1737,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         
         // ⚠️ ÖNEMLİ: Eğer backtest'in sonunda AÇIK işlem varsa, o HERŞEYİ GEÇER!
         // Signal'tan gelen lastTrade'i kaldır, yerine lastOpenTradeFromBacktest'i kullan
-        if (lastOpenTradeFromBacktest && (lastOpenTradeFromBacktest.duration === 'AÇIK' || lastOpenTradeFromBacktest.isOpen === true)) {
+        if (lastOpenTradeFromBacktest && (lastOpenTradeFromBacktest.duration === 'AÇIK' || lastOpenTradeFromBacktest.isOpen === true) && !(hasLiveOpenBar && lastTrade && (lastTrade.duration === 'AÇIK' || lastTrade.isOpen === true))) {
             lastTrade = lastOpenTradeFromBacktest; // Kesin olarak set et
             console.log('🔴 BACKTEST AÇIK İŞLEM VAR - Signal\'den gelen işlem çıkarılıyor');
         } else if (lastOpenTradeFromBacktest && lastTrade === null) {
