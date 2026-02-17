@@ -6411,7 +6411,7 @@ Detaylar:
                 current: currentPrice,
                 pnl: pnlSign + pnlPercent + '%',
                 signal: trade.signal,
-                isClosed: shouldCloseTrade,
+                isClosed: !(trade?.isOpen || trade?.duration === 'AÇIK'),
                 timestamp: new Date().toLocaleTimeString('tr-TR')
             });
         }
