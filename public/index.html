@@ -3739,58 +3739,6 @@
                     isValidSignal: signalBase.triggered
                 };
 
-                if (backtest && Array.isArray(backtest.trades) && signalBase?.triggered) {
-                    const signalTsMs = Number(lastClosedTimestamp);
-                    const signalDirection = String(signalBase.direction || '').toUpperCase();
-                    const signalScore = Number(signalBase.score);
-                    const tfMs = timeframeToMs(currentTimeframe || '1h');
-                    const dedupeWindowMs = Number.isFinite(tfMs) && tfMs > 0 ? Math.max(1000, Math.floor(tfMs / 2)) : 30 * 60 * 1000;
-
-                    if (Number.isFinite(signalTsMs) && Number.isFinite(signalEntry) && Number.isFinite(signalTp) && Number.isFinite(signalSl)) {
-                        const alreadyInBacktest = backtest.trades.some((trade) => {
-                            const tradeTs = Number(trade.timestamp);
-                            const tradeDirection = String(trade.signal || trade.direction || '').toUpperCase();
-                            return tradeDirection === signalDirection
-                                && Number.isFinite(tradeTs)
-                                && Math.abs(tradeTs - signalTsMs) <= dedupeWindowMs;
-                        });
-
-                        if (!alreadyInBacktest) {
-                            const signalDate = new Date(signalTsMs);
-                            backtest.trades.unshift({
-                                timestamp: signalTsMs,
-                                date: signalDate.toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' }),
-                                time: signalDate.toLocaleTimeString('tr-TR', {
-                                    timeZone: 'Europe/Istanbul',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                    second: '2-digit'
-                                }),
-                                signal: signalDirection,
-                                entry: signalEntry,
-                                exit: signalEntry,
-                                takeProfit: signalTp,
-                                stopLoss: signalSl,
-                                profit: 0,
-                                score: Number.isFinite(signalScore) ? signalScore : 0,
-                                duration: 'AÇIK',
-                                isOpen: true,
-                                actualTP: false,
-                                actualSL: false
-                            });
-                        }
-
-                        backtest.trades.sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
-
-                        filteredBacktestTrades = backtest.trades.filter(trade => {
-                            const score = Number(trade.score);
-                            return Number.isFinite(score) ? score >= confidenceThreshold : false;
-                        });
-
-                        lastBacktestTrade = filteredBacktestTrades.length > 0 ? filteredBacktestTrades[0] : null;
-                    }
-                }
-                
                 // SENKRONIZASYON: Backtest'in son bar sinyalini sinyal göster tarafından kullan
                 let displaySignal = signal;
                 let signalTimestamp = new Date(lastClosedTimestamp).toISOString();
