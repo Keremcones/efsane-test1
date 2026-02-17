@@ -3326,7 +3326,8 @@ async function checkAndTriggerUserAlarms(
         : fallbackTrigger;
       let lastOpenMs = barStartMs;
       let evaluatedBarOpenMs = barStartMs;
-      let evaluatedBarIso = lastOpenIso;
+      let evaluatedBarCloseMs = barEndMs;
+      let evaluatedBarIso = new Date(evaluatedBarCloseMs).toISOString();
 
       const isNearTargets = (price: number, targets: number[]): boolean => {
         if (!Number.isFinite(price) || targets.length === 0) return true;
@@ -3376,7 +3377,8 @@ async function checkAndTriggerUserAlarms(
             }
             if (Number.isFinite(indicators.lastClosedTimestamp) && timeframeMs > 0) {
               evaluatedBarOpenMs = Math.floor(Number(indicators.lastClosedTimestamp) / timeframeMs) * timeframeMs;
-              evaluatedBarIso = new Date(evaluatedBarOpenMs).toISOString();
+              evaluatedBarCloseMs = Number(indicators.lastClosedTimestamp);
+              evaluatedBarIso = new Date(evaluatedBarCloseMs).toISOString();
             }
           }
 
@@ -3385,7 +3387,7 @@ async function checkAndTriggerUserAlarms(
             return;
           }
 
-          if (Number.isFinite(lastSignalMs) && Number.isFinite(evaluatedBarOpenMs) && lastSignalMs >= evaluatedBarOpenMs) {
+          if (Number.isFinite(lastSignalMs) && Number.isFinite(evaluatedBarCloseMs) && lastSignalMs >= evaluatedBarCloseMs) {
             console.log(`⏹️ Skipping user_alarm for ${symbol}: same closed bar already processed (alarm ${alarm.id})`);
             return;
           }
@@ -3457,7 +3459,7 @@ async function checkAndTriggerUserAlarms(
             };
             
             const directionEmoji = signal.direction === "LONG" ? "🟢" : "🔴";
-            const formattedDateTime = formatTurkeyDateTime(resolveBarCloseDisplayTimeMs(evaluatedBarOpenMs, String(alarm.timeframe || "1h")));
+            const formattedDateTime = formatTurkeyDateTime(evaluatedBarCloseMs);
             
             triggerMessage = `🔔 ALARM AKTİVE! 🔔\n\n` +
               `💰 Çift: ${symbol}\n` +
@@ -3569,7 +3571,8 @@ async function checkAndTriggerUserAlarms(
             }
             if (Number.isFinite(indicators.lastClosedTimestamp) && timeframeMs > 0) {
               evaluatedBarOpenMs = Math.floor(Number(indicators.lastClosedTimestamp) / timeframeMs) * timeframeMs;
-              evaluatedBarIso = new Date(evaluatedBarOpenMs).toISOString();
+              evaluatedBarCloseMs = Number(indicators.lastClosedTimestamp);
+              evaluatedBarIso = new Date(evaluatedBarCloseMs).toISOString();
             }
           }
 
@@ -3578,7 +3581,7 @@ async function checkAndTriggerUserAlarms(
             return;
           }
 
-          if (Number.isFinite(lastSignalMs) && Number.isFinite(evaluatedBarOpenMs) && lastSignalMs >= evaluatedBarOpenMs) {
+          if (Number.isFinite(lastSignalMs) && Number.isFinite(evaluatedBarCloseMs) && lastSignalMs >= evaluatedBarCloseMs) {
             console.log(`⏹️ Skipping SIGNAL alarm for ${symbol}: same closed bar already processed (alarm ${alarm.id})`);
             return;
           }
@@ -3699,8 +3702,13 @@ async function checkAndTriggerUserAlarms(
       }
 
       if (shouldTrigger && triggerMessage) {
-        const signalBarMs = Number.isFinite(evaluatedBarOpenMs) ? evaluatedBarOpenMs : lastOpenMs;
-        const signalBarIso = Number.isFinite(evaluatedBarOpenMs) ? evaluatedBarIso : lastOpenIso;
+        const fallbackCloseMs = Number.isFinite(evaluatedBarOpenMs) && Number.isFinite(timeframeMs) && timeframeMs > 0
+          ? (evaluatedBarOpenMs + timeframeMs)
+          : lastOpenMs;
+        const signalBarMs = Number.isFinite(evaluatedBarCloseMs) ? evaluatedBarCloseMs : fallbackCloseMs;
+        const signalBarIso = Number.isFinite(signalBarMs)
+          ? new Date(signalBarMs).toISOString()
+          : evaluatedBarIso;
 
         try {
           const { data: lastSignal } = await supabase
