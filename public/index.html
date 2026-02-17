@@ -6359,66 +6359,8 @@ Detaylar:
             const pnlSign = pnlPercent >= 0 ? '+' : '';
             const pnlColor = pnlPercent >= 0 ? 'var(--accent)' : 'var(--accent-red)';
             
-            // ⚡ TP/SL HIT KONTROLÜ
-            const tpPrice = parseFloat(trade.takeProfit);
-            const slPrice = parseFloat(trade.stopLoss);
-            let shouldCloseTrade = false;
-            let closeReason = '';
-            let closeReasonType = 'info';
-            
-            if (trade.signal === 'LONG') {
-                if (currentPrice >= tpPrice) {
-                    shouldCloseTrade = true;
-                    // TP hit olursa tam TP yüzdesini yaz
-                    pnlPercent = takeProfitPercent;
-                    closeReason = `TP HIT! ${trade.signal} işlemi +${takeProfitPercent}% karla kapandı`;
-                    closeReasonType = 'success';
-                    trade.exit = tpPrice;
-                    trade.actualTP = true;
-                } else if (currentPrice <= slPrice) {
-                    shouldCloseTrade = true;
-                    // SL hit olursa tam SL yüzdesini yaz (negatif)
-                    pnlPercent = -stopLossPercent;
-                    closeReason = `SL HIT! ${trade.signal} işlemi -${stopLossPercent}% zararla kapandı`;
-                    closeReasonType = 'error';
-                    trade.exit = slPrice;
-                    trade.actualSL = true;
-                }
-            } else if (trade.signal === 'SHORT') {
-                if (currentPrice <= tpPrice) {
-                    shouldCloseTrade = true;
-                    // TP hit olursa tam TP yüzdesini yaz
-                    pnlPercent = takeProfitPercent;
-                    closeReason = `TP HIT! ${trade.signal} işlemi +${takeProfitPercent}% karla kapandı`;
-                    closeReasonType = 'success';
-                    trade.exit = tpPrice;
-                    trade.actualTP = true;
-                } else if (currentPrice >= slPrice) {
-                    shouldCloseTrade = true;
-                    // SL hit olursa tam SL yüzdesini yaz (negatif)
-                    pnlPercent = -stopLossPercent;
-                    closeReason = `SL HIT! ${trade.signal} işlemi -${stopLossPercent}% zararla kapandı`;
-                    closeReasonType = 'error';
-                    trade.exit = slPrice;
-                    trade.actualSL = true;
-                }
-            }
-            
-            // İşlemi kapat ve profit'i set et
-            if (shouldCloseTrade) {
-                trade.isOpen = false;
-                trade.duration = '0 bar'; // Kapalı işlem
-                trade.profit = pnlPercent;  // Exact TP/SL yüzdesini kaydet
-                
-                console.log('İŞLEM KAPANDI:', closeReason);
-                showUpdateToast(closeReason, closeReasonType);
-                
-                // 2 saniye sonra backtest containerini güncelle
-                setTimeout(() => {
-                    console.log('🔄 Backtest containerini güncelleniyor...');
-                    refreshBacktestDisplay();
-                }, 2000);
-            }
+            // Not: Burada sadece açık işlemin canlı P&L gösterimi yapılır.
+            // Backtest kapanış durumu (TP/SL) runBacktest içinde tarihsel bar verisiyle belirlenir.
             
             // UI'ı güncelle - backtest results'daki açık işlemin P&L'si
             // Son açık işlemi bul (data-trade-open="true")
@@ -6455,20 +6397,6 @@ Detaylar:
                 detailPnl.style.color = pnlColor;
             } else {
                 console.warn('⚠️ Detail PnL element bulunamadı:', tradeId + '-detail-pnl');
-            }
-            
-            // İşlem kapatıldıysa, attribute'i ve stili güncelle
-            if (shouldCloseTrade) {
-                lastOpenRow.setAttribute('data-trade-open', 'false');
-                
-                // Kapanmış işlem stilini uygula (opacity azalt vb.)
-                lastOpenRow.style.opacity = '0.7';
-                
-                // Mavi bant animasyonuyla kapanış göster
-                lastOpenRow.style.transition = 'all 0.5s ease';
-                lastOpenRow.style.backgroundColor = trade.profit >= 0 ? 'rgba(0, 255, 136, 0.1)' : 'rgba(255, 71, 87, 0.1)';
-                
-                console.log('🎯 İşlem UI güncellendi:', tradeId);
             }
             
             // Debug log
