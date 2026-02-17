@@ -457,10 +457,15 @@ function resolveBarCloseDisplayTimeMs(barOpenOrIso: number | string | undefined,
   const raw = typeof barOpenOrIso === "string"
     ? Date.parse(barOpenOrIso)
     : Number(barOpenOrIso);
-  const barOpenMs = Number.isFinite(raw) ? Number(raw) : Date.now();
+  const tsMs = Number.isFinite(raw) ? Number(raw) : Date.now();
   const timeframeMs = timeframeToMinutes(String(timeframe || "1h")) * 60 * 1000;
-  if (!Number.isFinite(timeframeMs) || timeframeMs <= 0) return barOpenMs;
-  return barOpenMs + timeframeMs;
+  if (!Number.isFinite(timeframeMs) || timeframeMs <= 0) return tsMs;
+  const remainder = ((tsMs % timeframeMs) + timeframeMs) % timeframeMs;
+  const isLikelyOpenTimestamp = remainder === 0;
+  if (isLikelyOpenTimestamp) {
+    return tsMs + timeframeMs;
+  }
+  return tsMs;
 }
 
 
