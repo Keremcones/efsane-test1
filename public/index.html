@@ -6321,6 +6321,7 @@ Detaylar:
         
         function updateOpenTradePnL(trade, livePrice = null) {
             // Son açık işlemin P&L'sini hesapla ve grafiğe yansıt (GERÇEK ZAMANLI)
+            if (!(trade?.isOpen || trade?.duration === 'AÇIK')) return;
             
             // Fiyatı al - öncelikli sıra:
             let currentPrice = livePrice;
@@ -6361,8 +6362,63 @@ Detaylar:
             }
             
             pnlPercent = parseFloat(pnlPercent.toFixed(2));
-            const pnlSign = pnlPercent >= 0 ? '+' : '';
-            const pnlColor = pnlPercent >= 0 ? 'var(--accent)' : 'var(--accent-red)';
+            let pnlSign = pnlPercent >= 0 ? '+' : '';
+            let pnlColor = pnlPercent >= 0 ? 'var(--accent)' : 'var(--accent-red)';
+
+            // Açık işlem için canlı TP/SL kapanış kontrolü
+            const tpPrice = parseFloat(trade.takeProfit);
+            const slPrice = parseFloat(trade.stopLoss);
+            let shouldCloseTrade = false;
+            let closeReason = '';
+            let closeReasonType = 'info';
+            let closePrice = null;
+
+            if (trade.signal === 'LONG') {
+                if (Number.isFinite(tpPrice) && currentPrice >= tpPrice) {
+                    shouldCloseTrade = true;
+                    closeReason = `TP HIT! ${trade.signal} işlemi kapandı`;
+                    closeReasonType = 'success';
+                    closePrice = tpPrice;
+                    trade.actualTP = true;
+                } else if (Number.isFinite(slPrice) && currentPrice <= slPrice) {
+                    shouldCloseTrade = true;
+                    closeReason = `SL HIT! ${trade.signal} işlemi kapandı`;
+                    closeReasonType = 'error';
+                    closePrice = slPrice;
+                    trade.actualSL = true;
+                }
+            } else if (trade.signal === 'SHORT') {
+                if (Number.isFinite(tpPrice) && currentPrice <= tpPrice) {
+                    shouldCloseTrade = true;
+                    closeReason = `TP HIT! ${trade.signal} işlemi kapandı`;
+                    closeReasonType = 'success';
+                    closePrice = tpPrice;
+                    trade.actualTP = true;
+                } else if (Number.isFinite(slPrice) && currentPrice >= slPrice) {
+                    shouldCloseTrade = true;
+                    closeReason = `SL HIT! ${trade.signal} işlemi kapandı`;
+                    closeReasonType = 'error';
+                    closePrice = slPrice;
+                    trade.actualSL = true;
+                }
+            }
+
+            if (shouldCloseTrade && Number.isFinite(closePrice)) {
+                const exitPrice = Number(closePrice);
+                let closedPnl = 0;
+                if (trade.signal === 'LONG') {
+                    closedPnl = ((exitPrice - entryPrice) / entryPrice) * 100;
+                } else {
+                    closedPnl = ((entryPrice - exitPrice) / entryPrice) * 100;
+                }
+                pnlPercent = parseFloat(closedPnl.toFixed(2));
+                trade.exit = exitPrice;
+                trade.profit = pnlPercent;
+                trade.isOpen = false;
+                trade.duration = '0 bar';
+                pnlSign = pnlPercent >= 0 ? '+' : '';
+                pnlColor = pnlPercent >= 0 ? 'var(--accent)' : 'var(--accent-red)';
+            }
             
             // Not: Burada sadece açık işlemin canlı P&L gösterimi yapılır.
             // Backtest kapanış durumu (TP/SL) runBacktest içinde tarihsel bar verisiyle belirlenir.
@@ -6402,6 +6458,13 @@ Detaylar:
                 detailPnl.style.color = pnlColor;
             } else {
                 console.warn('⚠️ Detail PnL element bulunamadı:', tradeId + '-detail-pnl');
+            }
+
+            if (shouldCloseTrade) {
+                lastOpenRow.setAttribute('data-trade-open', 'false');
+                lastOpenRow.style.opacity = '0.75';
+                showUpdateToast(closeReason, closeReasonType);
+                setTimeout(() => refreshBacktestDisplay(), 250);
             }
             
             // Debug log
