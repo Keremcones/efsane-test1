@@ -1514,6 +1514,112 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             
             openTradeEntryBar = i;
             console.log(`✅ YENİ İŞLEM AÇILDI [${timeframe}] bar=${i} ${signal.direction} entry=${entryPrice.toFixed(4)} TP=${takeProfit.toFixed(4)} SL=${stopLoss.toFixed(4)}`);
+
+            // ENTRY BAR TP/SL KONTROLÜ
+            const entryBarHigh = highs[i];
+            const entryBarLow = lows[i];
+            let closeOnEntryBar = false;
+            let entryCloseReason = null;
+
+            if (openTrade.signal === 'LONG') {
+                const hitSl = entryBarLow <= openTrade.stopLoss;
+                const hitTp = entryBarHigh >= openTrade.takeProfit;
+
+                if (hitSl && hitTp) {
+                    const resolvedHit = resolveSameCandleHit(opens[i], openTrade.takeProfit, openTrade.stopLoss);
+                    if (resolvedHit === 'TP') {
+                        const exitRaw = applySlippage(openTrade.takeProfit, 'SELL', slippageBpsValue);
+                        openTrade.exit = roundToTick(exitRaw, safeTick);
+                        openTrade.actualTP = true;
+                        entryCloseReason = 'TP';
+                    } else {
+                        const exitRaw = applySlippage(openTrade.stopLoss, 'SELL', slippageBpsValue);
+                        openTrade.exit = roundToTick(exitRaw, safeTick);
+                        openTrade.actualSL = true;
+                        entryCloseReason = 'SL';
+                    }
+                    closeOnEntryBar = true;
+                } else if (hitSl) {
+                    const exitRaw = applySlippage(openTrade.stopLoss, 'SELL', slippageBpsValue);
+                    openTrade.exit = roundToTick(exitRaw, safeTick);
+                    openTrade.actualSL = true;
+                    entryCloseReason = 'SL';
+                    closeOnEntryBar = true;
+                } else if (hitTp) {
+                    const exitRaw = applySlippage(openTrade.takeProfit, 'SELL', slippageBpsValue);
+                    openTrade.exit = roundToTick(exitRaw, safeTick);
+                    openTrade.actualTP = true;
+                    entryCloseReason = 'TP';
+                    closeOnEntryBar = true;
+                }
+            } else {
+                const hitSl = entryBarHigh >= openTrade.stopLoss;
+                const hitTp = entryBarLow <= openTrade.takeProfit;
+
+                if (hitSl && hitTp) {
+                    const resolvedHit = resolveSameCandleHit(opens[i], openTrade.takeProfit, openTrade.stopLoss);
+                    if (resolvedHit === 'TP') {
+                        const exitRaw = applySlippage(openTrade.takeProfit, 'BUY', slippageBpsValue);
+                        openTrade.exit = roundToTick(exitRaw, safeTick);
+                        openTrade.actualTP = true;
+                        entryCloseReason = 'TP';
+                    } else {
+                        const exitRaw = applySlippage(openTrade.stopLoss, 'BUY', slippageBpsValue);
+                        openTrade.exit = roundToTick(exitRaw, safeTick);
+                        openTrade.actualSL = true;
+                        entryCloseReason = 'SL';
+                    }
+                    closeOnEntryBar = true;
+                } else if (hitSl) {
+                    const exitRaw = applySlippage(openTrade.stopLoss, 'BUY', slippageBpsValue);
+                    openTrade.exit = roundToTick(exitRaw, safeTick);
+                    openTrade.actualSL = true;
+                    entryCloseReason = 'SL';
+                    closeOnEntryBar = true;
+                } else if (hitTp) {
+                    const exitRaw = applySlippage(openTrade.takeProfit, 'BUY', slippageBpsValue);
+                    openTrade.exit = roundToTick(exitRaw, safeTick);
+                    openTrade.actualTP = true;
+                    entryCloseReason = 'TP';
+                    closeOnEntryBar = true;
+                }
+            }
+
+            if (closeOnEntryBar) {
+                openTrade.exitBarIndex = i;
+                let profit = 0;
+                if (openTrade.signal === 'LONG') {
+                    profit = ((openTrade.exit - openTrade.entry) / openTrade.entry) * 100;
+                } else {
+                    profit = ((openTrade.entry - openTrade.exit) / openTrade.entry) * 100;
+                }
+                const feePct = (feeBpsValue * 2) / 100;
+                profit -= feePct;
+
+                const closedTrade = {
+                    ...openTrade,
+                    profit: profit,
+                    isOpen: false,
+                    duration: 'Aynı bar',
+                    closeReason: entryCloseReason
+                };
+
+                if (profit > 0) {
+                    wins++;
+                    totalWinProfit += profit;
+                } else {
+                    losses++;
+                    totalLossProfit += profit;
+                }
+                totalProfit += profit;
+
+                results.push(closedTrade);
+                activeSignalDirections.delete(directionKey);
+                console.log(`❌ ENTRY BAR KAPANIŞ [${timeframe}] bar=${i} ${openTrade.signal} profit=${profit.toFixed(2)}% reason=${entryCloseReason}`);
+                openTrade = null;
+                openTradeEntryBar = -1;
+                continue;
+            }
         }
         
         // ============================================
