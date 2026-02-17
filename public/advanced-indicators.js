@@ -1089,10 +1089,7 @@ function resolveKlineOpenTimeMs(kline) {
 }
 
 function resolveSameCandleHit(openPrice, takeProfit, stopLoss) {
-    if (!Number.isFinite(openPrice)) return 'SL';
-    const distToTp = Math.abs(takeProfit - openPrice);
-    const distToSl = Math.abs(openPrice - stopLoss);
-    return distToTp < distToSl ? 'TP' : 'SL';
+    return 'SL';
 }
 
 async function resolveBinanceServerTimeMs(marketType) {
