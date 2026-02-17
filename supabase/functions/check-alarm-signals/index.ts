@@ -1626,12 +1626,14 @@ async function getUserBinanceSettings(userId: string): Promise<UserBinanceKeys |
 }
 
 async function resolveAutoTradeEnabled(alarm: any, marketType: "spot" | "futures"): Promise<boolean> {
-  if (alarm?.auto_trade_enabled === true) return true;
+  if (alarm?.auto_trade_enabled === false) return false;
   const userKeys = await getUserBinanceSettings(String(alarm?.user_id || ""));
   if (!userKeys?.auto_trade_enabled) return false;
-  if (marketType === "futures") return userKeys.futures_enabled === true;
-  if (marketType === "spot") return userKeys.spot_enabled === true;
-  return false;
+  const marketEnabled = marketType === "futures"
+    ? userKeys.futures_enabled === true
+    : userKeys.spot_enabled === true;
+  if (!marketEnabled) return false;
+  return true;
 }
 
 function isBinancePermissionError(raw: string): boolean {

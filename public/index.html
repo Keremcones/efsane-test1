@@ -2602,6 +2602,66 @@
 
             return '-';
         }
+
+        function buildBacktestTradesForDisplay(backtest, signalForDisplay, signalTimestamp, timeframe) {
+            const baseTrades = Array.isArray(backtest?.trades)
+                ? backtest.trades.filter(trade => {
+                    const score = Number(trade.score);
+                    return Number.isFinite(score) ? score >= confidenceThreshold : false;
+                })
+                : [];
+
+            const tsMs = Date.parse(String(signalTimestamp || ''));
+            const direction = String(signalForDisplay?.direction || '').toUpperCase();
+            const entry = Number(signalForDisplay?.entry);
+            const tp = Number(signalForDisplay?.tp);
+            const sl = Number(signalForDisplay?.stop);
+            const score = Number(signalForDisplay?.score);
+            const validSignal = signalForDisplay?.isValidSignal === true || signalForDisplay?.triggered === true;
+
+            if (!validSignal || !Number.isFinite(tsMs) || !Number.isFinite(entry) || !Number.isFinite(tp) || !Number.isFinite(sl)) {
+                return baseTrades;
+            }
+
+            if (Number.isFinite(score) && score < confidenceThreshold) {
+                return baseTrades;
+            }
+
+            const tfMs = timeframeToMs(timeframe || currentTimeframe || '1h');
+            const dedupeWindowMs = Number.isFinite(tfMs) && tfMs > 0 ? Math.max(1000, Math.floor(tfMs / 2)) : 30 * 60 * 1000;
+            const hasMatchingTrade = baseTrades.some((trade) => {
+                const tradeDirection = String(trade.signal || trade.direction || '').toUpperCase();
+                const tradeTs = Number(trade.timestamp);
+                return tradeDirection === direction && Number.isFinite(tradeTs) && Math.abs(tradeTs - tsMs) <= dedupeWindowMs;
+            });
+
+            if (hasMatchingTrade) {
+                return baseTrades;
+            }
+
+            const signalDate = new Date(tsMs);
+            const syntheticTrade = {
+                signal: direction,
+                date: signalDate.toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' }),
+                time: signalDate.toLocaleTimeString('tr-TR', {
+                    timeZone: 'Europe/Istanbul',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                }),
+                timestamp: tsMs,
+                entry,
+                takeProfit: tp,
+                stopLoss: sl,
+                exit: entry,
+                profit: 0,
+                duration: 'AÇIK',
+                isOpen: true,
+                score: Number.isFinite(score) ? score : 0
+            };
+
+            return [syntheticTrade, ...baseTrades];
+        }
         
         // Coin logosu için HTML elementi oluştur
         function createCoinLogoElement(symbol, size = 32) {
@@ -3954,12 +4014,12 @@
             const coinName = symbol.replace('USDT', '');
             const coinLower = coinName.toLowerCase();
             const coinColor = coinColors[coinName] || '#3b82f6';
-            const filteredBacktestTrades = backtest && Array.isArray(backtest.trades)
-                ? backtest.trades.filter(trade => {
-                    const score = Number(trade.score);
-                    return Number.isFinite(score) ? score >= confidenceThreshold : false;
-                })
-                : [];
+            const filteredBacktestTrades = buildBacktestTradesForDisplay(
+                backtest,
+                displaySignal || signal,
+                signalTimestamp,
+                currentTimeframe
+            );
             let riskRewardValue = null;
             if (signal && Number.isFinite(signal.riskRewardRatio)) {
                 riskRewardValue = signal.riskRewardRatio;
@@ -6552,12 +6612,19 @@ Detaylar:
             }
             
             const backtest = currentAnalysis.backtest;
-            const filteredBacktestTrades = Array.isArray(backtest.trades)
-                ? backtest.trades.filter(trade => {
-                    const score = Number(trade.score);
-                    return Number.isFinite(score) ? score >= confidenceThreshold : false;
-                })
-                : [];
+            const filteredBacktestTrades = buildBacktestTradesForDisplay(
+                backtest,
+                {
+                    direction: currentAnalysis?.signal_direction,
+                    entry: currentAnalysis?.entry_price,
+                    tp: currentAnalysis?.take_profit,
+                    stop: currentAnalysis?.stop_loss,
+                    score: currentAnalysis?.confidence_score,
+                    isValidSignal: true
+                },
+                currentAnalysis?.signal_timestamp,
+                currentTimeframe
+            );
             const backtestContainer = document.querySelector('.backtest-results');
             
             if (!backtestContainer) {
