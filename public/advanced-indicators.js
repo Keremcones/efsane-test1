@@ -1137,8 +1137,12 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         const lastBarIndex = trimmedKlines.length - 1;
         let closedEndIndex = lastBarIndex;
         if (lastBarIndex >= 0) {
-            const lastCloseMs = resolveKlineCloseTimeMs(trimmedKlines[lastBarIndex]);
-            if (lastCloseMs > serverNowMs) {
+            const lastRawCloseMs = Number(trimmedKlines[lastBarIndex]?.[6] ?? trimmedKlines[lastBarIndex]?.[0]);
+            const lastCloseMs = Number.isFinite(lastRawCloseMs)
+                ? lastRawCloseMs
+                : resolveKlineCloseTimeMs(trimmedKlines[lastBarIndex]);
+            const closeLeadMs = lastCloseMs - serverNowMs;
+            if (closeLeadMs > 2000) {
                 closedEndIndex = lastBarIndex - 1;
             }
         }
