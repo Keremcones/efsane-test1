@@ -1209,7 +1209,8 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         const highs = backtestKlines.map(k => parseFloat(k[2]));
         const lows = backtestKlines.map(k => parseFloat(k[3]));
         const volumes = backtestKlines.map(k => parseFloat(k[5]));
-        const indicatorWindowSize = Math.min(1000, closes.length - 1);
+        const EDGE_PARITY_INDICATOR_KLINES_LIMIT = 300;
+        const indicatorWindowSize = Math.min(EDGE_PARITY_INDICATOR_KLINES_LIMIT, closes.length - 1);
         if (indicatorWindowSize < MIN_BACKTEST_WINDOW) {
             console.warn(`⚠️ Backtest window çok küçük: ${indicatorWindowSize}`);
             return results;
@@ -1665,7 +1666,6 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                     const lastTimeStr = lastBarTimeUTC.toLocaleTimeString('tr-TR', {
                         hour: '2-digit',
                         minute: '2-digit',
-                        second: '2-digit',
                         timeZone: 'Europe/Istanbul'
                     });
                     
