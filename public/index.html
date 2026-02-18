@@ -4285,7 +4285,17 @@
             
             let backtestHtml = '';
             if (backtest) {
-                const backtestDaysDisplay = Number(window.APP_CONFIG && window.APP_CONFIG.backtestDays) || 30;
+                let backtestDaysDisplay = 0;
+                if (Array.isArray(backtest.klines) && backtest.klines.length > 1) {
+                    const firstBar = backtest.klines[0];
+                    const lastBar = backtest.klines[backtest.klines.length - 1];
+                    const firstTs = Number(firstBar[0]);
+                    const lastTs = Number(lastBar[0]);
+                    if (Number.isFinite(firstTs) && Number.isFinite(lastTs) && lastTs > firstTs) {
+                        backtestDaysDisplay = Math.max(1, Math.round((lastTs - firstTs) / (1000 * 60 * 60 * 24)));
+                    }
+                }
+                if (!backtestDaysDisplay) backtestDaysDisplay = 1;
                 const backtestTradeCount = Number.isFinite(Number(backtest.totalTrades))
                     ? Number(backtest.totalTrades)
                     : (Array.isArray(filteredBacktestTrades) ? filteredBacktestTrades.filter(t => !(t.isOpen || t.duration === 'AÇIK')).length : 0);
