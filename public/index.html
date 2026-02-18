@@ -4285,6 +4285,10 @@
             
             let backtestHtml = '';
             if (backtest) {
+                const backtestDaysDisplay = Number(window.APP_CONFIG && window.APP_CONFIG.backtestDays) || 30;
+                const backtestTradeCount = Number.isFinite(Number(backtest.totalTrades))
+                    ? Number(backtest.totalTrades)
+                    : (Array.isArray(filteredBacktestTrades) ? filteredBacktestTrades.filter(t => !(t.isOpen || t.duration === 'AÇIK')).length : 0);
                 backtestHtml = `
                     <div class="card">
                         <div class="card-title"><i class="fa-solid fa-chart-simple"></i> Backtest Sonuçları</div>
@@ -4295,6 +4299,10 @@
                         <div style="margin: 10px 0 14px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-secondary); font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5;">
                             <i class="fa-solid fa-circle-info"></i>
                             TP/SL fiyatlarında coin’e göre farklı küsuratlar görülebilir. Bunun nedeni her sembolün fiyat adımı (tick size) ve ondalık hassasiyetinin farklı olmasıdır; yüzde hedefler fiyata çevrilirken borsa kurallarına göre yuvarlama/kırpma uygulanır.
+                        </div>
+                        <div style="margin: 10px 0 14px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-secondary); font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+                            <span><i class="fa-regular fa-calendar"></i> Backtest Periyodu: <strong style="color: var(--text-primary);">${backtestDaysDisplay} gün</strong></span>
+                            <span><i class="fa-solid fa-list-check"></i> İşlem Sayısı: <strong style="color: var(--text-primary);">${backtestTradeCount}</strong></span>
                         </div>
                         <div style="margin-bottom: 16px;">
                             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
