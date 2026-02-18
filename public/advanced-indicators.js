@@ -1092,6 +1092,104 @@ function resolveSameCandleHit(openPrice, takeProfit, stopLoss) {
     return 'SL';
 }
 
+async function fetchAggTradesRange(symbol, marketType, startMs, endMs, limit = 1000) {
+    try {
+        const safeStart = Math.max(0, Math.floor(Number(startMs) || 0));
+        const safeEnd = Math.max(safeStart + 1, Math.floor(Number(endMs) || 0));
+        const path = `/aggTrades?symbol=${symbol}&startTime=${safeStart}&endTime=${safeEnd}&limit=${limit}`;
+        const response = await binanceFetchPath(marketType, path, {}, { retries: 2, timeoutMs: 15000 });
+        if (!response.ok) return [];
+        const data = await response.json();
+        return Array.isArray(data) ? data : [];
+    } catch (error) {
+        console.warn('aggTrades fetch error:', error);
+        return [];
+    }
+}
+
+function detectFirstTouchFromTrades(trades, direction, takeProfit, stopLoss) {
+    if (!Array.isArray(trades) || trades.length === 0) return null;
+
+    for (const trade of trades) {
+        const price = Number(trade?.p);
+        if (!Number.isFinite(price)) continue;
+
+        if (direction === 'LONG') {
+            if (price <= stopLoss) return 'SL';
+            if (price >= takeProfit) return 'TP';
+        } else {
+            if (price >= stopLoss) return 'SL';
+            if (price <= takeProfit) return 'TP';
+        }
+    }
+
+    return null;
+}
+
+async function resolveSameCandleFirstTouch(symbol, marketType, timeframe, barStartMs, barEndMs, direction, takeProfit, stopLoss, fallbackOpenPrice) {
+    try {
+        const tfMinutesMap = {
+            '1m': 1, '5m': 5, '15m': 15, '30m': 30, '1h': 60, '4h': 240, '1d': 1440
+        };
+        const tfMinutes = tfMinutesMap[String(timeframe || '1h')] || 60;
+        const intrabarInterval = tfMinutes >= 240 ? '5m' : '1m';
+        const intervalMinutes = intrabarInterval === '5m' ? 5 : 1;
+        const safeStart = Math.max(0, Math.floor(Number(barStartMs) || 0));
+        const safeEnd = Math.max(safeStart + 1, Math.floor(Number(barEndMs) || 0));
+        const expectedBars = Math.min(1000, Math.max(1, Math.ceil((safeEnd - safeStart) / (intervalMinutes * 60 * 1000))));
+        const klinesPath = `/klines?symbol=${symbol}&interval=${intrabarInterval}&startTime=${safeStart}&endTime=${safeEnd}&limit=${expectedBars}`;
+        const response = await binanceFetchPath(marketType, klinesPath, {}, { retries: 2, timeoutMs: 15000 });
+        if (response.ok) {
+            const intrabarKlines = await response.json();
+            if (Array.isArray(intrabarKlines) && intrabarKlines.length > 0) {
+                for (const kline of intrabarKlines) {
+                    const open = Number(kline?.[1]);
+                    const high = Number(kline?.[2]);
+                    const low = Number(kline?.[3]);
+                    const subStart = Number(kline?.[0]);
+                    const subEndRaw = Number(kline?.[6]);
+                    const subEnd = Number.isFinite(subEndRaw) ? subEndRaw : (Number.isFinite(subStart) ? subStart + (intervalMinutes * 60 * 1000) : safeEnd);
+                    if (!Number.isFinite(high) || !Number.isFinite(low)) continue;
+
+                    if (direction === 'LONG') {
+                        const hitSl = low <= stopLoss;
+                        const hitTp = high >= takeProfit;
+                        if (hitSl && hitTp) {
+                            if (intrabarInterval === '1m') {
+                                const trades = await fetchAggTradesRange(symbol, marketType, Math.max(safeStart, subStart), Math.min(safeEnd, subEnd));
+                                const tradeTouch = detectFirstTouchFromTrades(trades, direction, takeProfit, stopLoss);
+                                if (tradeTouch) return tradeTouch;
+                            }
+                            const fallbackOpen = Number.isFinite(open) ? open : fallbackOpenPrice;
+                            return resolveSameCandleHit(fallbackOpen, takeProfit, stopLoss);
+                        }
+                        if (hitSl) return 'SL';
+                        if (hitTp) return 'TP';
+                    } else {
+                        const hitSl = high >= stopLoss;
+                        const hitTp = low <= takeProfit;
+                        if (hitSl && hitTp) {
+                            if (intrabarInterval === '1m') {
+                                const trades = await fetchAggTradesRange(symbol, marketType, Math.max(safeStart, subStart), Math.min(safeEnd, subEnd));
+                                const tradeTouch = detectFirstTouchFromTrades(trades, direction, takeProfit, stopLoss);
+                                if (tradeTouch) return tradeTouch;
+                            }
+                            const fallbackOpen = Number.isFinite(open) ? open : fallbackOpenPrice;
+                            return resolveSameCandleHit(fallbackOpen, takeProfit, stopLoss);
+                        }
+                        if (hitSl) return 'SL';
+                        if (hitTp) return 'TP';
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.warn('resolveSameCandleFirstTouch error:', error);
+    }
+
+    return resolveSameCandleHit(fallbackOpenPrice, takeProfit, stopLoss);
+}
+
 async function resolveBinanceServerTimeMs(marketType) {
     try {
         const response = await binanceFetchPath(marketType, '/time', {}, { retries: 2, timeoutMs: 15000 });
@@ -1252,7 +1350,17 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                     const hitTp = currentHigh >= openTrade.takeProfit;
 
                     if (hitSl && hitTp) {
-                        const resolvedHit = resolveSameCandleHit(opens[i], openTrade.takeProfit, openTrade.stopLoss);
+                        const resolvedHit = await resolveSameCandleFirstTouch(
+                            symbol,
+                            marketType,
+                            timeframe,
+                            Number(backtestKlines[i]?.[0]),
+                            Number(backtestKlines[i]?.[6]),
+                            openTrade.signal,
+                            openTrade.takeProfit,
+                            openTrade.stopLoss,
+                            Number(opens[i])
+                        );
                         if (resolvedHit === 'TP') {
                             if (barsSinceEntry >= 4 && barsSinceEntry <= 6) {
                                 console.log(`🎯 LONG [${timeframe}] SAME BAR TP HIT bar${barsSinceEntry}: HIGH=${currentHigh.toFixed(4)} >= TP=${openTrade.takeProfit.toFixed(4)}`);
@@ -1299,7 +1407,17 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                     const hitTp = currentLow <= openTrade.takeProfit;
 
                     if (hitSl && hitTp) {
-                        const resolvedHit = resolveSameCandleHit(opens[i], openTrade.takeProfit, openTrade.stopLoss);
+                        const resolvedHit = await resolveSameCandleFirstTouch(
+                            symbol,
+                            marketType,
+                            timeframe,
+                            Number(backtestKlines[i]?.[0]),
+                            Number(backtestKlines[i]?.[6]),
+                            openTrade.signal,
+                            openTrade.takeProfit,
+                            openTrade.stopLoss,
+                            Number(opens[i])
+                        );
                         if (resolvedHit === 'TP') {
                             if (barsSinceEntry >= 4 && barsSinceEntry <= 6) {
                                 console.log(`🎯 SHORT [${timeframe}] SAME BAR TP HIT bar${barsSinceEntry}: LOW=${currentLow.toFixed(4)} <= TP=${openTrade.takeProfit.toFixed(4)}`);
@@ -1526,7 +1644,17 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 const hitTp = entryBarHigh >= openTrade.takeProfit;
 
                 if (hitSl && hitTp) {
-                    const resolvedHit = resolveSameCandleHit(opens[i], openTrade.takeProfit, openTrade.stopLoss);
+                    const resolvedHit = await resolveSameCandleFirstTouch(
+                        symbol,
+                        marketType,
+                        timeframe,
+                        Number(backtestKlines[i]?.[0]),
+                        Number(backtestKlines[i]?.[6]),
+                        openTrade.signal,
+                        openTrade.takeProfit,
+                        openTrade.stopLoss,
+                        Number(opens[i])
+                    );
                     if (resolvedHit === 'TP') {
                         const exitRaw = applySlippage(openTrade.takeProfit, 'SELL', slippageBpsValue);
                         openTrade.exit = roundToTick(exitRaw, safeTick);
@@ -1557,7 +1685,17 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 const hitTp = entryBarLow <= openTrade.takeProfit;
 
                 if (hitSl && hitTp) {
-                    const resolvedHit = resolveSameCandleHit(opens[i], openTrade.takeProfit, openTrade.stopLoss);
+                    const resolvedHit = await resolveSameCandleFirstTouch(
+                        symbol,
+                        marketType,
+                        timeframe,
+                        Number(backtestKlines[i]?.[0]),
+                        Number(backtestKlines[i]?.[6]),
+                        openTrade.signal,
+                        openTrade.takeProfit,
+                        openTrade.stopLoss,
+                        Number(opens[i])
+                    );
                     if (resolvedHit === 'TP') {
                         const exitRaw = applySlippage(openTrade.takeProfit, 'BUY', slippageBpsValue);
                         openTrade.exit = roundToTick(exitRaw, safeTick);

@@ -2455,6 +2455,41 @@ async function getKlinesRange(
   return null;
 }
 
+async function getAggTradesRange(
+  symbol: string,
+  marketType: "spot" | "futures",
+  startTimeMs: number,
+  endTimeMs: number,
+  limit: number = 1000,
+  retries: number = 2
+): Promise<any[] | null> {
+  if (binanceBanUntil && Date.now() < binanceBanUntil) {
+    console.warn(`⛔ Binance ban active. Skipping aggTrades for ${symbol}`);
+    return null;
+  }
+  const base = marketType === "futures" ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
+  const url = `${base}/aggTrades?symbol=${symbol}&startTime=${startTimeMs}&endTime=${endTimeMs}&limit=${limit}`;
+
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await throttledFetch(url);
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error(`❌ aggTrades fetch failed for ${symbol}:`, res.status, errorText);
+        return null;
+      }
+      return await res.json();
+    } catch (e) {
+      console.error(`❌ aggTrades fetch error for ${symbol} (attempt ${attempt + 1}):`, e);
+      if (attempt < retries - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+  }
+
+  return null;
+}
+
 interface TechnicalIndicators {
   rsi: number;
   sma20: number;
@@ -4145,6 +4180,34 @@ function resolveSameCandleHit(
   return "SL_HIT";
 }
 
+async function resolveFirstTouchFromTrades(
+  symbol: string,
+  marketType: "spot" | "futures",
+  startMs: number,
+  endMs: number,
+  direction: "LONG" | "SHORT",
+  takeProfit: number,
+  stopLoss: number
+): Promise<"TP_HIT" | "SL_HIT" | ""> {
+  const trades = await getAggTradesRange(symbol, marketType, startMs, endMs, 1000, 2);
+  if (!Array.isArray(trades) || trades.length === 0) return "";
+
+  for (const trade of trades) {
+    const price = Number(trade?.p);
+    if (!Number.isFinite(price)) continue;
+
+    if (direction === "LONG") {
+      if (price <= stopLoss) return "SL_HIT";
+      if (price >= takeProfit) return "TP_HIT";
+    } else {
+      if (price >= stopLoss) return "SL_HIT";
+      if (price <= takeProfit) return "TP_HIT";
+    }
+  }
+
+  return "";
+}
+
 async function resolveFirstTouch(
   symbol: string,
   marketType: "spot" | "futures",
@@ -4168,18 +4231,81 @@ async function resolveFirstTouch(
     const open = Number(k?.[1]);
     const high = Number(k?.[2]);
     const low = Number(k?.[3]);
+    const kStart = Number(k?.[0]);
+    const kEndRaw = Number(k?.[6]);
+    const kEnd = Number.isFinite(kEndRaw) ? kEndRaw : (Number.isFinite(kStart) ? kStart + 60_000 : endMs);
     if (!Number.isFinite(high) || !Number.isFinite(low)) continue;
 
     if (direction === "LONG") {
       const hitSl = low <= stopLoss;
       const hitTp = high >= takeProfit;
-      if (hitSl && hitTp) return resolveSameCandleHit(open, takeProfit, stopLoss);
+      if (hitSl && hitTp) {
+        const overlapStart = Number.isFinite(kStart) ? Math.max(startMs, kStart) : startMs;
+        const overlapEnd = Math.min(endMs, kEnd);
+        if (Number.isFinite(overlapStart) && Number.isFinite(overlapEnd) && overlapEnd > overlapStart) {
+          if (useInterval !== "1m") {
+            const lowerResolution = await resolveFirstTouch(
+              symbol,
+              marketType,
+              "1m",
+              overlapStart,
+              overlapEnd,
+              direction,
+              takeProfit,
+              stopLoss
+            );
+            if (lowerResolution) return lowerResolution;
+          } else {
+            const tradeResolution = await resolveFirstTouchFromTrades(
+              symbol,
+              marketType,
+              overlapStart,
+              overlapEnd,
+              direction,
+              takeProfit,
+              stopLoss
+            );
+            if (tradeResolution) return tradeResolution;
+          }
+        }
+        return resolveSameCandleHit(open, takeProfit, stopLoss);
+      }
       if (hitSl) return "SL_HIT";
       if (hitTp) return "TP_HIT";
     } else {
       const hitSl = high >= stopLoss;
       const hitTp = low <= takeProfit;
-      if (hitSl && hitTp) return resolveSameCandleHit(open, takeProfit, stopLoss);
+      if (hitSl && hitTp) {
+        const overlapStart = Number.isFinite(kStart) ? Math.max(startMs, kStart) : startMs;
+        const overlapEnd = Math.min(endMs, kEnd);
+        if (Number.isFinite(overlapStart) && Number.isFinite(overlapEnd) && overlapEnd > overlapStart) {
+          if (useInterval !== "1m") {
+            const lowerResolution = await resolveFirstTouch(
+              symbol,
+              marketType,
+              "1m",
+              overlapStart,
+              overlapEnd,
+              direction,
+              takeProfit,
+              stopLoss
+            );
+            if (lowerResolution) return lowerResolution;
+          } else {
+            const tradeResolution = await resolveFirstTouchFromTrades(
+              symbol,
+              marketType,
+              overlapStart,
+              overlapEnd,
+              direction,
+              takeProfit,
+              stopLoss
+            );
+            if (tradeResolution) return tradeResolution;
+          }
+        }
+        return resolveSameCandleHit(open, takeProfit, stopLoss);
+      }
       if (hitSl) return "SL_HIT";
       if (hitTp) return "TP_HIT";
     }
