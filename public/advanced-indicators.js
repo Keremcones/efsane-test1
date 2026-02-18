@@ -10,6 +10,20 @@ function resolveMarketType(marketType) {
     return String(marketType || '').toLowerCase() === 'futures' ? 'futures' : 'spot';
 }
 
+function timeframeToMinutesBacktest(timeframe) {
+    const tf = String(timeframe || '').trim().toLowerCase();
+    const match = tf.match(/^(\d+)(m|h|d|w)$/);
+    if (!match) return 60;
+    const value = Number(match[1]);
+    const unit = match[2];
+    if (!Number.isFinite(value) || value <= 0) return 60;
+    if (unit === 'm') return value;
+    if (unit === 'h') return value * 60;
+    if (unit === 'd') return value * 1440;
+    if (unit === 'w') return value * 10080;
+    return 60;
+}
+
 function getBinanceApiBaseForMarketType(marketType) {
     if (!marketType && typeof window.getBinanceApiBase === 'function') {
         return window.getBinanceApiBase();
@@ -1211,10 +1225,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
     const MIN_BACKTEST_WINDOW = 100;
     
     // Timeframe'e göre gerekli kline sayısını hesapla
-    const timeframeMinutes = {
-        '5m': 5, '15m': 15, '30m': 30, '1h': 60, '4h': 240, '1d': 1440
-    };
-    const minutes = timeframeMinutes[timeframe] || 60;
+    const minutes = timeframeToMinutesBacktest(timeframe);
     const normalizedDirectionFilter = String(directionFilter || 'BOTH').toUpperCase();
     const resolvedSlippageBps = Number.isFinite(Number(slippageBps)) ? Number(slippageBps) : 0;
     const resolvedFeeBps = Number.isFinite(Number(feeBps)) ? Number(feeBps) : 0;
