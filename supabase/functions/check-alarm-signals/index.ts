@@ -4142,9 +4142,6 @@ function resolveSameCandleHit(
   stopLoss: number
 ): "TP_HIT" | "SL_HIT" {
   if (!Number.isFinite(open)) return "SL_HIT";
-  const distToTp = Math.abs(takeProfit - open);
-  const distToSl = Math.abs(open - stopLoss);
-  if (distToTp < distToSl) return "TP_HIT";
   return "SL_HIT";
 }
 
@@ -4593,6 +4590,8 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
           signal.market_type || signal.marketType || signal.market || alarmData?.market_type || "spot"
         );
         let effectiveMarketType: "spot" | "futures" = marketType;
+        const alarmPayload = alarmData || { user_id: String(signal?.user_id || "") };
+        const autoTradeEnabledForSignal = await resolveAutoTradeEnabled(alarmPayload, effectiveMarketType);
 
         let shouldClose = false;
         let closeReason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "TP_HIT_NO_POSITION" | "SL_HIT_NO_POSITION" | "ORPHAN_ACTIVE_NO_TRADE" | "EXTERNAL_CLOSE" | "" = "";
@@ -4857,13 +4856,13 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
         const hasRecordedBinanceOrder = Boolean(String(alarmData?.binance_order_id || "").trim());
         const tpHit = closeReason === "TP_HIT";
         const slHit = closeReason === "SL_HIT";
-        if ((tpHit || slHit) && !hasActiveTrade && !hasRecordedBinanceOrder && ageSeconds > 300) {
+        if (autoTradeEnabledForSignal && (tpHit || slHit) && !hasActiveTrade && !hasRecordedBinanceOrder && ageSeconds > 300) {
           console.log(`🧹 Orphan cleanup: ${JSON.stringify({ signalId: signal.id, symbol, ageSeconds, tpHit, slHit, hasActiveTrade: false, hasRecordedBinanceOrder: false })}`);
           closeReason = "ORPHAN_ACTIVE_NO_TRADE";
           closePrice = tpHit ? takeProfit : stopLoss;
         }
 
-        if (effectiveMarketType === "futures" && (closeReason === "TP_HIT" || closeReason === "SL_HIT")) {
+        if (autoTradeEnabledForSignal && effectiveMarketType === "futures" && (closeReason === "TP_HIT" || closeReason === "SL_HIT")) {
           const state = await getFuturesCloseState(signal, alarmData);
           if (state.canCheck) {
             const tpHit = closeReason === "TP_HIT";
@@ -6193,15 +6192,7 @@ serve(async (req: any) => {
     const closedSignals = closeResult.closedSignals;
     closeStats = closeResult.stats;
 
-    if (DISABLE_ALARM_PROCESSING) {
-      console.warn("⚠️ Alarm processing disabled (close-only mode)");
-    } else if (alarms && alarms.length > 0) {
-      const deadlineMs = requestStartMs + MAX_REQUEST_RUNTIME_MS;
-      const tickerMaps = { spot: allTickerCache.spot.prices, futures: allTickerCache.futures.prices };
-      triggerStats = await checkAndTriggerUserAlarms(alarms, deadlineMs, tickerMaps);
-    }
-
-    // ✅ Notify - 🚀 PARALLELIZED
+    // ✅ Notify closed signals first to preserve close->open chronology in Telegram
     const notificationPromises = closedSignals.map(async signal => {
       const closeReason = String(signal.close_reason || "").toUpperCase();
       if (closeReason === "NOT_FILLED") {
@@ -6214,8 +6205,16 @@ serve(async (req: any) => {
       await updateActiveSignalCloseTelegramStatus(signal.id, sendResult.status, sendResult.error ?? null);
       return;
     });
-    
+
     await Promise.all(notificationPromises);
+
+    if (DISABLE_ALARM_PROCESSING) {
+      console.warn("⚠️ Alarm processing disabled (close-only mode)");
+    } else if (alarms && alarms.length > 0) {
+      const deadlineMs = requestStartMs + MAX_REQUEST_RUNTIME_MS;
+      const tickerMaps = { spot: allTickerCache.spot.prices, futures: allTickerCache.futures.prices };
+      triggerStats = await checkAndTriggerUserAlarms(alarms, deadlineMs, tickerMaps);
+    }
 
     await retryFailedOpenTelegrams();
     await retryFailedCloseTelegrams();

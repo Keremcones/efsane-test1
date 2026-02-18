@@ -1710,34 +1710,29 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             const lastBarIndex = closes.length - 1;
             const closedBarIndex = hasLiveOpenBar ? closes.length : lastBarIndex;
             const signalBarIndex = closedBarIndex - 1;
-            
-            if (signalBarIndex < MIN_BACKTEST_WINDOW) {
-                // Yeterli bar yok
-                return { trades: results, lastTrade: null, averages };
-            }
-            
-            const lastWindowStart = Math.max(0, closedBarIndex - indicatorWindowSize);
-            const lastWindowCloses = closes.slice(lastWindowStart, closedBarIndex);
-            const lastWindowHighs = highs.slice(lastWindowStart, closedBarIndex);
-            const lastWindowLows = lows.slice(lastWindowStart, closedBarIndex);
-            const lastWindowVolumes = volumes.slice(lastWindowStart, closedBarIndex);
-            
-            const lastIndicators = calculateAlarmIndicators(lastWindowCloses, lastWindowHighs, lastWindowLows, lastWindowVolumes);
-            if (!lastIndicators) {
-                return { trades: results, lastTrade: null, averages };
-            }
+            if (signalBarIndex >= MIN_BACKTEST_WINDOW) {
+                const lastWindowStart = Math.max(0, closedBarIndex - indicatorWindowSize);
+                const lastWindowCloses = closes.slice(lastWindowStart, closedBarIndex);
+                const lastWindowHighs = highs.slice(lastWindowStart, closedBarIndex);
+                const lastWindowLows = lows.slice(lastWindowStart, closedBarIndex);
+                const lastWindowVolumes = volumes.slice(lastWindowStart, closedBarIndex);
 
-            const lastSignal = generateSignalScoreAligned(lastIndicators, confidenceThreshold);
-            const lastDirectionOk = normalizedDirectionFilter === 'BOTH' || normalizedDirectionFilter === lastSignal.direction;
-            const lastOpenMs = resolveKlineOpenTimeMs(backtestKlines[closedBarIndex]);
-            const lastNowMs = lastOpenMs + 1;
-            const lastTimeframeMs = minutes * 60 * 1000;
-            const lastBarStartMs = Number.isFinite(lastOpenMs) ? lastOpenMs : 0;
-            const lastBarEndMs = lastBarStartMs + (Number.isFinite(lastTimeframeMs) && lastTimeframeMs > 0 ? lastTimeframeMs : 60 * 60 * 1000);
-            const lastWithinOpenWindow = lastNowMs >= lastBarStartMs && lastNowMs < lastBarEndMs;
-            
-            // SADECE triggered true olan sinyalleri göster (confidence threshold gecenler)
-            if (lastSignal && lastSignal.triggered && lastDirectionOk && lastWithinOpenWindow) {
+                const lastIndicators = calculateAlarmIndicators(lastWindowCloses, lastWindowHighs, lastWindowLows, lastWindowVolumes);
+                if (lastIndicators) {
+                    const lastSignal = generateSignalScoreAligned(lastIndicators, confidenceThreshold);
+                    const lastDirectionOk = normalizedDirectionFilter === 'BOTH' || normalizedDirectionFilter === lastSignal.direction;
+                    const entryBarForLastSignal = hasLiveOpenBar
+                        ? liveOpenBar
+                        : backtestKlines[closedBarIndex];
+                    const lastOpenMs = resolveKlineOpenTimeMs(entryBarForLastSignal);
+                    const lastNowMs = lastOpenMs + 1;
+                    const lastTimeframeMs = minutes * 60 * 1000;
+                    const lastBarStartMs = Number.isFinite(lastOpenMs) ? lastOpenMs : 0;
+                    const lastBarEndMs = lastBarStartMs + (Number.isFinite(lastTimeframeMs) && lastTimeframeMs > 0 ? lastTimeframeMs : 60 * 60 * 1000);
+                    const lastWithinOpenWindow = lastNowMs >= lastBarStartMs && lastNowMs < lastBarEndMs;
+
+                    // SADECE triggered true olan sinyalleri göster (confidence threshold gecenler)
+                    if (lastSignal && lastSignal.triggered && lastDirectionOk && lastWithinOpenWindow) {
                 // ÖNEMLİ: Son kapalı işlem ile lastTrade arasında çakışma var mı kontrol et
                 // Eğer son işlem belirsiz durumdaysa (0% profit, actualTP=false, actualSL=false), 
                 // yeni sinyal gösterme
@@ -1829,6 +1824,8 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                         actualTP: false,  // Henüz TP vurmadı
                         actualSL: false   // Henüz SL vurmadı
                     };
+                }
+                    }
                 }
             }
         } catch (error) {
