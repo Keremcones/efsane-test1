@@ -2042,6 +2042,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                     avgSLPercent: parseFloat(shortAverages.avgSLPercent.toFixed(2))
                 }
             },
+            tickSize: safeTick,
             klines: klines  // Klines verisini de döndür
         };
         

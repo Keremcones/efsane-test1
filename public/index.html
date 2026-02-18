@@ -4027,6 +4027,50 @@
             };
             const dailyRange = getRange(dailyWindow);
             const weeklyRange = getRange(weeklyWindow);
+
+            const tickSizeForAdvice = Number(backtest?.tickSize);
+            const tickReferencePrice = Number.isFinite(Number(signal?.entry))
+                ? Number(signal.entry)
+                : Number(price);
+            const formatRecommendedPercent = (value) => {
+                if (!Number.isFinite(value)) return '--';
+                if (value >= 1) return value.toFixed(2);
+                if (value >= 0.1) return value.toFixed(3);
+                return value.toFixed(4);
+            };
+            const buildSafeRecommendedPercent = (inputPercent) => {
+                const safeInput = Number(inputPercent);
+                if (!Number.isFinite(safeInput) || safeInput <= 0) return null;
+                const rawTicks = (tickReferencePrice * safeInput / 100) / tickSizeForAdvice;
+                if (!Number.isFinite(rawTicks) || rawTicks <= 1) {
+                    return (tickSizeForAdvice / tickReferencePrice) * 100;
+                }
+                const safeTicks = Math.max(1, Math.floor(rawTicks) - 1);
+                return (safeTicks * tickSizeForAdvice / tickReferencePrice) * 100;
+            };
+
+            let tpslRecommendationHtml = '';
+            if (
+                Number.isFinite(tickSizeForAdvice) &&
+                tickSizeForAdvice > 0 &&
+                Number.isFinite(tickReferencePrice) &&
+                tickReferencePrice > 0
+            ) {
+                const minTickMovePercent = (tickSizeForAdvice / tickReferencePrice) * 100;
+                const recommendedTpPercent = buildSafeRecommendedPercent(Math.abs(Number(takeProfitPercent)));
+                const recommendedSlPercent = buildSafeRecommendedPercent(Math.abs(Number(stopLossPercent)));
+                const isPoorTickCoin = minTickMovePercent >= 0.25;
+
+                tpslRecommendationHtml = `
+                    <div style="margin-top: 10px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-secondary); font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5;">
+                        <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 6px;"><i class="fa-solid fa-ruler-combined"></i> Tick Bazlı TP/SL Önerisi</div>
+                        <div>Girilen TP: <strong style="color: var(--text-primary);">%${formatRecommendedPercent(Math.abs(Number(takeProfitPercent)))}</strong> → Önerilen TP: <strong style="color: var(--accent);">%${formatRecommendedPercent(recommendedTpPercent)}</strong></div>
+                        <div>Girilen SL: <strong style="color: var(--text-primary);">%${formatRecommendedPercent(Math.abs(Number(stopLossPercent)))}</strong> → Önerilen SL: <strong style="color: var(--accent);">%${formatRecommendedPercent(recommendedSlPercent)}</strong></div>
+                        <div style="margin-top: 6px;">Tick başına minimum değişim: <strong style="color: var(--text-primary);">%${formatRecommendedPercent(minTickMovePercent)}</strong></div>
+                        ${isPoorTickCoin ? '<div style="margin-top: 6px; color: var(--accent-red); font-weight: 600;"><i class="fa-solid fa-triangle-exclamation"></i> Bu coinde tick adımı çok geniş, otomatik trade önerilmez.</div>' : ''}
+                    </div>
+                `;
+            }
             
             // Fiyat formatı
             const priceDisplayValue = formatPrice(price);
@@ -4604,6 +4648,8 @@
                                     onchange="stopLossPercent = parseFloat(this.value); saveDashboardFilters(); triggerBacktestUpdate();">
                             </div>
                         </div>
+
+                        ${tpslRecommendationHtml}
 
                         ${canCreateAlarm ? `
                             <button class="btn btn-primary save-analysis-btn" onclick="createAlarmFromAnalysis()" style="margin-top: 16px;" ${!signal ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}>
