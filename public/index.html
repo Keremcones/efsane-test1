@@ -5385,12 +5385,20 @@
                                 let pnlPercent = null;
                                 if (isClosed && closeReason === 'NOT_FILLED') {
                                     pnlPercent = 0;
+                                } else if (isClosed && closeReason === 'TP_HIT') {
+                                    if (Number.isFinite(storedPnl)) {
+                                        pnlPercent = Math.abs(parseFloat(storedPnl.toFixed(2)));
+                                    } else if (Number.isFinite(Number(sig.tp_percent))) {
+                                        pnlPercent = Math.abs(Number(sig.tp_percent));
+                                    }
+                                } else if (isClosed && closeReason === 'SL_HIT') {
+                                    if (Number.isFinite(storedPnl)) {
+                                        pnlPercent = -Math.abs(parseFloat(storedPnl.toFixed(2)));
+                                    } else if (Number.isFinite(Number(sig.sl_percent))) {
+                                        pnlPercent = -Math.abs(Number(sig.sl_percent));
+                                    }
                                 } else if (isClosed && Number.isFinite(storedPnl)) {
                                     pnlPercent = parseFloat(storedPnl.toFixed(2));
-                                } else if (isClosed && closeReason === 'TP_HIT' && Number.isFinite(Number(sig.tp_percent))) {
-                                    pnlPercent = Math.abs(Number(sig.tp_percent));
-                                } else if (isClosed && closeReason === 'SL_HIT' && Number.isFinite(Number(sig.sl_percent))) {
-                                    pnlPercent = -Math.abs(Number(sig.sl_percent));
                                 } else if (!isClosed && Number.isFinite(rawPnl)) {
                                     pnlPercent = parseFloat(rawPnl.toFixed(2));
                                 }
@@ -5933,22 +5941,60 @@ Detaylar:
 • Süre: ${formatDuration(trade.duration)}
                     `.trim();
 
-                    console.log('[TELEGRAM] Mesaj GÖNDERILIYOR...');
+                    console.log('[TELEGRAM] Mesaj backend üzerinden GÖNDERILIYOR...');
 
-                    // Telegram API'ye gönder
-                    const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+                    const headers = { 'Content-Type': 'application/json' };
+                    if (SUPABASE_ANON_KEY) {
+                        headers['apikey'] = SUPABASE_ANON_KEY;
+                    }
+
+                    if (!supabaseClient?.auth) {
+                        console.error('[TELEGRAM] ❌ Supabase auth yok, gönderim atlandı');
+                        continue;
+                    }
+
+                    const { data: { session: initialSession } } = await supabaseClient.auth.getSession();
+                    let session = initialSession;
+                    const nowSeconds = Math.floor(Date.now() / 1000);
+                    if (!session || (session.expires_at && session.expires_at <= nowSeconds + 30)) {
+                        const { data: refreshData } = await supabaseClient.auth.refreshSession();
+                        session = refreshData?.session || session;
+                    }
+
+                    if (!session?.access_token) {
+                        console.error('[TELEGRAM] ❌ Access token yok, gönderim atlandı');
+                        continue;
+                    }
+
+                    headers['Authorization'] = 'Bearer ' + session.access_token;
+
+                    const response = await fetch(TELEGRAM_FUNCTION_URL, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers,
                         body: JSON.stringify({
-                            chat_id: settings.telegram_username,
-                            text: message,
-                            parse_mode: 'Markdown'
+                            action: 'alarm_notification',
+                            notification_type: 'trigger',
+                            alarm: {
+                                symbol,
+                                market_type: CURRENT_MARKET_TYPE,
+                                timeframe: currentTimeframe,
+                                direction: trade.signal,
+                                entry_price: trade.entry,
+                                take_profit: trade.takeProfit,
+                                stop_loss: trade.stopLoss,
+                                triggerReason: message
+                            }
                         })
                     });
 
-                    const result = await response.json();
+                    let result = null;
+                    try {
+                        result = await response.json();
+                    } catch (_) {
+                        result = null;
+                    }
 
-                    if (result.ok) {
+                    if (response.ok && result?.ok !== false) {
                         console.log('[TELEGRAM] Mesaj BAŞARILI gönderildi!');
                         newSentIds.add(tradeId);
                         sentCount++;
@@ -5962,7 +6008,7 @@ Detaylar:
                             console.log('[TELEGRAM] Alarm deactivate edildi ve Telegram\'a gönderildi');
                         }
                     } else {
-                        console.error('[TELEGRAM] ❌ Telegram API hatası:', result);
+                        console.error('[TELEGRAM] ❌ Telegram gönderim hatası:', result || response.status);
                     }
                 }
 

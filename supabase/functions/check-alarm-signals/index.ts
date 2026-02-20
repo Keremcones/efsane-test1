@@ -130,16 +130,34 @@ function formatPriceWithPrecision(value: number, precision: number | null): stri
   return value.toFixed(Math.max(0, precision));
 }
 
-function formatTurkeyDateTime(timestampMs?: number): string {
-  const baseDate = Number.isFinite(timestampMs) ? new Date(Number(timestampMs)) : new Date();
-  const turkeyTime = new Date(baseDate.toLocaleString("en-US", { timeZone: "Europe/Istanbul" }));
-  const day = String(turkeyTime.getDate()).padStart(2, "0");
-  const month = String(turkeyTime.getMonth() + 1).padStart(2, "0");
-  const year = turkeyTime.getFullYear();
-  const hours = String(turkeyTime.getHours()).padStart(2, "0");
-  const minutes = String(turkeyTime.getMinutes()).padStart(2, "0");
-  const seconds = String(turkeyTime.getSeconds()).padStart(2, "0");
-  return `${day}.${month}.${year} ${hours}:${minutes}:${seconds}`;
+function parseTimestampMs(input?: number | string | Date | null): number {
+  if (typeof input === "number") return Number.isFinite(input) ? input : Date.now();
+  if (typeof input === "string") {
+    const parsed = Date.parse(input);
+    return Number.isFinite(parsed) ? parsed : Date.now();
+  }
+  if (input instanceof Date) {
+    const ts = input.getTime();
+    return Number.isFinite(ts) ? ts : Date.now();
+  }
+  return Date.now();
+}
+
+function formatTurkeyDateTime(timestampInput?: number | string | Date | null): string {
+  const baseDate = new Date(parseTimestampMs(timestampInput));
+  const parts = new Intl.DateTimeFormat("tr-TR", {
+    timeZone: "Europe/Istanbul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(baseDate);
+
+  const getPart = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value || "00";
+  return `${getPart("day")}.${getPart("month")}.${getPart("year")} ${getPart("hour")}:${getPart("minute")}:${getPart("second")}`;
 }
 
 // Global ban cooldown (Binance 418)
@@ -2933,7 +2951,8 @@ async function buildActiveSignalOpenMessage(signal: any): Promise<string> {
   const safeEntry = escapeHtml(formatPriceWithPrecision(Number(signal?.entry_price), precision));
   const safeTp = escapeHtml(formatPriceWithPrecision(Number(signal?.take_profit), precision));
   const safeSl = escapeHtml(formatPriceWithPrecision(Number(signal?.stop_loss), precision));
-  const safeDate = escapeHtml(formatTurkeyDateTime(resolveBarCloseDisplayTimeMs(signal?.signal_timestamp || signal?.created_at, String(signal?.timeframe || "1h"))));
+  const safeSignalDate = escapeHtml(formatTurkeyDateTime(resolveBarCloseDisplayTimeMs(signal?.signal_timestamp || signal?.created_at, String(signal?.timeframe || "1h"))));
+  const safeNotificationDate = escapeHtml(formatTurkeyDateTime(Date.now()));
   const tpPercent = Number(signal?.tp_percent);
   const slPercent = Number(signal?.sl_percent);
 
@@ -2950,7 +2969,8 @@ async function buildActiveSignalOpenMessage(signal: any): Promise<string> {
   TP: <b>$${safeTp}</b> (<b>+${Number.isFinite(tpPercent) ? tpPercent : 0}%</b>)
   SL: <b>$${safeSl}</b> (<b>-${Number.isFinite(slPercent) ? slPercent : 0}%</b>)
 
-⏰ Zaman: <b>${safeDate}</b>
+⏰ Sinyal Zamanı: <b>${safeSignalDate}</b>
+📨 Bildirim Zamanı: <b>${safeNotificationDate}</b>
 `;
 }
 
@@ -2992,6 +3012,8 @@ function buildClosedSignalTelegramMessage(signal: {
   profitLoss?: number;
   profit_loss?: number;
   market_type?: string;
+  signal_timestamp?: string;
+  closed_at?: string;
 }): Promise<string> {
   return (async () => {
     let statusMessage = "⛔ KAPANDI - STOP LOSS HIT!";
@@ -3025,6 +3047,14 @@ function buildClosedSignalTelegramMessage(signal: {
     const safePnL = escapeHtml(Number.isFinite(pnl)
       ? (pnl >= 0 ? "+" : "") + pnl.toFixed(2) + "%"
       : "N/A");
+    const safeSignalTime = signal?.signal_timestamp
+      ? escapeHtml(formatTurkeyDateTime(signal.signal_timestamp))
+      : "";
+    const safeCloseTime = escapeHtml(formatTurkeyDateTime(signal?.closed_at || Date.now()));
+    const safeNotificationTime = escapeHtml(formatTurkeyDateTime(Date.now()));
+    const signalTimeLine = safeSignalTime
+      ? `🕒 Sinyal Zamanı: <b>${safeSignalTime}</b>\n`
+      : "";
 
     return `
 🔔 <b>İŞLEM KAPANDI</b> 🔔
@@ -3033,7 +3063,9 @@ function buildClosedSignalTelegramMessage(signal: {
 📈 İşlem Yönü: <b>${safeDirection}</b>
 ${emoji} ${statusMessage}
 💰 Kapanış Fiyatı: <b>$${safePrice}</b>
-    📈 Kar/Zarar: <b>${safePnL}</b>
+📈 Kar/Zarar: <b>${safePnL}</b>
+${signalTimeLine}⏰ Kapanış Zamanı: <b>${safeCloseTime}</b>
+📨 Bildirim Zamanı: <b>${safeNotificationTime}</b>
 `;
   })();
 }
@@ -4074,7 +4106,8 @@ async function checkAndTriggerUserAlarms(
         const safeSignalScore = escapeHtml(String(signalAnalysis.score));
         const safeTpPrice = escapeHtml(formatPriceWithPrecision(displayTpPrice, decimals));
         const safeSlPrice = escapeHtml(formatPriceWithPrecision(displaySlPrice, decimals));
-        const safeDate = escapeHtml(formattedDateTime);
+        const safeSignalDate = escapeHtml(formattedDateTime);
+        const safeNotificationDate = escapeHtml(formatTurkeyDateTime(Date.now()));
 
         let telegramMessage = `
 🔔 <b>ALARM AKTİVE!</b> 🔔
@@ -4092,7 +4125,8 @@ async function checkAndTriggerUserAlarms(
   TP: <b>$${safeTpPrice}</b> (<b>+${tpPercent}%</b>)
   SL: <b>$${safeSlPrice}</b> (<b>-${slPercent}%</b>)
 
-⏰ Zaman: <b>${safeDate}</b>
+⏰ Sinyal Zamanı: <b>${safeSignalDate}</b>
+📨 Bildirim Zamanı: <b>${safeNotificationDate}</b>
 ${tradeNotificationText}
 
 <i>Not:</i> Otomatik al-sat işlemleri market fiyatından anlık alındığı için, sinyalin giriş fiyatına göre farklılık gösterebilir.
@@ -4177,6 +4211,10 @@ function resolveSameCandleHit(
   stopLoss: number
 ): "TP_HIT" | "SL_HIT" {
   if (!Number.isFinite(open)) return "SL_HIT";
+  const tpDistance = Math.abs(takeProfit - open);
+  const slDistance = Math.abs(open - stopLoss);
+  if (!Number.isFinite(tpDistance) || !Number.isFinite(slDistance)) return "SL_HIT";
+  if (tpDistance < slDistance) return "TP_HIT";
   return "SL_HIT";
 }
 
@@ -5290,7 +5328,8 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
     const safeEntry = escapeHtml(formatPriceWithPrecision(newSignal.entry_price, pricePrecision));
     const safeTp = escapeHtml(formatPriceWithPrecision(newSignal.take_profit, pricePrecision));
     const safeSl = escapeHtml(formatPriceWithPrecision(newSignal.stop_loss, pricePrecision));
-    const safeDate = escapeHtml(formatTurkeyDateTime(resolveBarCloseDisplayTimeMs(newSignal.signal_timestamp, String(newSignal.timeframe || "1h"))));
+    const safeSignalDate = escapeHtml(formatTurkeyDateTime(resolveBarCloseDisplayTimeMs(newSignal.signal_timestamp, String(newSignal.timeframe || "1h"))));
+    const safeNotificationDate = escapeHtml(formatTurkeyDateTime(Date.now()));
 
     const telegramMessage = `
 🔔 <b>ALARM AKTİVE!</b> 🔔
@@ -5305,7 +5344,8 @@ async function insertSignalIfProvided(body: any): Promise<{ inserted: boolean; d
   TP: <b>$${safeTp}</b> (<b>+${newSignal.tp_percent}%</b>)
   SL: <b>$${safeSl}</b> (<b>-${newSignal.sl_percent}%</b>)
 
-⏰ Zaman: <b>${safeDate}</b>
+⏰ Sinyal Zamanı: <b>${safeSignalDate}</b>
+📨 Bildirim Zamanı: <b>${safeNotificationDate}</b>
 `;
 
     const sendResult = await sendTelegramNotification(newSignal.user_id, telegramMessage);
