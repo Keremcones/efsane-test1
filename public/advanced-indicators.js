@@ -1604,7 +1604,10 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             
             // Tarih ve saat (Türkiye saati)
             const signalBarIndex = Math.max(0, i - 1);
-            const tradeTimestamp = resolveKlineCloseTimeMs(backtestKlines[signalBarIndex]);
+            const tradeTimestampRaw = resolveKlineCloseTimeMs(backtestKlines[signalBarIndex]);
+            const tradeTimestamp = Number.isFinite(tradeTimestampRaw)
+                ? Math.min(tradeTimestampRaw, serverNowMs)
+                : serverNowMs;
             const tradeDate = new Date(tradeTimestamp);
             const tradeTime = tradeDate.toLocaleTimeString('tr-TR', {
                 hour: '2-digit',
@@ -1911,7 +1914,10 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 
                 if (canShowLastTrade) {
                     const lastSignalBarIndex = Math.max(0, signalBarIndex);
-                    const lastBarTimestamp = resolveKlineCloseTimeMs(backtestKlines[lastSignalBarIndex]);
+                    const lastBarTimestampRaw = resolveKlineCloseTimeMs(backtestKlines[lastSignalBarIndex]);
+                    const lastBarTimestamp = Number.isFinite(lastBarTimestampRaw)
+                        ? Math.min(lastBarTimestampRaw, serverNowMs)
+                        : serverNowMs;
                     const lastBarTimeUTC = new Date(lastBarTimestamp);
                     const lastTimeStr = lastBarTimeUTC.toLocaleTimeString('tr-TR', {
                         hour: '2-digit',
