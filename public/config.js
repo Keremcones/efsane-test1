@@ -147,8 +147,8 @@ var APP_CONFIG = window.APP_CONFIG || {
     minRiskRewardRatio: 1.5,
     maxPositionSizePercentage: 10, // %10
     backtestDays: 120,
-    backtestSlippageBps: 0, // 0.00% each side (edge ile birebir)
-    backtestFeeBps: 0, // 0.00% each side (edge ile birebir)
+    backtestSlippageBps: 3, // 0.03% each side
+    backtestFeeBps: 5, // 0.05% each side
     alarmCheckInterval: 2000, // 2 saniye (TP/SL kontrol için)
     newsUpdateInterval: 300000, // 5 dakika
     sentimentUpdateInterval: 3600000 // 1 saat

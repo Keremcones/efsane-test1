@@ -374,12 +374,12 @@ const DISABLE_ALARM_PROCESSING = false; // temporary: close-only mode
 const CLOSE_NEAR_TARGET_PCT = 0.3; // only run heavy checks when near TP/SL
 const TRIGGER_NEAR_TARGET_PCT = 0.1; // skip indicator klines if far from targets
 const BAR_CLOSE_TRIGGER_GRACE_MS = Math.max(
-  2 * 60 * 1000,
-  Number(Deno.env.get("BAR_CLOSE_TRIGGER_GRACE_MS") || (5 * 60 * 1000))
+  30 * 1000,
+  Number(Deno.env.get("BAR_CLOSE_TRIGGER_GRACE_MS") || (90 * 1000))
 ); // base grace after bar close
 const MAX_BAR_CLOSE_TRIGGER_GRACE_BY_TIMEFRAME_MS = Math.max(
   BAR_CLOSE_TRIGGER_GRACE_MS,
-  Number(Deno.env.get("MAX_BAR_CLOSE_TRIGGER_GRACE_BY_TIMEFRAME_MS") || (2 * 60 * 60 * 1000))
+  Number(Deno.env.get("MAX_BAR_CLOSE_TRIGGER_GRACE_BY_TIMEFRAME_MS") || (5 * 60 * 1000))
 ); // dynamic upper grace by timeframe
 const OPEN_TELEGRAM_RETRY_MAX_AGE_MS = 3 * 60 * 1000; // do not deliver open-signal messages too late
 const CLOSE_TELEGRAM_RETRY_MAX_AGE_MS = 24 * 60 * 60 * 1000; // retry failed close notifications within 24h
@@ -467,7 +467,11 @@ function isWithinBarCloseTriggerWindow(nowMs: number, evaluatedBarOpenMs: number
     return false;
   }
   const evaluatedBarCloseMs = evaluatedBarOpenMs + timeframeMs;
-  const dynamicGraceMs = Math.min(MAX_BAR_CLOSE_TRIGGER_GRACE_BY_TIMEFRAME_MS, Math.max(BAR_CLOSE_TRIGGER_GRACE_MS, timeframeMs));
+  const scaledByTimeframeMs = Math.floor(timeframeMs * 0.15);
+  const dynamicGraceMs = Math.min(
+    MAX_BAR_CLOSE_TRIGGER_GRACE_BY_TIMEFRAME_MS,
+    Math.max(30 * 1000, Math.min(BAR_CLOSE_TRIGGER_GRACE_MS, scaledByTimeframeMs))
+  );
   return nowMs >= evaluatedBarCloseMs && nowMs <= (evaluatedBarCloseMs + dynamicGraceMs);
 }
 
