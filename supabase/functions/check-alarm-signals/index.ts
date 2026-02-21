@@ -4069,16 +4069,6 @@ async function checkAndTriggerUserAlarms(
 
         const autoTradeOpenFailed = autoTradeAttempted && !tradeResult.success && !tradeResult.retryable;
         if (autoTradeOpenFailed && insertedSignalId) {
-          let binanceStillOpen = false;
-          try {
-            binanceStillOpen = await hasBlockingOpenPosition(alarm.user_id, symbol, alarmMarketType);
-          } catch (e) {
-            console.warn(`⚠️ Failed to re-check Binance open state before NOT_FILLED close for ${symbol}:`, e);
-          }
-
-          if (binanceStillOpen) {
-            console.warn(`🛡️ Skip NOT_FILLED auto-close for ${symbol}: Binance still has open position/order`);
-          } else {
           try {
             const closeResult = await supabase
               .from("active_signals")
@@ -4089,33 +4079,14 @@ async function checkAndTriggerUserAlarms(
                 closed_at: new Date().toISOString()
               })
               .eq("id", insertedSignalId)
-                .in("status", ACTIVE_SIGNAL_STATUSES)
-                .select("id");
+              .in("status", ACTIVE_SIGNAL_STATUSES)
+              .select("id");
 
-            if (!closeResult.error) {
-              const updatedRows = Array.isArray(closeResult.data) ? closeResult.data.length : 0;
-              if (updatedRows === 0) {
-                const forceCloseResult = await supabase
-                  .from("active_signals")
-                  .update({
-                    status: "CLOSED",
-                    close_reason: "NOT_FILLED",
-                    profit_loss: 0,
-                    closed_at: new Date().toISOString()
-                  })
-                  .eq("id", insertedSignalId)
-                  .select("id");
-
-                if (forceCloseResult.error) {
-                  console.warn(`⚠️ Force-close failed for NOT_FILLED signal ${insertedSignalId}:`, forceCloseResult.error);
-                }
-              }
-            } else {
+            if (closeResult.error) {
               console.warn(`⚠️ Failed to close signal after auto-trade open failure for ${symbol}:`, closeResult.error);
             }
           } catch (e) {
             console.warn(`⚠️ Failed to close signal after auto-trade open failure for ${symbol}:`, e);
-          }
           }
         }
         
