@@ -3516,7 +3516,20 @@
                 let backtest = null;
                 try {
                     const backtestDays = Number(window.APP_CONFIG && window.APP_CONFIG.backtestDays) || 30;
-                    const backtestPromise = AdvancedIndicators.runBacktest(symbol, currentTimeframe, backtestDays, confidenceThreshold, takeProfitPercent, stopLossPercent, resolvedMarketType);
+                    const backtestSlippageBps = Number(window.APP_CONFIG && window.APP_CONFIG.backtestSlippageBps);
+                    const backtestFeeBps = Number(window.APP_CONFIG && window.APP_CONFIG.backtestFeeBps);
+                    const backtestPromise = AdvancedIndicators.runBacktest(
+                        symbol,
+                        currentTimeframe,
+                        backtestDays,
+                        confidenceThreshold,
+                        takeProfitPercent,
+                        stopLossPercent,
+                        resolvedMarketType,
+                        'BOTH',
+                        Number.isFinite(backtestSlippageBps) ? backtestSlippageBps : null,
+                        Number.isFinite(backtestFeeBps) ? backtestFeeBps : null
+                    );
                     const timeoutPromise = new Promise((_, reject) => 
                         setTimeout(() => reject(new Error('Backtest timeout')), 5000)
                     );
@@ -3573,57 +3586,72 @@
                 if (backtest && backtest.klines) {
                     klines = backtest.klines.slice();
 
-                    // Append a synthetic open bar for live display; do not mutate last closed bar.
-                    const lastClosedBar = klines[klines.length - 1];
-                    const currentPrice = parseFloat(priceData.price);
-                    const timeframeMinutes = { '5m': 5, '15m': 15, '30m': 30, '1h': 60, '4h': 240, '1d': 1440 };
-                    const minutes = timeframeMinutes[currentTimeframe] || 60;
-                    const msPerBar = minutes * 60 * 1000;
-                    const openTime = Number(lastClosedBar?.[6] ?? lastClosedBar?.[0] ?? Date.now()) + 1;
-                    const openBar = [
-                        openTime,
-                        lastClosedBar?.[4] ?? lastClosedBar?.[1] ?? currentPrice,
-                        currentPrice,
-                        currentPrice,
-                        currentPrice,
-                        '0',
-                        openTime + msPerBar,
-                        '0', 0, 0, '0'
-                    ];
-                    klines.push(openBar);
+                    // Açık bar zaten varsa tekrar ekleme (future timestamp sorununu engeller)
+                    const nowMs = Date.now();
+                    const lastBar = klines[klines.length - 1];
+                    const lastBarCloseMs = Number(lastBar?.[6] ?? 0);
+                    const lastBarLooksOpen = Number.isFinite(lastBarCloseMs) && lastBarCloseMs > (nowMs + 2000);
+
+                    if (!lastBarLooksOpen) {
+                        // Append a synthetic open bar for live display; do not mutate last closed bar.
+                        const lastClosedBar = klines[klines.length - 1];
+                        const currentPrice = parseFloat(priceData.price);
+                        const timeframeMinutes = { '5m': 5, '15m': 15, '30m': 30, '1h': 60, '4h': 240, '1d': 1440 };
+                        const minutes = timeframeMinutes[currentTimeframe] || 60;
+                        const msPerBar = minutes * 60 * 1000;
+                        const openTime = Number(lastClosedBar?.[6] ?? lastClosedBar?.[0] ?? Date.now()) + 1;
+                        const openBar = [
+                            openTime,
+                            lastClosedBar?.[4] ?? lastClosedBar?.[1] ?? currentPrice,
+                            currentPrice,
+                            currentPrice,
+                            currentPrice,
+                            '0',
+                            openTime + msPerBar,
+                            '0', 0, 0, '0'
+                        ];
+                        klines.push(openBar);
+                    }
                 } else {
                     // Eğer backtest başarısız olduysa, son 999 bar al + açık bar ekle
                     const klinesUrl = `${getBinanceApiBase()}/klines?symbol=${symbol}&interval=${currentTimeframe}&limit=999`;
                     const klinesRes = await fetch(klinesUrl);
                     if (!klinesRes.ok) throw new Error(`Klines API hatası: ${klinesRes.status} ${klinesRes.statusText}`);
                     klines = await klinesRes.json();
-                    
-                    // Açık bar'ı manuel olarak ekle - TÜRKİYE SAATİNE GÖRE
+
+                    // Binance çoğu durumda son barı açık döndürür; açık bar varsa tekrar ekleme
                     const nowMs = Date.now();
-                    const turkeyOffsetMs = 3 * 60 * 60 * 1000; // UTC+3
-                    const nowTurkeyMs = nowMs + turkeyOffsetMs;
-                    
-                    const timeframeMinutes = { '5m': 5, '15m': 15, '30m': 30, '1h': 60, '4h': 240, '1d': 1440 };
-                    const minutes = timeframeMinutes[currentTimeframe] || 60;
-                    const msPerBar = minutes * 60 * 1000;
-                    const barOpenTime = Math.floor(nowTurkeyMs / msPerBar) * msPerBar - turkeyOffsetMs; // UTC'ye geri çevir
-                    
-                    const lastClosedBar = klines[klines.length - 1];
-                    const openPrice = lastClosedBar[1];
-                    const currentPrice = parseFloat(priceData.price);
-                    
-                    const openBar = [
-                        barOpenTime,
-                        openPrice,
-                        currentPrice,
-                        currentPrice,
-                        currentPrice,
-                        '0',
-                        barOpenTime + msPerBar,
-                        '0', 0, 0, '0'
-                    ];
-                    
-                    klines.push(openBar);
+                    const lastBar = klines[klines.length - 1];
+                    const lastBarCloseMs = Number(lastBar?.[6] ?? 0);
+                    const lastBarLooksOpen = Number.isFinite(lastBarCloseMs) && lastBarCloseMs > (nowMs + 2000);
+
+                    if (!lastBarLooksOpen) {
+                        // Açık bar'ı manuel olarak ekle - TÜRKİYE SAATİNE GÖRE
+                        const turkeyOffsetMs = 3 * 60 * 60 * 1000; // UTC+3
+                        const nowTurkeyMs = nowMs + turkeyOffsetMs;
+
+                        const timeframeMinutes = { '5m': 5, '15m': 15, '30m': 30, '1h': 60, '4h': 240, '1d': 1440 };
+                        const minutes = timeframeMinutes[currentTimeframe] || 60;
+                        const msPerBar = minutes * 60 * 1000;
+                        const barOpenTime = Math.floor(nowTurkeyMs / msPerBar) * msPerBar - turkeyOffsetMs; // UTC'ye geri çevir
+
+                        const lastClosedBar = klines[klines.length - 1];
+                        const openPrice = lastClosedBar[1];
+                        const currentPrice = parseFloat(priceData.price);
+
+                        const openBar = [
+                            barOpenTime,
+                            openPrice,
+                            currentPrice,
+                            currentPrice,
+                            currentPrice,
+                            '0',
+                            barOpenTime + msPerBar,
+                            '0', 0, 0, '0'
+                        ];
+
+                        klines.push(openBar);
+                    }
                 }
 
                 // Veri doğrulaması
@@ -6165,6 +6193,8 @@ Detaylar:
             try {
                 // Backtest'i yeniden çalıştır
                 const resolvedMarketType = (typeof getMarketType === 'function') ? getMarketType() : (window.CURRENT_MARKET_TYPE || 'spot');
+                const backtestSlippageBps = Number(window.APP_CONFIG && window.APP_CONFIG.backtestSlippageBps);
+                const backtestFeeBps = Number(window.APP_CONFIG && window.APP_CONFIG.backtestFeeBps);
                 const backtestResult = await AdvancedIndicators.runBacktest(
                     currentSymbol, 
                     currentTimeframe, 
@@ -6172,7 +6202,10 @@ Detaylar:
                     confidenceThreshold, 
                     takeProfitPercent, 
                     stopLossPercent,
-                    resolvedMarketType
+                    resolvedMarketType,
+                    'BOTH',
+                    Number.isFinite(backtestSlippageBps) ? backtestSlippageBps : null,
+                    Number.isFinite(backtestFeeBps) ? backtestFeeBps : null
                 );
                 
                 if (!backtestResult || !backtestResult.trades) return;
