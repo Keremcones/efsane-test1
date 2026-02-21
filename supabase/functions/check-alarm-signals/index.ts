@@ -4887,20 +4887,30 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
             }
             const state = await getFuturesCloseState(signal, alarmData);
             if (state.canCheck && !state.position && !state.openOrders && !state.algoOrders) {
+              const externalClosePrice = Number.isFinite(priceForClose)
+                ? Number(priceForClose)
+                : Number(futuresMarkPriceMap[symbolKey]);
               console.log(`🧭 External close sync: ${JSON.stringify({ signalId: signal.id, symbol, ageSeconds, reason: "EXTERNAL_CLOSE" })}`);
               shouldClose = true;
               closeReason = "EXTERNAL_CLOSE";
-              closePrice = Number(signal.entry_price);
+              closePrice = Number.isFinite(externalClosePrice)
+                ? externalClosePrice
+                : Number(signal.entry_price);
             } else if (!state.canCheck && ageSeconds >= FORCE_EXTERNAL_CLOSE_MAX_AGE_SECONDS) {
               console.warn(`⏸️ External close deferred: ${JSON.stringify({ signalId: signal.id, symbol, ageSeconds, mode: "verification_unavailable" })}`);
             }
           } else {
             const state = await getSpotCloseState(signal, alarmData);
             if (state.canCheck && !state.position && !state.openOrders) {
+              const externalClosePrice = Number.isFinite(priceForClose)
+                ? Number(priceForClose)
+                : Number(spotTickerMap[symbolKey]);
               console.log(`🧭 External close sync (spot): ${JSON.stringify({ signalId: signal.id, symbol, ageSeconds, reason: "EXTERNAL_CLOSE" })}`);
               shouldClose = true;
               closeReason = "EXTERNAL_CLOSE";
-              closePrice = Number(signal.entry_price);
+              closePrice = Number.isFinite(externalClosePrice)
+                ? externalClosePrice
+                : Number(signal.entry_price);
             }
           }
         }
@@ -5101,7 +5111,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
           profitLoss = Math.abs(tpPercent);
         } else if (closeReason === "SL_HIT" && Number.isFinite(slPercent)) {
           profitLoss = -Math.abs(slPercent);
-        } else if (closeReason === "TP_HIT_NO_POSITION" || closeReason === "SL_HIT_NO_POSITION" || closeReason === "ORPHAN_ACTIVE_NO_TRADE" || closeReason === "NOT_FILLED" || closeReason === "EXTERNAL_CLOSE") {
+        } else if (closeReason === "TP_HIT_NO_POSITION" || closeReason === "SL_HIT_NO_POSITION" || closeReason === "ORPHAN_ACTIVE_NO_TRADE" || closeReason === "NOT_FILLED") {
           profitLoss = 0;
         }
 
