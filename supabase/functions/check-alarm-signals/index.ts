@@ -369,7 +369,7 @@ const FORCE_EXTERNAL_CLOSE_MAX_AGE_SECONDS = Math.min(
   24 * 60 * 60,
   Math.max(300, Number(Deno.env.get("FORCE_EXTERNAL_CLOSE_MAX_AGE_SECONDS") || "1800"))
 ); // retained for diagnostics compatibility (forced fallback is disabled for safety)
-const ENABLE_EXTERNAL_CLOSE_SYNC = String(Deno.env.get("ENABLE_EXTERNAL_CLOSE_SYNC") || "false").toLowerCase() === "true";
+const ENABLE_EXTERNAL_CLOSE_SYNC = String(Deno.env.get("ENABLE_EXTERNAL_CLOSE_SYNC") || "true").toLowerCase() === "true";
 const DISABLE_ALARM_PROCESSING = false; // temporary: close-only mode
 const CLOSE_NEAR_TARGET_PCT = 0.3; // only run heavy checks when near TP/SL
 const TRIGGER_NEAR_TARGET_PCT = 0.1; // skip indicator klines if far from targets
@@ -2275,8 +2275,32 @@ function generateSignalScoreAligned(indicators: TechnicalIndicators, userConfide
   const isUptrend = indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50;
   const isAlignedTrend = isUptrend || isDowntrend;
   const trendBlocks = (direction === "LONG" && isDowntrend) || (direction === "SHORT" && isUptrend);
-  const hasTrendOk = isAlignedTrend || indicators.adx >= 25;
-  const triggered = confidence >= userConfidenceThreshold && hasTrendOk && !trendBlocks;
+
+  const regimeBias: "LONG" | "SHORT" | "NEUTRAL" = isUptrend ? "LONG" : isDowntrend ? "SHORT" : "NEUTRAL";
+  const strongRegime = regimeBias !== "NEUTRAL" && indicators.adx >= 18;
+  const regimeBlocks = strongRegime && direction !== regimeBias;
+
+  const bullishMomentumStack = indicators.rsi >= 52
+    && indicators.macd >= 0
+    && indicators.histogram >= 0
+    && indicators.stoch.K >= indicators.stoch.D;
+  const bearishMomentumStack = indicators.rsi <= 48
+    && indicators.macd <= 0
+    && indicators.histogram <= 0
+    && indicators.stoch.K <= indicators.stoch.D;
+
+  const momentumConflictBlocks = (direction === "LONG" && bearishMomentumStack && indicators.adx >= 16)
+    || (direction === "SHORT" && bullishMomentumStack && indicators.adx >= 16);
+
+  const choppyMarket = indicators.adx < 15 && Math.abs((indicators.rsi || 50) - 50) < 5;
+  const requiredConfidence = choppyMarket ? Math.min(100, userConfidenceThreshold + 8) : userConfidenceThreshold;
+
+  const hasTrendOk = isAlignedTrend || indicators.adx >= 22;
+  const triggered = confidence >= requiredConfidence
+    && hasTrendOk
+    && !trendBlocks
+    && !regimeBlocks
+    && !momentumConflictBlocks;
 
   breakdown.normalizedScore = {
     trend: normalizedTrendScore.toFixed(2),
@@ -2284,6 +2308,17 @@ function generateSignalScoreAligned(indicators: TechnicalIndicators, userConfide
     volume: normalizedVolumeScore.toFixed(2),
     sr: normalizedSRScore.toFixed(2),
     total: score.toFixed(2),
+  };
+
+  breakdown.signalFilters = {
+    regimeBias,
+    strongRegime,
+    trendBlocks,
+    regimeBlocks,
+    momentumConflictBlocks,
+    choppyMarket,
+    requiredConfidence,
+    threshold: userConfidenceThreshold,
   };
 
   return {
