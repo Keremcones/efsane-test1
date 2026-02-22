@@ -1102,9 +1102,15 @@
 
             const effTpPct = Math.abs(((tpRounded - entryPrice) / entryPrice) * 100);
             const effSlPct = Math.abs(((entryPrice - slRounded) / entryPrice) * 100);
+            const ticksToTp = Math.abs((tpRounded - entryPrice) / tickSize);
+            const ticksToSl = Math.abs((entryPrice - slRounded) / tickSize);
 
             if (!Number.isFinite(effTpPct) || !Number.isFinite(effSlPct)) return true;
             if (effTpPct <= 0 || effSlPct <= 0) return false;
+            if (!Number.isFinite(ticksToTp) || !Number.isFinite(ticksToSl)) return true;
+
+            const minTicksRequired = 12;
+            if (ticksToTp < minTicksRequired || ticksToSl < minTicksRequired) return false;
 
             const tpRelativeError = Math.abs(effTpPct - targetTpPct) / targetTpPct;
             const slRelativeError = Math.abs(effSlPct - targetSlPct) / targetSlPct;
