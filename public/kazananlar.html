@@ -1087,9 +1087,30 @@
             if (!Number.isFinite(tickSize) || tickSize <= 0) return true;
             if (!Number.isFinite(entryPrice) || entryPrice <= 0) return true;
 
-            const minTargetPercent = Math.max(0.01, Math.min(Math.abs(Number(tpPercent) || 0), Math.abs(Number(slPercent) || 0)));
-            const minTickMovePercent = (tickSize / entryPrice) * 100;
-            return minTickMovePercent < minTargetPercent;
+            const targetTpPct = Math.max(0.01, Math.abs(Number(tpPercent) || 0));
+            const targetSlPct = Math.max(0.01, Math.abs(Number(slPercent) || 0));
+
+            const roundToTick = (value, tick) => {
+                if (!Number.isFinite(value) || !Number.isFinite(tick) || tick <= 0) return value;
+                return Math.round(value / tick) * tick;
+            };
+
+            const tpRaw = entryPrice * (1 + (targetTpPct / 100));
+            const slRaw = entryPrice * (1 - (targetSlPct / 100));
+            const tpRounded = roundToTick(tpRaw, tickSize);
+            const slRounded = roundToTick(slRaw, tickSize);
+
+            const effTpPct = Math.abs(((tpRounded - entryPrice) / entryPrice) * 100);
+            const effSlPct = Math.abs(((entryPrice - slRounded) / entryPrice) * 100);
+
+            if (!Number.isFinite(effTpPct) || !Number.isFinite(effSlPct)) return true;
+            if (effTpPct <= 0 || effSlPct <= 0) return false;
+
+            const tpRelativeError = Math.abs(effTpPct - targetTpPct) / targetTpPct;
+            const slRelativeError = Math.abs(effSlPct - targetSlPct) / targetSlPct;
+            const maxAllowedRelativeError = 0.20;
+
+            return tpRelativeError <= maxAllowedRelativeError && slRelativeError <= maxAllowedRelativeError;
         }
 
         function renderWinners(list) {
