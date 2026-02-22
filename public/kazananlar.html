@@ -1223,6 +1223,8 @@
         async function runBacktestSafe(symbol, timeframe, tp, sl) {
             try {
                 const backtestDays = Number(window.APP_CONFIG && window.APP_CONFIG.backtestDays) || 30;
+                const backtestSlippageBps = Number(window.APP_CONFIG && window.APP_CONFIG.backtestSlippageBps);
+                const backtestFeeBps = Number(window.APP_CONFIG && window.APP_CONFIG.backtestFeeBps);
                 const backtest = await AdvancedIndicators.runBacktest(
                     symbol,
                     timeframe,
@@ -1230,7 +1232,10 @@
                     confidenceThreshold,
                     tp,
                     sl,
-                    currentMarket
+                    currentMarket,
+                    'BOTH',
+                    Number.isFinite(backtestSlippageBps) ? backtestSlippageBps : null,
+                    Number.isFinite(backtestFeeBps) ? backtestFeeBps : null
                 );
                 if (!backtest) return null;
 
