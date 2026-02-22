@@ -1069,6 +1069,29 @@
             return Number.isFinite(parsed) ? parsed : null;
         }
 
+        function resolveReferenceEntryPrice(backtest) {
+            if (!backtest) return null;
+            if (backtest.lastTrade && Number.isFinite(Number(backtest.lastTrade.entry))) {
+                return Number(backtest.lastTrade.entry);
+            }
+            if (Array.isArray(backtest.trades)) {
+                const firstTrade = backtest.trades.find(trade => Number.isFinite(Number(trade?.entry)));
+                if (firstTrade) return Number(firstTrade.entry);
+            }
+            return null;
+        }
+
+        function isTickSuitableForAutoTrade(backtest, tpPercent, slPercent) {
+            const tickSize = Number(backtest?.tickSize);
+            const entryPrice = resolveReferenceEntryPrice(backtest);
+            if (!Number.isFinite(tickSize) || tickSize <= 0) return true;
+            if (!Number.isFinite(entryPrice) || entryPrice <= 0) return true;
+
+            const minTargetPercent = Math.max(0.01, Math.min(Math.abs(Number(tpPercent) || 0), Math.abs(Number(slPercent) || 0)));
+            const minTickMovePercent = (tickSize / entryPrice) * 100;
+            return minTickMovePercent < minTargetPercent;
+        }
+
         function renderWinners(list) {
             const container = document.getElementById('backtestResults');
             if (!container) return;
@@ -1091,6 +1114,7 @@
                         <div class="result-row-header">
                             <div>
                                 <span class="result-coin">${formatSymbol(item.symbol)}</span>
+                                ${item.autoTradeTickSuitable === false ? '<span class="result-trades">Tick değeri oto al-sat için uygun değil</span>' : ''}
                                 <span class="result-trades">${item.totalTrades} işlem</span>
                             </div>
                             <div class="gain-list">
@@ -1169,46 +1193,6 @@
             return symbols;
         }
 
-        function calculateMetricsFromTrades(trades) {
-            if (!Array.isArray(trades) || trades.length === 0) {
-                return { totalProfit: 0, winRate: 0, profitFactor: 0, totalTrades: 0 };
-            }
-
-            const closedTrades = trades.filter(trade => {
-                const isOpen = trade && (trade.isOpen === true || trade.duration === 'AÇIK' || trade.duration === 'AKTIF');
-                return !isOpen;
-            });
-
-            if (closedTrades.length === 0) {
-                return { totalProfit: 0, winRate: 0, profitFactor: 0, totalTrades: 0 };
-            }
-
-            let totalProfit = 0;
-            let wins = 0;
-            let lossSum = 0;
-            let gainSum = 0;
-            let countedTrades = 0;
-
-            closedTrades.forEach(trade => {
-                const profit = Number(trade.profit);
-                if (!Number.isFinite(profit)) return;
-                countedTrades += 1;
-                totalProfit += profit;
-                if (profit > 0) {
-                    wins += 1;
-                    gainSum += profit;
-                } else if (profit < 0) {
-                    lossSum += Math.abs(profit);
-                }
-            });
-
-            const totalTrades = countedTrades;
-            const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
-            const profitFactor = lossSum > 0 ? (gainSum / lossSum) : (gainSum > 0 ? gainSum : 0);
-
-            return { totalProfit, winRate, profitFactor, totalTrades };
-        }
-
         async function runBacktestSafe(symbol, timeframe, tp, sl) {
             try {
                 const backtestDays = Number(window.APP_CONFIG && window.APP_CONFIG.backtestDays) || 30;
@@ -1231,28 +1215,11 @@
                     : null;
 
                 if (totalProfit === null || winRate === null || profitFactor === null || totalTrades === null) {
-                    const filteredTrades = Array.isArray(backtest.trades)
-                        ? backtest.trades.filter(trade => {
-                            const score = Number(trade.score);
-                            const isOpen = trade && (trade.isOpen === true || trade.duration === 'AÇIK' || trade.duration === 'AKTIF');
-                            if (!Number.isFinite(score) || score < confidenceThreshold) return false;
-                            return !isOpen;
-                        })
-                        : [];
-
-                    if (filteredTrades.length === 0) {
-                        return null;
-                    }
-
-                    const metrics = calculateMetricsFromTrades(filteredTrades);
-                    return {
-                        symbol,
-                        totalProfit: metrics.totalProfit,
-                        winRate: metrics.winRate,
-                        profitFactor: metrics.profitFactor,
-                        totalTrades: metrics.totalTrades,
-                    };
+                    return null;
                 }
+
+                const tickSize = Number(backtest.tickSize);
+                const autoTradeTickSuitable = isTickSuitableForAutoTrade(backtest, tp, sl);
 
                 return {
                     symbol,
@@ -1260,6 +1227,8 @@
                     winRate,
                     profitFactor,
                     totalTrades: totalTrades,
+                    tickSize: Number.isFinite(tickSize) ? tickSize : null,
+                    autoTradeTickSuitable,
                 };
             } catch (error) {
                 console.warn(`Backtest hata: ${symbol}`, error.message);
