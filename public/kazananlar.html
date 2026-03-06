@@ -865,6 +865,10 @@
                 <div class="menu-user-email" id="menuUserEmail">Yükleniyor...</div>
             </div>
             <nav class="menu-nav">
+                <a href="nasil-kullanilir.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-circle-question"></i>
+                    Nasıl Kullanılır?
+                </a>
                 <a href="profile.html" class="menu-item" onclick="closeHamburgerMenu()">
                     <i class="fa-solid fa-user"></i>
                     Profil
@@ -1463,7 +1467,7 @@
 
                 const { data: userProfile } = await supabaseClient
                     .from('user_profiles')
-                    .select('membership_type, is_admin')
+                    .select('membership_type, membership_expires_at, is_admin')
                     .eq('id', currentUser.id)
                     .maybeSingle();
 
@@ -1471,8 +1475,34 @@
                     updateUserRoleBadge('standard', false);
                     return { isPremium: false };
                 } else {
-                    updateUserRoleBadge(userProfile.membership_type || 'standard', !!userProfile.is_admin);
-                    const isPremium = ['premium', 'plus'].includes(userProfile.membership_type) || !!userProfile.is_admin;
+                    const rawMembership = String(userProfile.membership_type || 'standard').trim().toLowerCase();
+                    const isPaid = rawMembership === 'plus' || rawMembership === 'premium';
+                    const remainingDays = userProfile.membership_expires_at
+                        ? Math.max(0, Math.ceil((new Date(userProfile.membership_expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+                        : 0;
+                    const isExpired = !userProfile.is_admin && isPaid && remainingDays <= 0;
+
+                    if (isExpired) {
+                        await supabaseClient
+                            .from('user_profiles')
+                            .update({
+                                membership_type: 'standard',
+                                membership_expires_at: null,
+                                max_alarm_count: null,
+                                updated_at: new Date().toISOString()
+                            })
+                            .eq('id', currentUser.id);
+
+                        await supabaseClient
+                            .from('alarms')
+                            .delete()
+                            .eq('user_id', currentUser.id)
+                            .or('status.is.null,status.eq.ACTIVE,status.eq.active');
+                    }
+
+                    const effectiveMembership = isExpired ? 'standard' : rawMembership;
+                    updateUserRoleBadge(effectiveMembership, !!userProfile.is_admin);
+                    const isPremium = ['premium', 'plus'].includes(effectiveMembership) || !!userProfile.is_admin;
                     return { isPremium };
                 }
             } catch {

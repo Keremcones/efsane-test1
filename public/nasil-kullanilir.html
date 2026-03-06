@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-title" content="Rolin Signal">
+    <title>Rolin Signal • Nasıl Kullanılır?</title>
+    <meta name="description" content="Rolin Signal sistemini adım adım öğrenin. Dashboard, alarm kurma, backtest ve Binance bağlantısı kullanım rehberi." />
+    <link rel="canonical" href="https://www.rolinsignal.com/nasil-kullanilir.html" />
+    <script>
+        if (localStorage.getItem('DEBUG_CONSOLE') !== 'true') {
+            console.log = () => {};
+            console.info = () => {};
+            console.warn = () => {};
+            console.debug = () => {};
+        }
+    </script>
+    <link rel="icon" type="image/svg+xml" href="/logo.svg">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="apple-touch-icon" sizes="167x167" href="/apple-touch-icon-167.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="/apple-touch-icon-152.png">
+    <link rel="apple-touch-icon" sizes="120x120" href="/apple-touch-icon-120.png">
+    <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+    <link rel="manifest" href="/site.webmanifest">
+    <meta name="theme-color" content="#0b0f14">
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="/api/env.js"></script>
+    <script src="config.js"></script>
+    <script src="google-tag-loader.js" defer></script>
+    <script>
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.dataset.theme = savedTheme;
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg-primary: #eef2f6;
+            --bg-secondary: #e4eaf2;
+            --bg-card: #f8fafc;
+            --accent: #3a7bd5;
+            --accent-blue: #4f46e5;
+            --accent-gold: #f5d06f;
+            --text-primary: #1f2a44;
+            --text-secondary: #5c6b87;
+            --border: #d4dde8;
+        }
+
+        html[data-theme="dark"] {
+            --bg-primary: #0b0f14;
+            --bg-secondary: #0f1621;
+            --bg-card: #141c2a;
+            --accent: #38e8ff;
+            --accent-blue: #8b5cf6;
+            --accent-gold: #f5b75b;
+            --text-primary: #ffffff;
+            --text-secondary: #9aa4b2;
+            --border: #263044;
+        }
+
+        html[data-theme="purple"] {
+            --bg-primary: #0b0714;
+            --bg-secondary: #120a1f;
+            --bg-card: #191026;
+            --accent: #c07bff;
+            --accent-blue: #7c5cff;
+            --accent-gold: #f2b15b;
+            --text-primary: #f6efff;
+            --text-secondary: #c2b4d6;
+            --border: #2a193a;
+        }
+
+        html[data-theme="gold"] {
+            --bg-primary: #0b0b0b;
+            --bg-secondary: #141214;
+            --bg-card: #1b181a;
+            --accent: #f5d06f;
+            --accent-blue: #f5d06f;
+            --accent-gold: #ffd86b;
+            --text-primary: #f6f1e7;
+            --text-secondary: #c9bba0;
+            --border: #2a2420;
+        }
+
+        body {
+            font-family: 'Sora', sans-serif;
+            background: radial-gradient(circle at 12% 18%, rgba(58, 123, 213, 0.16), transparent 46%),
+                        radial-gradient(circle at 88% 12%, rgba(79, 70, 229, 0.14), transparent 42%),
+                        linear-gradient(155deg, var(--bg-primary), var(--bg-secondary));
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        .navbar {
+            background: rgba(240, 246, 255, 0.82);
+            border-bottom: 1px solid rgba(124, 92, 255, 0.22);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(14px);
+            box-shadow: 0 10px 28px rgba(86, 110, 170, 0.2);
+            min-height: 72px;
+        }
+
+        html[data-theme="dark"] .navbar {
+            background: rgba(11, 15, 20, 0.78);
+            border-bottom: 1px solid rgba(56, 232, 255, 0.12);
+            box-shadow: 0 8px 24px rgba(5, 12, 24, 0.45);
+        }
+
+        html[data-theme="light"] .navbar {
+            background: rgba(231, 238, 248, 0.86);
+            border-bottom: 1px solid rgba(79, 70, 229, 0.2);
+            box-shadow: 0 12px 28px rgba(70, 90, 140, 0.18);
+        }
+
+        html[data-theme="purple"] .navbar {
+            background: rgba(11, 7, 20, 0.82);
+            border-bottom: 1px solid rgba(184, 108, 255, 0.22);
+            box-shadow: 0 10px 24px rgba(10, 6, 18, 0.6);
+        }
+
+        html[data-theme="gold"] .navbar {
+            background: rgba(11, 11, 11, 0.86);
+            border-bottom: 1px solid rgba(245, 208, 111, 0.3);
+            box-shadow: 0 10px 24px rgba(5, 4, 3, 0.7);
+        }
+
+        .user-menu {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .user-email {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            max-width: 280px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .user-role-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
+            color: white;
+            letter-spacing: 0.4px;
+        }
+
+        .user-role-badge.standard {
+            background: linear-gradient(135deg, #c07a2b, #8b4f1f);
+            color: #ffffff;
+        }
+
+        .user-role-badge.premium {
+            background: linear-gradient(135deg, #FFD700, #FFA500);
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.4);
+            color: #111111;
+        }
+
+        .user-role-badge.plus {
+            background: linear-gradient(135deg, #2bb3ff, #11d5b4);
+            box-shadow: 0 0 18px rgba(43, 179, 255, 0.35);
+            color: #0a0a0a;
+        }
+
+        .user-role-badge.admin {
+            background: linear-gradient(135deg, #f5d06f, #ffd86b);
+            box-shadow: 0 0 18px rgba(245, 208, 111, 0.45);
+            color: #0a0a0a;
+        }
+
+        .hamburger-menu {
+            display: flex;
+            flex-direction: column;
+            background: rgba(13, 168, 232, 0.1);
+            border: 1px solid rgba(13, 168, 232, 0.3);
+            cursor: pointer;
+            padding: 8px;
+            gap: 5px;
+            width: 44px;
+            height: 44px;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .hamburger-menu:hover {
+            background: rgba(13, 168, 232, 0.2);
+            border-color: #0da8e8;
+        }
+
+        .hamburger-menu span {
+            width: 26px;
+            height: 3px;
+            background: #0da8e8;
+            border-radius: 2px;
+            transition: all 0.3s ease;
+            display: block;
+        }
+
+        .hamburger-menu.active span:nth-child(1) {
+            transform: rotate(45deg) translate(8px, 8px);
+        }
+
+        .hamburger-menu.active span:nth-child(2) {
+            opacity: 0;
+        }
+
+        .hamburger-menu.active span:nth-child(3) {
+            transform: rotate(-45deg) translate(7px, -7px);
+        }
+
+        .menu-panel {
+            position: fixed;
+            right: -350px;
+            top: 0;
+            width: 350px;
+            height: 100vh;
+            background: rgba(15, 18, 28, 0.96);
+            border-left: 1px solid rgba(56, 232, 255, 0.18);
+            z-index: 998;
+            transition: right 0.3s ease;
+            overflow-y: auto;
+            backdrop-filter: blur(8px);
+        }
+
+        html[data-theme="light"] .menu-panel {
+            background: rgba(233, 238, 248, 0.96);
+            border-left: 1px solid rgba(79, 70, 229, 0.18);
+        }
+
+        html[data-theme="purple"] .menu-panel {
+            background: rgba(12, 8, 22, 0.96);
+            border-left: 1px solid rgba(184, 108, 255, 0.25);
+        }
+
+        html[data-theme="gold"] .menu-panel {
+            background: rgba(12, 11, 12, 0.96);
+            border-left: 1px solid rgba(245, 208, 111, 0.28);
+        }
+
+        .menu-panel.active { right: 0; }
+
+        .menu-close {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: none;
+            border: none;
+            color: var(--accent);
+            font-size: 32px;
+            cursor: pointer;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .menu-close:hover {
+            color: var(--accent-blue);
+            transform: rotate(90deg);
+        }
+
+        .menu-content { padding: 80px 24px 24px; }
+
+        .menu-user-info {
+            margin-bottom: 32px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .menu-user-email {
+            color: var(--primary);
+            font-size: 14px;
+            font-weight: 600;
+            word-break: break-all;
+        }
+
+        .menu-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 14px 16px;
+            background: rgba(13, 168, 232, 0.1);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+            font-weight: 600;
+            text-align: left;
+        }
+
+        .menu-item:hover {
+            background: rgba(13, 168, 232, 0.2);
+            border-color: var(--accent);
+            transform: translateX(4px);
+        }
+
+        .menu-item.logout-item {
+            color: #f44336;
+            background: rgba(244, 67, 54, 0.1);
+            border-color: rgba(244, 67, 54, 0.3);
+        }
+
+        .menu-item.logout-item:hover {
+            background: rgba(244, 67, 54, 0.2);
+            border-color: #f44336;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo-img {
+            width: 32px;
+            height: 32px;
+            flex: 0 0 32px;
+            filter: drop-shadow(0 0 12px rgba(56, 232, 255, 0.35));
+        }
+
+        .logo-text {
+            font-size: 1.35rem;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 26px 20px 40px;
+        }
+
+        .hero {
+            margin-bottom: 20px;
+            padding: 24px;
+            border-radius: 18px;
+            border: 1px solid var(--border);
+            background: linear-gradient(145deg, rgba(127, 150, 182, 0.1), rgba(127, 150, 182, 0.03));
+        }
+
+        .hero h1 {
+            font-size: clamp(1.7rem, 2.5vw, 2.3rem);
+            margin-bottom: 10px;
+        }
+
+        .hero p {
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        .section-card {
+            padding: 22px;
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            margin-bottom: 16px;
+        }
+
+        .section-card h2 {
+            font-size: 1.15rem;
+            margin-bottom: 14px;
+        }
+
+        .section-card p,
+        .section-card li {
+            color: var(--text-secondary);
+            line-height: 1.7;
+        }
+
+        .highlight-primary {
+            color: var(--accent);
+            font-weight: 700;
+        }
+
+        .highlight-gold {
+            color: var(--accent-gold);
+            font-weight: 700;
+        }
+
+        .highlight-blue {
+            color: var(--accent-blue);
+            font-weight: 700;
+        }
+
+        .section-card ul {
+            padding-left: 18px;
+            display: grid;
+            gap: 8px;
+        }
+
+        .video-wrap {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            border-radius: 14px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            background: #000;
+        }
+
+        .video-wrap iframe {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            border: 0;
+        }
+
+        @media (max-width: 768px) {
+            .navbar { padding: 14px 14px; }
+            .user-email { max-width: 125px; font-size: 0.8rem; }
+            .logo-text { display: none; }
+            .container { padding: 18px 14px 30px; }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="logo">
+            <img src="logo.svg" alt="Logo" class="logo-img">
+            <span class="logo-text">Rolin Signal</span>
+        </div>
+        <div class="user-menu">
+            <span class="user-email" id="userEmail">Yükleniyor...</span>
+            <span class="user-role-badge" id="userRoleBadge" style="display:none;"></span>
+            <button class="hamburger-menu" id="hamburgerBtn" onclick="window.toggleHamburgerMenu()" title="Menü">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+        </div>
+    </nav>
+
+    <div class="menu-panel" id="menuPanel">
+        <button class="menu-close" onclick="closeHamburgerMenu()">×</button>
+        <div class="menu-content">
+            <div class="menu-user-info">
+                <div class="menu-user-email" id="menuUserEmail">Yükleniyor...</div>
+            </div>
+            <nav class="menu-nav">
+                <a href="nasil-kullanilir.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-circle-question"></i>
+                    Nasıl Kullanılır?
+                </a>
+                <a href="profile.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-user"></i>
+                    Profil
+                </a>
+                <a href="index.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-chart-line"></i>
+                    Dashboard
+                </a>
+                <a href="her-durumda.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-layer-group"></i>
+                    Her Durumda
+                </a>
+                <a href="kazananlar.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-trophy"></i>
+                    Kazananlar
+                </a>
+                <a href="binance.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-brands fa-bitcoin"></i>
+                    Binance Bağlantısı
+                </a>
+                <button class="menu-item logout-item" onclick="window.logout()">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                    Çıkış Yap
+                </button>
+            </nav>
+        </div>
+    </div>
+
+    <main class="container">
+        <section class="hero">
+            <h1>Nasıl Kullanılır?</h1>
+            <p><span class="highlight-primary">Rolin Signal</span>, kripto piyasasında karar sürecini hızlandırmak için <span class="highlight-blue">sinyal üretimi</span>, <span class="highlight-gold">alarm yönetimi</span>, <span class="highlight-blue">backtest analizi</span> ve üyelik seviyesine göre modül erişimini tek panelde birleştirir. Bu rehberde, sistemi sadece nereden açacağın değil; hangi ayarı neden yapman gerektiği, günlük kullanımda nasıl disiplin kuracağın ve yanlış sinyal yoğunluğunu nasıl düşüreceğin dahil olmak üzere detaylı şekilde bulacaksın.</p>
+        </section>
+
+        <section class="section-card">
+            <h2>Detaylı Kullanım Videosu</h2>
+            <div class="video-wrap">
+                <iframe
+                    src="https://www.youtube.com/embed/Tl7llCkh3o4"
+                    title="Detaylı Kullanım Videosu"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    referrerpolicy="strict-origin-when-cross-origin"
+                    allowfullscreen>
+                </iframe>
+            </div>
+        </section>
+
+        <section class="section-card">
+            <h2>Sistem Nedir?</h2>
+            <p>Rolin Signal, canlı market verisini anlık olarak işler ve teknik kuralları uygulayarak sana <span class="highlight-primary">yorumlanabilir sinyal</span> üretir. Sistem, tek bir “al/sat” çıktısı vermek yerine her fırsatı <span class="highlight-blue">güven skoru</span>, <span class="highlight-gold">zaman dilimi</span>, <span class="highlight-blue">TP/SL</span> ve geçmiş performans bağlamında gösterir. Böylece kararını sadece tek satıra değil, bütün tabloya bakarak verirsin.</p>
+            <ul>
+                <li><span class="highlight-primary">Dashboard</span>: Anlık sinyal akışını, filtreleri ve genel market durumunu takip ettiğin ana kontrol merkezi.</li>
+                <li><span class="highlight-blue">Her Durumda</span>: Farklı güven eşiği, TP/SL ve timeframe kombinasyonlarını karşılaştırarak en verimli ayarı bulduğun optimizasyon alanı.</li>
+                <li><span class="highlight-gold">Kazananlar</span>: En iyi sonuç veren coin/ayar kombinasyonlarını görüp hızlı aksiyon aldığın performans ekranı.</li>
+                <li><span class="highlight-primary">Alarm Modülü</span>: Seçtiğin koşullar oluştuğunda panel ve Telegram üzerinden tetik alan otomatik bildirim sistemi.</li>
+                <li><span class="highlight-blue">Binance Bağlantısı</span>: Uygun planla manuel takip yükünü azaltan otomasyon adımı.</li>
+            </ul>
+        </section>
+
+        <section class="section-card">
+            <h2>Adım Adım Kullanım</h2>
+            <p>Verimli kullanımın temeli, önce net bir iş akışı kurmaktır: <span class="highlight-primary">(1) tarama</span>, <span class="highlight-blue">(2) eleme</span>, <span class="highlight-gold">(3) doğrulama</span>, <span class="highlight-primary">(4) alarm</span>, <span class="highlight-blue">(5) geri değerlendirme</span>. Aşağıdaki adımlar bu akışı günlük rutine çevirmek için hazırlanmıştır.</p>
+            <ul>
+                <li><span class="highlight-primary">1) Coin ve timeframe seçimi</span>: Gün içi işlemde 5m/15m, daha sakin akışta 1h/4h kullan. Timeframe büyüdükçe sinyal sayısı düşer ama gürültü azalır.</li>
+                <li><span class="highlight-blue">2) Güven eşiği ayarı</span>: Düşük eşik çok fırsat gösterir, yüksek eşik daha temiz setuplar bırakır. Hedefin “çok sinyal” değil, “işlenebilir sinyal” olmalı.</li>
+                <li><span class="highlight-gold">3) TP/SL planı</span>: İşleme girmeden önce risk oranını sabitle. TP/SL değerlerini işlem açıldıktan sonra değiştirme alışkanlığı performansı bozar.</li>
+                <li><span class="highlight-primary">4) Backtest ile doğrulama</span>: Son veride çalışan ayarın farklı periyotlarda da benzer davranış verip vermediğini kontrol et; tek iyi sonuçla karar verme.</li>
+                <li><span class="highlight-blue">5) Alarm kur ve sadeleştir</span>: Sadece gerçekten işlem alacağın kurallara alarm tanımla. Gereksiz alarm, odak kaybı ve geç tepkiye neden olur.</li>
+                <li><span class="highlight-gold">6) Gün sonu değerlendirme</span>: Hangi sinyalleri aldın/elemissin, neden aldın/almadın not et. Bu kayıtlar stratejini düzenli olarak güçlendirir.</li>
+            </ul>
+        </section>
+    </main>
+
+    <script>
+        let supabaseClient = null;
+        let currentUser = null;
+
+        function updateUserRoleBadge(membershipType = 'standard', isAdmin = false) {
+            const badgeEl = document.getElementById('userRoleBadge');
+            if (!badgeEl) return;
+
+            if (isAdmin) {
+                badgeEl.innerHTML = '<i class="fa-solid fa-shield-halved"></i> Admin';
+                badgeEl.className = 'user-role-badge admin';
+                badgeEl.style.display = 'inline-flex';
+                return;
+            }
+
+            if (membershipType === 'premium') {
+                badgeEl.innerHTML = '<i class="fa-solid fa-star"></i> Premium';
+                badgeEl.className = 'user-role-badge premium';
+                badgeEl.style.display = 'inline-flex';
+                return;
+            }
+
+            if (membershipType === 'plus') {
+                badgeEl.innerHTML = '<i class="fa-solid fa-circle-plus"></i> Plus';
+                badgeEl.className = 'user-role-badge plus';
+                badgeEl.style.display = 'inline-flex';
+                return;
+            }
+
+            badgeEl.innerHTML = '<i class="fa-solid fa-user"></i> Standart';
+            badgeEl.className = 'user-role-badge standard';
+            badgeEl.style.display = 'inline-flex';
+        }
+
+        async function checkAuth() {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            currentUser = session.user;
+            document.getElementById('userEmail').textContent = currentUser.email;
+            document.getElementById('menuUserEmail').textContent = currentUser.email;
+
+            try {
+                await supabaseClient
+                    .from('user_profiles')
+                    .upsert({
+                        id: currentUser.id,
+                        email: currentUser.email,
+                        updated_at: new Date().toISOString()
+                    }, { onConflict: 'id' });
+
+                const { data: userProfile } = await supabaseClient
+                    .from('user_profiles')
+                    .select('membership_type, membership_expires_at, is_admin')
+                    .eq('id', currentUser.id)
+                    .maybeSingle();
+
+                if (!userProfile) {
+                    updateUserRoleBadge('standard', false);
+                } else {
+                    const rawMembership = String(userProfile.membership_type || 'standard').trim().toLowerCase();
+                    const isPaid = rawMembership === 'plus' || rawMembership === 'premium';
+                    const remainingDays = userProfile.membership_expires_at
+                        ? Math.max(0, Math.ceil((new Date(userProfile.membership_expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+                        : 0;
+                    const isExpired = !userProfile.is_admin && isPaid && remainingDays <= 0;
+
+                    if (isExpired) {
+                        await supabaseClient
+                            .from('user_profiles')
+                            .update({
+                                membership_type: 'standard',
+                                membership_expires_at: null,
+                                max_alarm_count: null,
+                                updated_at: new Date().toISOString()
+                            })
+                            .eq('id', currentUser.id);
+
+                        await supabaseClient
+                            .from('alarms')
+                            .delete()
+                            .eq('user_id', currentUser.id)
+                            .or('status.is.null,status.eq.ACTIVE,status.eq.active');
+                    }
+
+                    updateUserRoleBadge(isExpired ? 'standard' : rawMembership, !!userProfile.is_admin);
+                }
+            } catch {
+                updateUserRoleBadge('standard', false);
+            }
+        }
+
+        window.toggleHamburgerMenu = function() {
+            const panel = document.getElementById('menuPanel');
+            const btn = document.getElementById('hamburgerBtn');
+            if (!panel || !btn) return;
+            panel.classList.toggle('active');
+            btn.classList.toggle('active');
+        };
+
+        window.closeHamburgerMenu = function() {
+            const panel = document.getElementById('menuPanel');
+            const btn = document.getElementById('hamburgerBtn');
+            if (panel) panel.classList.remove('active');
+            if (btn) btn.classList.remove('active');
+        };
+
+        window.logout = async function() {
+            try {
+                const { error } = await supabaseClient.auth.signOut();
+                if (error) throw error;
+                window.location.replace('login.html');
+            } catch (error) {
+                console.error('Çıkış hatası:', error.message);
+                localStorage.clear();
+                window.location.replace('login.html');
+            }
+        };
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            const { createClient } = window.supabase;
+            supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            await checkAuth();
+        });
+    </script>
+    <script src="i18n.js"></script>
+    <script src="auto-translate.js"></script>
+</body>
+</html>

@@ -1430,6 +1430,10 @@
                 <div class="menu-user-email" id="menuUserEmail">Yükleniyor...</div>
             </div>
             <nav class="menu-nav">
+                <a href="nasil-kullanilir.html" class="menu-item" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-circle-question"></i>
+                    Nasıl Kullanılır?
+                </a>
                 <a href="profile.html" class="menu-item" onclick="closeHamburgerMenu()">
                     <i class="fa-solid fa-user"></i>
                     Profil
@@ -1967,6 +1971,60 @@
             }
         }
 
+        function calculateRemainingMembershipDays(expiryDate) {
+            if (!expiryDate) return 0;
+            const expiryTime = new Date(expiryDate).getTime();
+            if (!Number.isFinite(expiryTime)) return 0;
+            const diff = expiryTime - Date.now();
+            if (diff <= 0) return 0;
+            return Math.ceil(diff / (1000 * 60 * 60 * 24));
+        }
+
+        function resolveEffectiveMembership(profile) {
+            const isAdmin = !!profile?.is_admin;
+            const rawType = String(profile?.membership_type || 'standard').trim().toLowerCase();
+            const isPaid = rawType === 'plus' || rawType === 'premium';
+            const remainingDays = calculateRemainingMembershipDays(profile?.membership_expires_at);
+            const isExpiredPaid = !isAdmin && isPaid && remainingDays <= 0;
+
+            return {
+                isAdmin,
+                membershipType: isExpiredPaid ? 'standard' : rawType,
+                remainingDays,
+                membershipExpiresAt: profile?.membership_expires_at || null,
+                isExpiredPaid
+            };
+        }
+
+        async function downgradeExpiredMembershipIfNeeded(userId, profile) {
+            const state = resolveEffectiveMembership(profile);
+            if (!state.isExpiredPaid || !userId) return state;
+
+            await supabaseClient
+                .from('user_profiles')
+                .update({
+                    membership_type: 'standard',
+                    membership_expires_at: null,
+                    max_alarm_count: null,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', userId);
+
+            await supabaseClient
+                .from('alarms')
+                .delete()
+                .eq('user_id', userId)
+                .or('status.is.null,status.eq.ACTIVE,status.eq.active');
+
+            return {
+                ...state,
+                membershipType: 'standard',
+                membershipExpiresAt: null,
+                remainingDays: 0,
+                isExpiredPaid: false
+            };
+        }
+
         function updatePersistentAlertState(issues) {
             const prev = loadJsonStorage(ADMIN_SYSTEM_ALERT_STATE_KEY, {});
             const next = {};
@@ -2320,18 +2378,28 @@
                     .eq('id', currentUser.id)
                     .single();
 
+                let membershipState = resolveEffectiveMembership(userProfile);
+                if (!profileError) {
+                    membershipState = await downgradeExpiredMembershipIfNeeded(currentUser.id, userProfile);
+                }
+
                 // Membership badge'ini güncelle
                 if (userProfile) {
-                    updateMembershipBadge(userProfile.membership_type || 'standard', userProfile.membership_expires_at, !!userProfile.is_admin);
-                    updateUserRoleBadge(userProfile.membership_type || 'standard', !!userProfile.is_admin);
+                    updateMembershipBadge(
+                        membershipState.membershipType,
+                        membershipState.membershipExpiresAt,
+                        membershipState.isAdmin,
+                        membershipState.remainingDays
+                    );
+                    updateUserRoleBadge(membershipState.membershipType, membershipState.isAdmin);
                 } else {
                     updateMembershipBadge('standard', null, isAdminByEmail);
                     updateUserRoleBadge('standard', isAdminByEmail);
                 }
 
-                const isAdmin = isAdminByEmail || !!userProfile?.is_admin;
+                const isAdmin = isAdminByEmail || membershipState.isAdmin;
                 currentIsAdmin = isAdmin;
-                const membershipType = String(userProfile?.membership_type || 'standard');
+                const membershipType = String(membershipState.membershipType || 'standard');
                 const isPremium = membershipType === 'premium';
                 const isPlus = membershipType === 'plus';
                 canUseTelegramChatId = isAdmin || isPremium || isPlus;
@@ -2623,7 +2691,7 @@
         }
 
         // Üyelik badge'ini güncelle
-        function updateMembershipBadge(type, expiryDate, isAdmin = false) {
+        function updateMembershipBadge(type, expiryDate, isAdmin = false, remainingDays = null) {
             const badge = document.getElementById('membershipBadge');
             const description = document.getElementById('membershipDescription');
             const expiry = document.getElementById('membershipExpiry');
@@ -2640,20 +2708,25 @@
                 badge.innerHTML = '<i class="fa-solid fa-star"></i> Premium';
                 badge.className = 'membership-badge premium';
                 description.textContent = 'Tüm premium özelliklere erişiminiz bulunmaktadır';
-                
-                if (expiryDate) {
+
+                const computedDays = Number.isInteger(remainingDays) ? remainingDays : calculateRemainingMembershipDays(expiryDate);
+                if (expiryDate && computedDays > 0) {
                     const date = new Date(expiryDate);
-                    expiry.textContent = `Premium üyelik ' ${date.toLocaleDateString('tr-TR')} tarihinde sona erecek`;
+                    expiry.textContent = `Kalan süre: ${computedDays} gün · Bitiş: ${date.toLocaleDateString('tr-TR')}`;
+                } else {
+                    expiry.textContent = 'Kalan süre: 0 gün';
                 }
             } else if (type === 'plus') {
                 badge.innerHTML = '<i class="fa-solid fa-circle-plus"></i> Plus';
                 badge.className = 'membership-badge plus';
                 description.textContent = 'Dashboard, Her Durumda, Kazananlar, Telegram ve alarm erişimi (oto al-sat yok)';
-                if (expiryDate) {
+
+                const computedDays = Number.isInteger(remainingDays) ? remainingDays : calculateRemainingMembershipDays(expiryDate);
+                if (expiryDate && computedDays > 0) {
                     const date = new Date(expiryDate);
-                    expiry.textContent = `Plus üyelik ${date.toLocaleDateString('tr-TR')} tarihinde sona erecek`;
+                    expiry.textContent = `Kalan süre: ${computedDays} gün · Bitiş: ${date.toLocaleDateString('tr-TR')}`;
                 } else {
-                    expiry.textContent = '';
+                    expiry.textContent = 'Kalan süre: 0 gün';
                 }
             } else {
                 badge.innerHTML = '<i class="fa-solid fa-leaf"></i> Free';
@@ -2708,7 +2781,7 @@
 
             const { data: users, error } = await supabaseClient
                 .from('user_profiles')
-                .select('id, email, membership_type, is_admin, max_alarm_count')
+                .select('id, email, membership_type, membership_expires_at, is_admin, max_alarm_count')
                 .order('email', { ascending: true });
 
             if (error) {
@@ -2717,6 +2790,41 @@
             }
 
             const allUsers = users || [];
+
+            const expiredUserIds = allUsers
+                .filter(u => {
+                    const normalizedMembership = String(u.membership_type || 'standard').trim().toLowerCase();
+                    const isPaid = normalizedMembership === 'plus' || normalizedMembership === 'premium';
+                    const isExpired = calculateRemainingMembershipDays(u.membership_expires_at) <= 0;
+                    return !u.is_admin && isPaid && isExpired;
+                })
+                .map(u => u.id);
+
+            if (expiredUserIds.length > 0) {
+                await supabaseClient
+                    .from('user_profiles')
+                    .update({
+                        membership_type: 'standard',
+                        membership_expires_at: null,
+                        max_alarm_count: null,
+                        updated_at: new Date().toISOString()
+                    })
+                    .in('id', expiredUserIds);
+
+                await supabaseClient
+                    .from('alarms')
+                    .delete()
+                    .in('user_id', expiredUserIds)
+                    .or('status.is.null,status.eq.ACTIVE,status.eq.active');
+
+                allUsers.forEach(u => {
+                    if (expiredUserIds.includes(u.id)) {
+                        u.membership_type = 'standard';
+                        u.membership_expires_at = null;
+                        u.max_alarm_count = null;
+                    }
+                });
+            }
 
             const updateCounts = (list) => {
                 let premiumCount = 0;
@@ -2745,6 +2853,7 @@
             const renderList = (list) => {
                 listEl.innerHTML = list.map(u => {
                     const normalizedMembership = String(u.membership_type || 'standard').trim().toLowerCase();
+                    const remainingDays = calculateRemainingMembershipDays(u.membership_expires_at);
                     const role = u.is_admin
                         ? 'admin'
                         : (normalizedMembership === 'premium' ? 'premium' : (normalizedMembership === 'plus' ? 'plus' : 'free'));
@@ -2752,6 +2861,10 @@
                     const defaultLimit = (normalizedMembership === 'plus' || normalizedMembership === 'premium') ? 3 : 0;
                     const alarmLimitValue = hasConfiguredLimit ? Number(u.max_alarm_count) : defaultLimit;
                     const alarmLimitDisabled = u.is_admin || (normalizedMembership !== 'plus' && normalizedMembership !== 'premium');
+                    const membershipDayDisabled = u.is_admin || (normalizedMembership !== 'plus' && normalizedMembership !== 'premium');
+                    const membershipDayValue = (normalizedMembership === 'plus' || normalizedMembership === 'premium')
+                        ? (remainingDays > 0 ? remainingDays : 30)
+                        : '';
                     return `
                         <div class="admin-user-row" data-user-id="${u.id}">
                             <div class="admin-user-email">${u.email || u.id}</div>
@@ -2778,6 +2891,18 @@
                                         placeholder="3"
                                         value="${alarmLimitValue}"
                                         ${alarmLimitDisabled ? 'disabled' : ''}
+                                    />
+                                </label>
+                                <label class="admin-role-chip">
+                                    Gün
+                                    <input
+                                        type="number"
+                                        class="admin-limit-input"
+                                        data-membership-days="1"
+                                        min="1"
+                                        placeholder="30"
+                                        value="${membershipDayValue}"
+                                        ${membershipDayDisabled ? 'disabled' : ''}
                                     />
                                 </label>
                             </div>
@@ -2836,21 +2961,67 @@
                     return;
                 }
 
+                if (target.dataset.membershipDays === '1') {
+                    const selectedRoleInput = row.querySelector(`input[name="role-${userId}"]:checked`);
+                    const selectedRole = selectedRoleInput?.dataset?.role || 'free';
+                    if (selectedRole !== 'plus' && selectedRole !== 'premium') {
+                        showNotification('Gün değeri sadece Plus/Premium için kullanılabilir', 'warning');
+                        target.value = '';
+                        target.setAttribute('disabled', 'disabled');
+                        return;
+                    }
+
+                    const parsedDays = Number.parseInt(target.value, 10);
+                    if (!Number.isInteger(parsedDays) || parsedDays < 1) {
+                        showNotification('Gün sayısı en az 1 olmalı', 'error');
+                        return;
+                    }
+
+                    const expiryDate = new Date(Date.now() + (parsedDays * 24 * 60 * 60 * 1000)).toISOString();
+                    const { error: dayError } = await supabaseClient
+                        .from('user_profiles')
+                        .update({
+                            membership_expires_at: expiryDate,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('id', userId);
+
+                    if (dayError) {
+                        showNotification('Gün sayısı güncellenemedi: ' + dayError.message, 'error');
+                    } else {
+                        showNotification('Gün sayısı güncellendi', 'success');
+                        await loadAdminUserList();
+                    }
+                    return;
+                }
+
                 const selectedRole = target.dataset.role || 'free';
                 const membershipType = selectedRole === 'premium'
                     ? 'premium'
                     : (selectedRole === 'plus' ? 'plus' : 'standard');
                 const isAdmin = selectedRole === 'admin';
                 const existingLimitInput = row.querySelector('input[data-max-alarm-count="1"]');
+                const existingDaysInput = row.querySelector('input[data-membership-days="1"]');
                 const existingLimit = Number.parseInt(existingLimitInput?.value || '', 10);
+                const selectedDays = Number.parseInt(existingDaysInput?.value || '', 10);
                 const maxAlarmCount = (selectedRole === 'plus' || selectedRole === 'premium')
                     ? (Number.isInteger(existingLimit) && existingLimit > 0 ? existingLimit : 3)
+                    : null;
+
+                if ((selectedRole === 'plus' || selectedRole === 'premium') && (!Number.isInteger(selectedDays) || selectedDays < 1)) {
+                    showNotification('Plus/Premium için gün sayısı zorunludur ve en az 1 olmalı', 'error');
+                    return;
+                }
+
+                const membershipExpiresAt = (selectedRole === 'plus' || selectedRole === 'premium')
+                    ? new Date(Date.now() + (selectedDays * 24 * 60 * 60 * 1000)).toISOString()
                     : null;
 
                 const { error: updateError } = await supabaseClient
                     .from('user_profiles')
                     .update({
                         membership_type: membershipType,
+                        membership_expires_at: membershipExpiresAt,
                         is_admin: isAdmin,
                         max_alarm_count: maxAlarmCount,
                         updated_at: new Date().toISOString()
