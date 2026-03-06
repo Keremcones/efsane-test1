@@ -2871,6 +2871,9 @@
                     const membershipDayValue = (normalizedMembership === 'plus' || normalizedMembership === 'premium')
                         ? (remainingDays > 0 ? remainingDays : 30)
                         : '';
+                    const membershipDayPlaceholder = (normalizedMembership === 'plus' || normalizedMembership === 'premium')
+                        ? '30'
+                        : 'Sınırsız';
                     return `
                         <div class="admin-user-row" data-user-id="${u.id}">
                             <div class="admin-user-email">${u.email || u.id}</div>
@@ -2906,7 +2909,7 @@
                                         class="admin-limit-input"
                                         data-membership-days="1"
                                         min="1"
-                                        placeholder="30"
+                                        placeholder="${membershipDayPlaceholder}"
                                         value="${membershipDayValue}"
                                         ${membershipDayDisabled ? 'disabled' : ''}
                                     />
@@ -3008,6 +3011,18 @@
                 const isAdmin = selectedRole === 'admin';
                 const existingLimitInput = row.querySelector('input[data-max-alarm-count="1"]');
                 const existingDaysInput = row.querySelector('input[data-membership-days="1"]');
+
+                if (existingDaysInput) {
+                    if (selectedRole === 'plus' || selectedRole === 'premium') {
+                        existingDaysInput.removeAttribute('disabled');
+                        existingDaysInput.placeholder = '30';
+                    } else {
+                        existingDaysInput.value = '';
+                        existingDaysInput.setAttribute('disabled', 'disabled');
+                        existingDaysInput.placeholder = 'Sınırsız';
+                    }
+                }
+
                 const existingLimit = Number.parseInt(existingLimitInput?.value || '', 10);
                 const selectedDays = Number.parseInt(existingDaysInput?.value || '', 10);
                 const maxAlarmCount = (selectedRole === 'plus' || selectedRole === 'premium')
