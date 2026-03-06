@@ -124,6 +124,31 @@ async function getCurrentPrice(symbol: string, marketType: "spot" | "futures"): 
 // =====================
 async function sendTelegramNotification(userId: string, message: string): Promise<void> {
   try {
+    const { data: userProfile, error: profileError } = await supabase
+      .from("user_profiles")
+      .select("membership_type, membership_expires_at, is_admin")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (profileError) {
+      console.error("❌ user_profiles fetch error:", profileError);
+      return;
+    }
+
+    const membershipType = String(userProfile?.membership_type || "standard").trim().toLowerCase();
+    const isAdmin = !!userProfile?.is_admin;
+    const isPaid = membershipType === "plus" || membershipType === "premium";
+    const expiryRaw = userProfile?.membership_expires_at;
+    const hasExpiry = !!expiryRaw;
+    const expiryTime = hasExpiry ? new Date(String(expiryRaw)).getTime() : NaN;
+    const isExpired = hasExpiry && Number.isFinite(expiryTime) && expiryTime <= Date.now();
+    const canReceiveTelegram = isAdmin || (isPaid && !isExpired);
+
+    if (!canReceiveTelegram) {
+      console.log(`⚠️ Telegram skipped: inactive membership for user ${userId}`);
+      return;
+    }
+
     const { data: userSettings, error } = await supabase
       .from("user_settings")
       .select("telegram_chat_id, telegram_username, notifications_enabled")

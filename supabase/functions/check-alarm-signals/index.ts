@@ -2840,6 +2840,31 @@ type TelegramSendResult = { ok: boolean; status: "SENT" | "FAILED" | "SKIPPED"; 
 
 async function sendTelegramNotification(userId: string, message: string): Promise<TelegramSendResult> {
   try {
+    const { data: userProfile, error: profileError } = await supabase
+      .from("user_profiles")
+      .select("membership_type, membership_expires_at, is_admin")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (profileError) {
+      console.error("❌ user_profiles fetch error:", profileError);
+      return { ok: false, status: "FAILED", error: "user_profile_error" };
+    }
+
+    const membershipType = String(userProfile?.membership_type || "standard").trim().toLowerCase();
+    const isAdmin = !!userProfile?.is_admin;
+    const isPaid = membershipType === "plus" || membershipType === "premium";
+    const expiryRaw = userProfile?.membership_expires_at;
+    const hasExpiry = !!expiryRaw;
+    const expiryTime = hasExpiry ? new Date(String(expiryRaw)).getTime() : NaN;
+    const isExpired = hasExpiry && Number.isFinite(expiryTime) && expiryTime <= Date.now();
+    const canReceiveTelegram = isAdmin || (isPaid && !isExpired);
+
+    if (!canReceiveTelegram) {
+      console.log(`⚠️ Telegram skipped: inactive membership for user ${userId}`);
+      return { ok: false, status: "SKIPPED", error: "membership_inactive" };
+    }
+
     const { data: userSettings, error } = await supabase
       .from("user_settings")
       .select("telegram_chat_id, telegram_username, notifications_enabled")
