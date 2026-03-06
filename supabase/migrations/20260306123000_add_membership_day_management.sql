@@ -45,9 +45,33 @@ WHERE
 SELECT public.expire_outdated_memberships();
 
 -- Keep membership status automatically in sync
-SELECT cron.unschedule('expire-memberships');
-SELECT cron.schedule(
-  'expire-memberships',
-  '0 * * * *',
-  $$SELECT public.expire_outdated_memberships();$$
-);
+DO $$
+DECLARE
+  existing_job_id BIGINT;
+BEGIN
+  BEGIN
+    SELECT jobid
+    INTO existing_job_id
+    FROM cron.job
+    WHERE jobname = 'expire-memberships'
+    ORDER BY jobid DESC
+    LIMIT 1;
+
+    IF existing_job_id IS NOT NULL THEN
+      PERFORM cron.unschedule(existing_job_id);
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
+
+  BEGIN
+    PERFORM cron.schedule(
+      'expire-memberships',
+      '0 * * * *',
+      $job$SELECT public.expire_outdated_memberships();$job$
+    );
+  EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'Skipping cron schedule for expire-memberships: %', SQLERRM;
+  END;
+END;
+$$;
