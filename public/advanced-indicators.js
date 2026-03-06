@@ -1253,6 +1253,50 @@ async function resolveBinanceServerTimeMs(marketType) {
     return Date.now();
 }
 
+async function fetchBacktestKlines(symbol, timeframe, marketType, targetBars = 4000) {
+    const MAX_BATCH_LIMIT = 1000;
+    const safeTarget = Math.max(1, Math.min(Number(targetBars) || 1000, 4000));
+    const collected = [];
+    let endTime = null;
+
+    while (collected.length < safeTarget) {
+        const remaining = safeTarget - collected.length;
+        const batchLimit = Math.max(1, Math.min(MAX_BATCH_LIMIT, remaining));
+        const endTimeQuery = Number.isFinite(endTime) ? `&endTime=${Math.floor(endTime)}` : '';
+        const klinesPath = `/klines?symbol=${symbol}&interval=${timeframe}&limit=${batchLimit}${endTimeQuery}`;
+        const response = await binanceFetchPath(marketType, klinesPath, {}, { retries: 1, timeoutMs: 12000 });
+        if (!response.ok) {
+            console.warn(`⚠️ Backtest klines fetch failed: ${symbol} ${timeframe} HTTP ${response.status}`);
+            break;
+        }
+
+        const batch = await response.json();
+        if (!Array.isArray(batch) || batch.length === 0) break;
+
+        for (let i = batch.length - 1; i >= 0; i--) {
+            collected.push(batch[i]);
+            if (collected.length >= safeTarget) break;
+        }
+
+        if (batch.length < batchLimit) break;
+        const firstOpenMs = Number(batch[0]?.[0]);
+        if (!Number.isFinite(firstOpenMs)) break;
+        endTime = firstOpenMs - 1;
+    }
+
+    const dedupMap = new Map();
+    for (const kline of collected) {
+        const openMs = Number(kline?.[0]);
+        if (Number.isFinite(openMs)) dedupMap.set(openMs, kline);
+    }
+
+    const merged = Array.from(dedupMap.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map((entry) => entry[1]);
+
+    return merged.slice(-safeTarget);
+}
+
 // 7. BACKTEST SİSTEMİ
 async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 70, takeProfitPercent = 5, stopLossPercent = 3, marketType = null, directionFilter = 'BOTH', slippageBps = null, feeBps = null) {
     const results = [];
@@ -1266,14 +1310,11 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
     const resolvedFeeBps = Number.isFinite(Number(feeBps)) ? Number(feeBps) : 0;
     const slippageBpsValue = Number.isFinite(resolvedSlippageBps) ? resolvedSlippageBps : 0;
     const feeBpsValue = Number.isFinite(resolvedFeeBps) ? resolvedFeeBps : 0;
-    const neededKlines = 1000;
+    const neededKlines = 4000;
     
     try {
-        // Son 999 kapanmış bar'ı al with retry & rate limiting
-        const klinesPath = `/klines?symbol=${symbol}&interval=${timeframe}&limit=${neededKlines}`;
-        const response = await binanceFetchPath(marketType, klinesPath, {}, { retries: 1, timeoutMs: 12000 });
-        const klines = await response.json();
-        const trimmedKlines = Array.isArray(klines) ? klines.slice(-1000) : [];
+        const klines = await fetchBacktestKlines(symbol, timeframe, marketType, neededKlines);
+        const trimmedKlines = Array.isArray(klines) ? klines.slice(-neededKlines) : [];
         const serverNowMs = await resolveBinanceServerTimeMs(marketType);
         const lastBarIndex = trimmedKlines.length - 1;
         let closedEndIndex = lastBarIndex;
