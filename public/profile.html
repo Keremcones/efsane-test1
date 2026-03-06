@@ -2711,7 +2711,9 @@
                 description.textContent = 'Tüm premium özelliklere erişiminiz bulunmaktadır';
 
                 const computedDays = Number.isInteger(remainingDays) ? remainingDays : calculateRemainingMembershipDays(expiryDate);
-                if (expiryDate && computedDays > 0) {
+                if (!expiryDate) {
+                    expiry.textContent = 'Kalan süre: Sınırsız';
+                } else if (computedDays > 0) {
                     const date = new Date(expiryDate);
                     expiry.textContent = `Kalan süre: ${computedDays} gün · Bitiş: ${date.toLocaleDateString('tr-TR')}`;
                 } else {
@@ -2723,7 +2725,9 @@
                 description.textContent = 'Dashboard, Her Durumda, Kazananlar, Telegram ve alarm erişimi (oto al-sat yok)';
 
                 const computedDays = Number.isInteger(remainingDays) ? remainingDays : calculateRemainingMembershipDays(expiryDate);
-                if (expiryDate && computedDays > 0) {
+                if (!expiryDate) {
+                    expiry.textContent = 'Kalan süre: Sınırsız';
+                } else if (computedDays > 0) {
                     const date = new Date(expiryDate);
                     expiry.textContent = `Kalan süre: ${computedDays} gün · Bitiş: ${date.toLocaleDateString('tr-TR')}`;
                 } else {
@@ -2733,7 +2737,7 @@
                 badge.innerHTML = '<i class="fa-solid fa-leaf"></i> Free';
                 badge.className = 'membership-badge standard';
                 description.textContent = 'Standart özelliklerle kripto analizi yapın';
-                expiry.textContent = '';
+                expiry.textContent = 'Kalan süre: Sınırsız';
             }
         }
 
@@ -2796,8 +2800,9 @@
                 .filter(u => {
                     const normalizedMembership = String(u.membership_type || 'standard').trim().toLowerCase();
                     const isPaid = normalizedMembership === 'plus' || normalizedMembership === 'premium';
+                    const hasExpiryDate = !!u.membership_expires_at;
                     const isExpired = calculateRemainingMembershipDays(u.membership_expires_at) <= 0;
-                    return !u.is_admin && isPaid && isExpired;
+                    return !u.is_admin && isPaid && hasExpiryDate && isExpired;
                 })
                 .map(u => u.id);
 
@@ -3008,14 +3013,18 @@
                 const maxAlarmCount = (selectedRole === 'plus' || selectedRole === 'premium')
                     ? (Number.isInteger(existingLimit) && existingLimit > 0 ? existingLimit : 3)
                     : null;
+                const isPaidRole = selectedRole === 'plus' || selectedRole === 'premium';
+                const normalizedSelectedDays = Number.isInteger(selectedDays) && selectedDays >= 1 ? selectedDays : 30;
 
-                if ((selectedRole === 'plus' || selectedRole === 'premium') && (!Number.isInteger(selectedDays) || selectedDays < 1)) {
-                    showNotification('Plus/Premium için gün sayısı zorunludur ve en az 1 olmalı', 'error');
-                    return;
+                if (isPaidRole && (!Number.isInteger(selectedDays) || selectedDays < 1)) {
+                    if (existingDaysInput) {
+                        existingDaysInput.value = String(normalizedSelectedDays);
+                    }
+                    showNotification('Gün bilgisi boştu, varsayılan 30 gün uygulandı', 'warning');
                 }
 
-                const membershipExpiresAt = (selectedRole === 'plus' || selectedRole === 'premium')
-                    ? new Date(Date.now() + (selectedDays * 24 * 60 * 60 * 1000)).toISOString()
+                const membershipExpiresAt = isPaidRole
+                    ? new Date(Date.now() + (normalizedSelectedDays * 24 * 60 * 60 * 1000)).toISOString()
                     : null;
 
                 const { error: updateError } = await supabaseClient
