@@ -3042,10 +3042,11 @@
                 } else {
                     const rawMembership = String(userProfile.membership_type || 'standard').trim().toLowerCase();
                     const isPaid = rawMembership === 'plus' || rawMembership === 'premium';
+                    const hasExpiryDate = !!userProfile.membership_expires_at;
                     const remainingDays = userProfile.membership_expires_at
                         ? Math.max(0, Math.ceil((new Date(userProfile.membership_expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
                         : 0;
-                    const isExpired = !userProfile.is_admin && isPaid && remainingDays <= 0;
+                    const isExpired = !userProfile.is_admin && isPaid && hasExpiryDate && remainingDays <= 0;
 
                     if (isExpired) {
                         await supabaseClient

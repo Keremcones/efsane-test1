@@ -1984,8 +1984,9 @@
             const isAdmin = !!profile?.is_admin;
             const rawType = String(profile?.membership_type || 'standard').trim().toLowerCase();
             const isPaid = rawType === 'plus' || rawType === 'premium';
+            const hasExpiryDate = !!profile?.membership_expires_at;
             const remainingDays = calculateRemainingMembershipDays(profile?.membership_expires_at);
-            const isExpiredPaid = !isAdmin && isPaid && remainingDays <= 0;
+            const isExpiredPaid = !isAdmin && isPaid && hasExpiryDate && remainingDays <= 0;
 
             return {
                 isAdmin,
