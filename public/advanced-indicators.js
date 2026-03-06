@@ -1297,11 +1297,18 @@ async function fetchBacktestKlines(symbol, timeframe, marketType, targetBars = 4
     return merged.slice(-safeTarget);
 }
 
+function resolveMinBacktestWindow(timeframe) {
+    const tf = String(timeframe || '').trim().toLowerCase();
+    if (tf === '1d') return 60;
+    if (tf === '4h') return 80;
+    return 100;
+}
+
 // 7. BACKTEST SİSTEMİ
 async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 70, takeProfitPercent = 5, stopLossPercent = 3, marketType = null, directionFilter = 'BOTH', slippageBps = null, feeBps = null) {
     const results = [];
     console.log(`🔍 BACKTEST BAŞLADI: ${symbol} ${timeframe} | TP:${takeProfitPercent}% SL:${stopLossPercent}%`);
-    const MIN_BACKTEST_WINDOW = 100;
+    const MIN_BACKTEST_WINDOW = resolveMinBacktestWindow(timeframe);
     
     // Timeframe'e göre gerekli kline sayısını hesapla
     const minutes = timeframeToMinutesBacktest(timeframe);
@@ -1335,7 +1342,25 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             : [];
         if (backtestKlines.length < MIN_BACKTEST_WINDOW + 1) {
             console.warn(`⚠️ Backtest için yetersiz kline: ${backtestKlines.length}`);
-            return results;
+            return {
+                totalTrades: 0,
+                wins: 0,
+                losses: 0,
+                winRate: '0.00%',
+                averageProfit: '0.00%',
+                totalProfit: '0.00%',
+                profitFactor: '0.00',
+                trades: [],
+                lastTrade: null,
+                averages: {
+                    LONG: { avgTPPercent: 5, avgSLPercent: -3 },
+                    SHORT: { avgTPPercent: -5, avgSLPercent: 3 }
+                },
+                tickSize: 0.01,
+                klines: backtestKlines,
+                insufficientData: true,
+                minRequiredBars: MIN_BACKTEST_WINDOW + 1
+            };
         }
 
         const tickSize = await getSymbolTickSize(String(symbol || '').toUpperCase(), marketType);

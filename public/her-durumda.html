@@ -1050,6 +1050,15 @@
             return `${sign}${value.toFixed(2)}%`;
         }
 
+        function parsePercentValue(value) {
+            if (typeof value === 'number') return value;
+            if (typeof value === 'string') {
+                const parsed = parseFloat(value.replace('%', ''));
+                return Number.isFinite(parsed) ? parsed : null;
+            }
+            return null;
+        }
+
         function renderStrategyTable(results) {
             const table = document.getElementById('strategyTable');
             if (!table) return;
@@ -1123,6 +1132,8 @@
             const results = [];
             let tradesCount = null;
             const backtestDays = Number(window.APP_CONFIG && window.APP_CONFIG.backtestDays) || 30;
+            const backtestSlippageBps = Number(window.APP_CONFIG && window.APP_CONFIG.backtestSlippageBps);
+            const backtestFeeBps = Number(window.APP_CONFIG && window.APP_CONFIG.backtestFeeBps);
             for (const preset of presets) {
                 try {
                     const result = await AdvancedIndicators.runBacktest(
@@ -1132,18 +1143,25 @@
                         confidenceThreshold,
                         preset.tp,
                         preset.sl,
-                        market
+                        market,
+                        'BOTH',
+                        Number.isFinite(backtestSlippageBps) ? backtestSlippageBps : null,
+                        Number.isFinite(backtestFeeBps) ? backtestFeeBps : null
                     );
-                    const filteredTrades = Array.isArray(result?.trades)
-                        ? result.trades.filter(trade => {
-                            const score = Number(trade.score);
-                            return Number.isFinite(score) ? score >= confidenceThreshold : false;
-                        })
-                        : [];
+                    const fallbackMetrics = calculateMetricsFromTrades(Array.isArray(result?.trades) ? result.trades : []);
+                    const winRate = parsePercentValue(result?.winRate);
+                    const totalProfit = parsePercentValue(result?.totalProfit);
+                    const profitFactor = Number(result?.profitFactor);
+                    const totalTrades = Number(result?.totalTrades);
 
-                    const metrics = calculateMetricsFromTrades(filteredTrades);
+                    const metrics = {
+                        totalTrades: Number.isFinite(totalTrades) ? totalTrades : fallbackMetrics.totalTrades,
+                        winRate: Number.isFinite(winRate) ? winRate : fallbackMetrics.winRate,
+                        totalProfit: Number.isFinite(totalProfit) ? totalProfit : fallbackMetrics.totalProfit,
+                        profitFactor: Number.isFinite(profitFactor) ? profitFactor : fallbackMetrics.profitFactor
+                    };
 
-                    if (result && tradesCount === null) {
+                    if (result && (preset.label === 'Özel' || tradesCount === null)) {
                         tradesCount = metrics.totalTrades;
                     }
                     results.push({
