@@ -103,6 +103,7 @@ const TELEGRAM_BOT_USERNAME = '@Cryptosentinelsignalsbot';
 | [docs/PROFIL_AYARLARI_REHBERI.md](docs/PROFIL_AYARLARI_REHBERI.md) | Profil rehberi |
 | [docs/README_SUPABASE.md](docs/README_SUPABASE.md) | Supabase kurulumu |
 | [docs/START_HERE.md](docs/START_HERE.md) | Başlangıç |
+| [docs/DASHBOARD_EDGE_PARITY_README.md](docs/DASHBOARD_EDGE_PARITY_README.md) | Dashboard-Edge parity kuralları |
 
 ---
 
