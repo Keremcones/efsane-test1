@@ -5418,6 +5418,28 @@
                         closedContainerEl.innerHTML = `<div style="text-align: center; padding: 24px; color: var(--text-secondary);">${L('signals_load_error')}</div>`;
                     } else {
                         const filteredSignals = (activeSignals || []);
+                        const signalAlarmMetaMap = new Map();
+
+                        if (filteredSignals.length > 0) {
+                            const alarmIds = Array.from(new Set(filteredSignals
+                                .map(sig => String(sig.alarm_id || '').trim())
+                                .filter(Boolean)));
+
+                            if (alarmIds.length > 0) {
+                                const { data: alarmMetaRows, error: alarmMetaError } = await supabaseClient
+                                    .from('alarms')
+                                    .select('id, auto_trade_enabled, binance_order_id')
+                                    .in('id', alarmIds);
+
+                                if (alarmMetaError) {
+                                    console.warn('⚠️ Alarm meta verisi alınamadı:', alarmMetaError);
+                                } else {
+                                    (alarmMetaRows || []).forEach(row => {
+                                        signalAlarmMetaMap.set(String(row.id), row);
+                                    });
+                                }
+                            }
+                        }
 
                         if (filteredSignals.length === 0) {
                             closedContainerEl.innerHTML = `<div style="text-align: center; padding: 24px; color: var(--text-secondary);">${L('no_signal')}</div>`;
@@ -5429,13 +5451,17 @@
                                 const entryPrice = parseFloat(sig.entry_price);
                                 const statusRaw = String(sig.status || '').toUpperCase();
                                 const isClosed = statusRaw === 'CLOSED';
-                                const storedLivePrice = localStorage.getItem(`price_${sig.symbol}`);
+                                const signalMarketType = normalizeSignalMarketType(sig.market_type || 'spot');
+                                const alarmMeta = signalAlarmMetaMap.get(String(sig.alarm_id || '')) || {};
+                                const isPremiumUser = !!currentIsAdmin || currentMembershipType === 'premium';
+                                const isPremiumAutoTradeSignal = isPremiumUser && !!alarmMeta.auto_trade_enabled;
+                                const storedLivePrice = getCachedAlarmSignalPrice(sig.symbol, signalMarketType);
                                 const livePrice = storedLivePrice ? parseFloat(storedLivePrice) : NaN;
-                                if (!isClosed && !Number.isFinite(livePrice)) {
-                                    ensureAlarmSignalPrice(sig.symbol, sig.market_type || 'spot');
+                                if (!isClosed && !isPremiumAutoTradeSignal && !Number.isFinite(livePrice)) {
+                                    ensureAlarmSignalPrice(sig.symbol, signalMarketType);
                                 }
                                 const signalCreatedAt = formatSignalCloseDateTime(sig.signal_timestamp, sig.created_at, sig.timeframe);
-                                const rawPnl = !isClosed && Number.isFinite(livePrice)
+                                const rawPnl = !isClosed && !isPremiumAutoTradeSignal && Number.isFinite(livePrice)
                                     ? (sig.direction === 'SHORT'
                                         ? ((entryPrice - livePrice) / entryPrice) * 100
                                         : ((livePrice - entryPrice) / entryPrice) * 100)
@@ -5458,6 +5484,8 @@
                                         pnlPercent = -Math.abs(Number(sig.sl_percent));
                                     }
                                 } else if (isClosed && Number.isFinite(storedPnl)) {
+                                    pnlPercent = parseFloat(storedPnl.toFixed(2));
+                                } else if (!isClosed && isPremiumAutoTradeSignal && Number.isFinite(storedPnl)) {
                                     pnlPercent = parseFloat(storedPnl.toFixed(2));
                                 } else if (!isClosed && Number.isFinite(rawPnl)) {
                                     pnlPercent = parseFloat(rawPnl.toFixed(2));
@@ -5486,7 +5514,7 @@
                                             </div>
                                             <div style="display:flex;align-items:center;gap:8px;">
                                                 <span class="price-change ${statusClass}" style="font-size:0.75rem;padding:3px 8px;">${statusText}</span>
-                                                <span class="price-change ${pnlClass}" data-alarm-signal-pnl="1" data-live="${isClosed ? '0' : '1'}" data-pnl="${pnlValueAttr}" data-symbol="${sig.symbol}" data-direction="${sig.direction}" data-entry="${sig.entry_price}" data-market="${sig.market_type || 'spot'}">${pnlText}</span>
+                                                <span class="price-change ${pnlClass}" data-alarm-signal-pnl="1" data-live="${(!isClosed && !isPremiumAutoTradeSignal) ? '1' : '0'}" data-pnl="${pnlValueAttr}" data-symbol="${sig.symbol}" data-direction="${sig.direction}" data-entry="${sig.entry_price}" data-market="${signalMarketType}">${pnlText}</span>
                                             </div>
                                         </div>
                                         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
@@ -6400,9 +6428,35 @@ Detaylar:
         const alarmSignalPriceCache = {};
         const ALARM_SIGNAL_PRICE_TTL_MS = 5000;
 
+        function normalizeSignalMarketType(marketType) {
+            return String(marketType || 'spot').toLowerCase() === 'futures' ? 'futures' : 'spot';
+        }
+
+        function getAlarmSignalStorageKey(symbol, marketType) {
+            return `price_${String(symbol || '').toUpperCase()}_${normalizeSignalMarketType(marketType)}`;
+        }
+
+        function setCachedAlarmSignalPrice(symbol, marketType, price) {
+            const normalizedSymbol = String(symbol || '').toUpperCase();
+            const normalizedMarket = normalizeSignalMarketType(marketType);
+            localStorage.setItem(getAlarmSignalStorageKey(normalizedSymbol, normalizedMarket), String(price));
+            // Backward compatibility for older reads.
+            localStorage.setItem(`price_${normalizedSymbol}`, String(price));
+        }
+
+        function getCachedAlarmSignalPrice(symbol, marketType) {
+            const normalizedSymbol = String(symbol || '').toUpperCase();
+            const normalizedMarket = normalizeSignalMarketType(marketType);
+            const byMarket = localStorage.getItem(getAlarmSignalStorageKey(normalizedSymbol, normalizedMarket));
+            if (byMarket !== null) return byMarket;
+            return localStorage.getItem(`price_${normalizedSymbol}`);
+        }
+
         async function ensureAlarmSignalPrice(symbol, marketType) {
             if (!symbol) return;
-            const cacheKey = `${symbol}:${marketType}`;
+            const normalizedSymbol = String(symbol || '').toUpperCase();
+            const normalizedMarket = normalizeSignalMarketType(marketType);
+            const cacheKey = `${normalizedSymbol}:${normalizedMarket}`;
             const cached = alarmSignalPriceCache[cacheKey];
             const now = Date.now();
             if (cached?.inflight) return;
@@ -6411,10 +6465,10 @@ Detaylar:
             alarmSignalPriceCache[cacheKey] = { inflight: true, timestamp: now };
 
             try {
-                const base = String(marketType).toLowerCase() === 'futures'
+                const base = normalizedMarket === 'futures'
                     ? BINANCE_FUTURES_API_BASE
                     : BINANCE_SPOT_API_BASE;
-                const url = `${base}/ticker/price?symbol=${symbol}`;
+                const url = `${base}/ticker/price?symbol=${normalizedSymbol}`;
                 const response = (typeof fetchWithRetry === 'function')
                     ? await fetchWithRetry(url, {}, 2, 500, 8000)
                     : await fetch(url);
@@ -6422,7 +6476,7 @@ Detaylar:
                 const data = await response.json();
                 const price = parseFloat(data?.price);
                 if (Number.isFinite(price)) {
-                    localStorage.setItem(`price_${symbol}`, String(price));
+                    setCachedAlarmSignalPrice(normalizedSymbol, normalizedMarket, price);
                     alarmSignalPriceCache[cacheKey] = { inflight: false, timestamp: now, price };
                 }
             } catch (e) {
@@ -6459,7 +6513,7 @@ Detaylar:
                     if (!symbol || !entry) return;
 
                     ensureAlarmSignalPrice(symbol, marketType);
-                    const storedLivePrice = localStorage.getItem(`price_${symbol}`);
+                    const storedLivePrice = getCachedAlarmSignalPrice(symbol, marketType);
                     const livePrice = storedLivePrice ? parseFloat(storedLivePrice) : NaN;
                     if (!Number.isFinite(livePrice) || !Number.isFinite(entry)) {
                         el.textContent = '--';

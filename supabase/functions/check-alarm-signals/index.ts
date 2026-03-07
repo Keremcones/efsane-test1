@@ -1868,21 +1868,30 @@ async function executeAutoTrade(
         symbolInfo.quantityPrecision,
         symbolInfo.tickSize
       );
-      let warningText = "";
-      if (!tpSlResult.tpOrderId && tpSlResult.tpError) {
-        warningText += ` TP oluşturulamadı: ${escapeTelegram(tpSlResult.tpError)}`;
-      }
-      if (!tpSlResult.slOrderId && tpSlResult.slError) {
-        warningText += ` SL oluşturulamadı: ${escapeTelegram(tpSlResult.slError)}`;
-      }
-      if (warningText) {
+      const missingTp = !tpSlResult.tpOrderId;
+      const missingSl = !tpSlResult.slOrderId;
+      if (missingTp || missingSl) {
+        const protectionErrors: string[] = [];
+        if (missingTp) protectionErrors.push(`TP oluşturulamadı: ${escapeTelegram(tpSlResult.tpError || "unknown")}`);
+        if (missingSl) protectionErrors.push(`SL oluşturulamadı: ${escapeTelegram(tpSlResult.slError || "unknown")}`);
+
+        let emergencyCloseNote = "";
+        try {
+          const closeSide = direction === "LONG" ? "SELL" : "BUY";
+          const closeQty = formatOrderQuantity(quantity, symbolInfo.quantityPrecision, symbolInfo.stepSize);
+          if (Number.isFinite(Number(closeQty)) && Number(closeQty) > 0) {
+            const emergencyClose = await placeFuturesMarketOrder(api_key, api_secret, symbol, closeSide, closeQty);
+            emergencyCloseNote = emergencyClose.success
+              ? " Güvenlik için pozisyon acil market emri ile kapatıldı."
+              : ` Acil kapatma denemesi başarısız: ${escapeTelegram(emergencyClose.error || "unknown")}.`;
+          }
+        } catch (e) {
+          emergencyCloseNote = ` Acil kapatma denemesi hata verdi: ${escapeTelegram(e instanceof Error ? e.message : String(e))}.`;
+        }
+
         return {
-          success: true,
-          message: `✅ ${direction} ${quantity} ${symbol} (${leverage}x) @ $${effectiveEntryPrice.toFixed(symbolInfo.pricePrecision)}\n⚠️ ${warningText.trim()}`,
-          orderId: orderResult.orderId,
-          executedEntryPrice: effectiveEntryPrice,
-          executedTakeProfit: adjustedTakeProfit,
-          executedStopLoss: adjustedStopLoss
+          success: false,
+          message: `Koruma emirleri eksik (${protectionErrors.join(" | ")}).${emergencyCloseNote}`,
         };
       }
     } else {
@@ -4470,6 +4479,32 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
     const spotBalancesCache = new Map<string, Record<string, number>>();
     const userKeysMap = new Map<string, UserBinanceKeys>();
     const userFetchCounts = new Map<string, { positionRisk: number; openOrders: number; algoOrders: number; spotOpenOrders: number; spotBalances: number }>();
+    const premiumEntitledCache = new Map<string, boolean>();
+
+    const ensurePremiumEntitled = async (userId: string): Promise<boolean> => {
+      const normalizedUserId = String(userId || "");
+      if (!normalizedUserId) return false;
+      if (premiumEntitledCache.has(normalizedUserId)) {
+        return premiumEntitledCache.get(normalizedUserId) === true;
+      }
+
+      try {
+        const { data: profile } = await supabase
+          .from("user_profiles")
+          .select("membership_type, is_admin")
+          .eq("id", normalizedUserId)
+          .maybeSingle();
+
+        const membershipType = String(profile?.membership_type || "standard").trim().toLowerCase();
+        const entitled = !!profile?.is_admin || membershipType === "premium";
+        premiumEntitledCache.set(normalizedUserId, entitled);
+        return entitled;
+      } catch (e) {
+        console.warn(`⚠️ Failed premium entitlement lookup for user ${normalizedUserId}:`, e);
+        premiumEntitledCache.set(normalizedUserId, false);
+        return false;
+      }
+    };
 
     const userIds = Array.from(new Set(signals.map(signal => String(signal?.user_id || "")).filter(Boolean)));
     const hasFuturesSignals = signals.some(signal => normalizeMarketType(signal.market_type || signal.marketType || signal.market) === "futures");
@@ -4791,6 +4826,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
         let effectiveMarketType: "spot" | "futures" = marketType;
         const alarmPayload = alarmData || { user_id: String(signal?.user_id || "") };
         const autoTradeEnabledForSignal = await resolveAutoTradeEnabled(alarmPayload, effectiveMarketType);
+        const hasRecordedBinanceOrder = Boolean(String(alarmData?.binance_order_id || "").trim());
 
         let shouldClose = false;
         let closeReason: "TP_HIT" | "SL_HIT" | "TIMEOUT" | "TP_HIT_NO_POSITION" | "SL_HIT_NO_POSITION" | "ORPHAN_ACTIVE_NO_TRADE" | "EXTERNAL_CLOSE" | "" = "";
@@ -4832,6 +4868,33 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
               shouldClose = true;
               closeReason = "SL_HIT";
               closePrice = stopLoss;
+            }
+          }
+        }
+
+        const entryPriceNum = Number(signal.entry_price);
+        if (
+          autoTradeEnabledForSignal &&
+          hasRecordedBinanceOrder &&
+          Number.isFinite(entryPriceNum) &&
+          entryPriceNum > 0 &&
+          Number.isFinite(Number(priceForClose)) &&
+          await ensurePremiumEntitled(String(signal?.user_id || ""))
+        ) {
+          const liveProfitLoss = direction === "LONG"
+            ? ((Number(priceForClose) - entryPriceNum) / entryPriceNum) * 100
+            : ((entryPriceNum - Number(priceForClose)) / entryPriceNum) * 100;
+          if (Number.isFinite(liveProfitLoss)) {
+            const prevLiveProfit = Number(signal.profit_loss);
+            if (!Number.isFinite(prevLiveProfit) || Math.abs(prevLiveProfit - liveProfitLoss) >= 0.01) {
+              const pnlUpdate = await supabase
+                .from("active_signals")
+                .update({ profit_loss: liveProfitLoss })
+                .eq("id", signal.id)
+                .in("status", ACTIVE_SIGNAL_STATUSES);
+              if (pnlUpdate.error) {
+                console.warn(`⚠️ Failed to update live premium pnl for signal ${signal.id}:`, pnlUpdate.error);
+              }
             }
           }
         }
@@ -5062,7 +5125,6 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
         if (!shouldClose || !closeReason) continue;
 
         const hasActiveTrade = activeTradeSet.has(`${String(signal?.user_id || "")}:${String(symbol).toUpperCase()}`);
-        const hasRecordedBinanceOrder = Boolean(String(alarmData?.binance_order_id || "").trim());
         const tpHit = closeReason === "TP_HIT";
         const slHit = closeReason === "SL_HIT";
         if (autoTradeEnabledForSignal && (tpHit || slHit) && !hasActiveTrade && !hasRecordedBinanceOrder && ageSeconds > 300) {
