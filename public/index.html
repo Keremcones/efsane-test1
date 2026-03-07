@@ -5455,18 +5455,19 @@
                                 const alarmMeta = signalAlarmMetaMap.get(String(sig.alarm_id || '')) || {};
                                 const isPremiumUser = !!currentIsAdmin || currentMembershipType === 'premium';
                                 const isPremiumAutoTradeSignal = isPremiumUser && !!alarmMeta.auto_trade_enabled;
+                                const storedPnl = parseFloat(sig.profit_loss);
+                                const needsPremiumLiveFallback = isPremiumAutoTradeSignal && !Number.isFinite(storedPnl);
                                 const storedLivePrice = getCachedAlarmSignalPrice(sig.symbol, signalMarketType);
                                 const livePrice = storedLivePrice ? parseFloat(storedLivePrice) : NaN;
-                                if (!isClosed && !isPremiumAutoTradeSignal && !Number.isFinite(livePrice)) {
+                                if (!isClosed && (!isPremiumAutoTradeSignal || needsPremiumLiveFallback) && !Number.isFinite(livePrice)) {
                                     ensureAlarmSignalPrice(sig.symbol, signalMarketType);
                                 }
                                 const signalCreatedAt = formatSignalCloseDateTime(sig.signal_timestamp, sig.created_at, sig.timeframe);
-                                const rawPnl = !isClosed && !isPremiumAutoTradeSignal && Number.isFinite(livePrice)
+                                const rawPnl = !isClosed && Number.isFinite(livePrice)
                                     ? (sig.direction === 'SHORT'
                                         ? ((entryPrice - livePrice) / entryPrice) * 100
                                         : ((livePrice - entryPrice) / entryPrice) * 100)
                                     : NaN;
-                                const storedPnl = parseFloat(sig.profit_loss);
                                 const closeReason = String(sig.close_reason || '').toUpperCase();
                                 let pnlPercent = null;
                                 if (isClosed && closeReason === 'NOT_FILLED') {
@@ -5514,7 +5515,7 @@
                                             </div>
                                             <div style="display:flex;align-items:center;gap:8px;">
                                                 <span class="price-change ${statusClass}" style="font-size:0.75rem;padding:3px 8px;">${statusText}</span>
-                                                <span class="price-change ${pnlClass}" data-alarm-signal-pnl="1" data-live="${(!isClosed && !isPremiumAutoTradeSignal) ? '1' : '0'}" data-pnl="${pnlValueAttr}" data-symbol="${sig.symbol}" data-direction="${sig.direction}" data-entry="${sig.entry_price}" data-market="${signalMarketType}">${pnlText}</span>
+                                                <span class="price-change ${pnlClass}" data-alarm-signal-pnl="1" data-live="${(!isClosed && (!isPremiumAutoTradeSignal || needsPremiumLiveFallback)) ? '1' : '0'}" data-pnl="${pnlValueAttr}" data-symbol="${sig.symbol}" data-direction="${sig.direction}" data-entry="${sig.entry_price}" data-market="${signalMarketType}">${pnlText}</span>
                                             </div>
                                         </div>
                                         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">

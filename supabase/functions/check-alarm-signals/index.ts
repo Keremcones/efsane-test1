@@ -4875,7 +4875,6 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
         const entryPriceNum = Number(signal.entry_price);
         if (
           autoTradeEnabledForSignal &&
-          hasRecordedBinanceOrder &&
           Number.isFinite(entryPriceNum) &&
           entryPriceNum > 0 &&
           Number.isFinite(Number(priceForClose)) &&
