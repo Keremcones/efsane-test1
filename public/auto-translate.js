@@ -126,7 +126,7 @@ window.autoTranslate = {
         'Piyasa koşulları uygun olana kadar bekleyin.': { en: 'Wait until market conditions are suitable.', de: 'Warte, bis die Marktbedingungen geeignet sind.' },
         'Güven skoru >= 40 gerekli.': { en: 'Confidence score >= 40 required.', de: 'Vertrauensscore >= 40 erforderlich.' },
         'Fiyat Grafiği': { en: 'Price Chart', de: 'Preisdiagramm' },
-        'Alarm kurmak için Premium gerekli': { en: 'Premium is required to create an alarm', de: 'Premium ist erforderlich, um einen Alarm zu erstellen' },
+        'Alarm kurmak için Plus veya Premium gerekli': { en: 'Plus or Premium is required to create an alarm', de: 'Plus oder Premium ist erforderlich, um einen Alarm zu erstellen' },
         'Lütfen önce bir coin seçin ve analiz yapılmasını bekleyin': { en: 'Please select a coin first and wait for analysis to complete', de: 'Bitte wähle zuerst einen Coin und warte, bis die Analyse abgeschlossen ist' },
         'Stop Loss 0.1 - 99 araliginda olmali': { en: 'Stop Loss must be between 0.1 and 99', de: 'Stop Loss muss zwischen 0.1 und 99 liegen' },
         'Alarm kuruldu! Otomatik trade aktif.': { en: 'Alarm created! Auto trade is active.', de: 'Alarm erstellt! Auto-Trade ist aktiv.' },

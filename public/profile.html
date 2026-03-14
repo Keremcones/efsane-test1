@@ -3166,8 +3166,8 @@
             const futuresEnabled = document.getElementById('futuresEnabledToggle')?.checked;
             const spotEnabled = document.getElementById('spotEnabledToggle')?.checked;
             const futuresLeverage = Number(document.getElementById('futuresLeverage')?.value || 10);
-            const futuresPositionSize = Number(document.getElementById('futuresPositionSize')?.value || 20);
-            const spotPositionSize = Number(document.getElementById('spotPositionSize')?.value || 20);
+            const futuresPositionSizeUsd = Number(document.getElementById('futuresPositionSize')?.value || 20);
+            const spotPositionSizeUsd = Number(document.getElementById('spotPositionSize')?.value || 20);
 
             if (autoTradeEnabled) {
                 if (!apiKey || apiKey.length < 20) {
@@ -3188,9 +3188,11 @@
                     auto_trade_enabled: !!autoTradeEnabled,
                     futures_enabled: !!futuresEnabled,
                     futures_leverage: futuresLeverage,
-                    futures_position_size_percent: futuresPositionSize,
+                    // Legacy DB field name; stored value is fixed USDT amount.
+                    futures_position_size_percent: futuresPositionSizeUsd,
                     spot_enabled: !!spotEnabled,
-                    spot_position_size_percent: spotPositionSize,
+                    // Legacy DB field name; stored value is fixed USDT amount.
+                    spot_position_size_percent: spotPositionSizeUsd,
                     updated_at: new Date().toISOString()
                 };
 

@@ -5693,7 +5693,7 @@
         async function createAlarmFromAnalysis() {
             const canCreateAlarm = currentIsAdmin || currentMembershipType === 'premium' || currentMembershipType === 'plus';
             if (!canCreateAlarm) {
-                showUpdateToast('Alarm kurmak için Premium gerekli', 'warning');
+                showUpdateToast('Alarm kurmak için Plus veya Premium gerekli', 'warning');
                 return;
             }
             if (!currentAnalysis) {
@@ -5702,19 +5702,22 @@
             }
 
             let autoTradeEnabled = false;
+            const premiumEntitledForAutoTrade = currentIsAdmin || currentMembershipType === 'premium';
             try {
-                const { data: binanceSettings } = await supabaseClient
-                    .from('user_binance_keys')
-                    .select('auto_trade_enabled, futures_enabled, spot_enabled')
-                    .eq('user_id', currentUser.id)
-                    .maybeSingle();
+                if (premiumEntitledForAutoTrade) {
+                    const { data: binanceSettings } = await supabaseClient
+                        .from('user_binance_keys')
+                        .select('auto_trade_enabled, futures_enabled, spot_enabled')
+                        .eq('user_id', currentUser.id)
+                        .maybeSingle();
 
-                if (binanceSettings?.auto_trade_enabled) {
-                    if (CURRENT_MARKET_TYPE === 'futures' && binanceSettings?.futures_enabled) {
-                        autoTradeEnabled = true;
-                    }
-                    if (CURRENT_MARKET_TYPE === 'spot' && binanceSettings?.spot_enabled) {
-                        autoTradeEnabled = true;
+                    if (binanceSettings?.auto_trade_enabled) {
+                        if (CURRENT_MARKET_TYPE === 'futures' && binanceSettings?.futures_enabled) {
+                            autoTradeEnabled = true;
+                        }
+                        if (CURRENT_MARKET_TYPE === 'spot' && binanceSettings?.spot_enabled) {
+                            autoTradeEnabled = true;
+                        }
                     }
                 }
             } catch (e) {
@@ -5756,19 +5759,22 @@
             if (!noteEl || !currentUser || !supabaseClient) return;
 
             let autoTradeEnabled = false;
+            const premiumEntitledForAutoTrade = currentIsAdmin || currentMembershipType === 'premium';
             try {
-                const { data: binanceSettings } = await supabaseClient
-                    .from('user_binance_keys')
-                    .select('auto_trade_enabled, futures_enabled, spot_enabled')
-                    .eq('user_id', currentUser.id)
-                    .maybeSingle();
+                if (premiumEntitledForAutoTrade) {
+                    const { data: binanceSettings } = await supabaseClient
+                        .from('user_binance_keys')
+                        .select('auto_trade_enabled, futures_enabled, spot_enabled')
+                        .eq('user_id', currentUser.id)
+                        .maybeSingle();
 
-                if (binanceSettings?.auto_trade_enabled) {
-                    if (CURRENT_MARKET_TYPE === 'futures' && binanceSettings?.futures_enabled) {
-                        autoTradeEnabled = true;
-                    }
-                    if (CURRENT_MARKET_TYPE === 'spot' && binanceSettings?.spot_enabled) {
-                        autoTradeEnabled = true;
+                    if (binanceSettings?.auto_trade_enabled) {
+                        if (CURRENT_MARKET_TYPE === 'futures' && binanceSettings?.futures_enabled) {
+                            autoTradeEnabled = true;
+                        }
+                        if (CURRENT_MARKET_TYPE === 'spot' && binanceSettings?.spot_enabled) {
+                            autoTradeEnabled = true;
+                        }
                     }
                 }
             } catch (e) {

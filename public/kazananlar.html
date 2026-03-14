@@ -1020,6 +1020,8 @@
 
         let supabaseClient = null;
         let currentUser = null;
+        let currentMembershipType = 'standard';
+        let currentIsAdmin = false;
         let currentTimeframe = localStorage.getItem('winnersTimeframe') || '1h';
         let currentMarket = getMarketType() || 'spot';
         let updateToken = 0;
@@ -1229,6 +1231,7 @@
                 const backtestDays = Number(window.APP_CONFIG && window.APP_CONFIG.backtestDays) || 30;
                 const backtestSlippageBps = Number(window.APP_CONFIG && window.APP_CONFIG.backtestSlippageBps);
                 const backtestFeeBps = Number(window.APP_CONFIG && window.APP_CONFIG.backtestFeeBps);
+                const directionFilter = currentMarket === 'spot' ? 'LONG' : 'BOTH';
                 const backtest = await AdvancedIndicators.runBacktest(
                     symbol,
                     timeframe,
@@ -1237,7 +1240,7 @@
                     tp,
                     sl,
                     currentMarket,
-                    'BOTH',
+                    directionFilter,
                     Number.isFinite(backtestSlippageBps) ? backtestSlippageBps : null,
                     Number.isFinite(backtestFeeBps) ? backtestFeeBps : null
                 );
@@ -1502,11 +1505,15 @@
                     }
 
                     const effectiveMembership = isExpired ? 'standard' : rawMembership;
+                    currentMembershipType = effectiveMembership;
+                    currentIsAdmin = !!userProfile.is_admin;
                     updateUserRoleBadge(effectiveMembership, !!userProfile.is_admin);
                     const isPremium = ['premium', 'plus'].includes(effectiveMembership) || !!userProfile.is_admin;
                     return { isPremium };
                 }
             } catch {
+                currentMembershipType = 'standard';
+                currentIsAdmin = false;
                 updateUserRoleBadge('standard', false);
                 return { isPremium: false };
             }

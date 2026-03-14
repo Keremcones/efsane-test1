@@ -1624,6 +1624,7 @@ type UserBinanceKeys = {
 };
 
 const userBinanceCache: Record<string, UserBinanceKeys | null> = {};
+const premiumEntitlementCache: Record<string, boolean> = {};
 
 async function fetchUserBinanceKeys(userId: string): Promise<UserBinanceKeys | null> {
   const { data, error } = await supabase
@@ -1647,8 +1648,34 @@ async function getUserBinanceSettings(userId: string): Promise<UserBinanceKeys |
   return settings;
 }
 
+async function isPremiumEntitledForAutoTrade(userId: string): Promise<boolean> {
+  const normalizedUserId = String(userId || "").trim();
+  if (!normalizedUserId) return false;
+  if (premiumEntitlementCache[normalizedUserId] !== undefined) {
+    return premiumEntitlementCache[normalizedUserId] === true;
+  }
+
+  try {
+    const { data: profile } = await supabase
+      .from("user_profiles")
+      .select("membership_type, is_admin")
+      .eq("id", normalizedUserId)
+      .maybeSingle();
+
+    const membershipType = String(profile?.membership_type || "standard").trim().toLowerCase();
+    const entitled = !!profile?.is_admin || membershipType === "premium";
+    premiumEntitlementCache[normalizedUserId] = entitled;
+    return entitled;
+  } catch {
+    premiumEntitlementCache[normalizedUserId] = false;
+    return false;
+  }
+}
+
 async function resolveAutoTradeEnabled(alarm: any, marketType: "spot" | "futures"): Promise<boolean> {
   if (alarm?.auto_trade_enabled === false) return false;
+  const userId = String(alarm?.user_id || "");
+  if (!(await isPremiumEntitledForAutoTrade(userId))) return false;
   const userKeys = await getUserBinanceSettings(String(alarm?.user_id || ""));
   if (!userKeys?.auto_trade_enabled) return false;
   const marketEnabled = marketType === "futures"
@@ -1752,6 +1779,7 @@ async function executeAutoTrade(
       return { success: false, message: "Insufficient balance" };
     }
 
+    // Stored size fields are interpreted as fixed USDT amount for live auto-trade.
     const tradeAmount = positionSizeUsd;
     if (!Number.isFinite(tradeAmount) || tradeAmount <= 0) {
       return { success: false, message: "Invalid position size" };
