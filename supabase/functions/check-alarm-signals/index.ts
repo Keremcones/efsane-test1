@@ -1674,7 +1674,7 @@ async function executeAutoTrade(
   takeProfit: number,
   stopLoss: number,
   marketType: "spot" | "futures"
-): Promise<{ success: boolean; message: string; orderId?: string; blockedByOpenPosition?: boolean; retryable?: boolean; executedEntryPrice?: number; executedTakeProfit?: number; executedStopLoss?: number }> {
+): Promise<{ success: boolean; message: string; orderId?: string; blockedByOpenPosition?: boolean; retryable?: boolean; openedPositionUnprotected?: boolean; executedEntryPrice?: number; executedTakeProfit?: number; executedStopLoss?: number }> {
   try {
     const { data: userProfile } = await supabase
       .from("user_profiles")
@@ -1891,6 +1891,11 @@ async function executeAutoTrade(
 
         return {
           success: false,
+          openedPositionUnprotected: true,
+          orderId: orderResult.orderId,
+          executedEntryPrice: effectiveEntryPrice,
+          executedTakeProfit: adjustedTakeProfit,
+          executedStopLoss: adjustedStopLoss,
           message: `Koruma emirleri eksik (${protectionErrors.join(" | ")}).${emergencyCloseNote}`,
         };
       }
@@ -1936,6 +1941,48 @@ async function executeAutoTrade(
     }
     console.error(`❌ Auto-trade error for ${userId}:`, e);
     return { success: false, message: errText || "Unknown error" };
+  }
+}
+
+async function shouldKeepSignalActiveAfterOpenFailure(
+  userId: string,
+  symbol: string,
+  marketType: "spot" | "futures"
+): Promise<{ keepActive: boolean; reason: string }> {
+  try {
+    const userKeys = await getUserBinanceSettings(userId);
+    if (!userKeys?.api_key || !userKeys?.api_secret) {
+      return { keepActive: true, reason: "verification_keys_missing" };
+    }
+
+    if (marketType === "futures") {
+      const [hasPosition, hasOrders] = await Promise.all([
+        hasOpenFuturesPosition(userKeys.api_key, userKeys.api_secret, symbol),
+        hasOpenFuturesOrders(userKeys.api_key, userKeys.api_secret, symbol),
+      ]);
+
+      if (hasPosition || hasOrders) {
+        return { keepActive: true, reason: `futures_exposure_detected(position=${hasPosition},orders=${hasOrders})` };
+      }
+
+      return { keepActive: false, reason: "futures_no_exposure_detected" };
+    }
+
+    const [hasOrders, hasBalance] = await Promise.all([
+      hasOpenSpotOrders(userKeys.api_key, userKeys.api_secret, symbol),
+      isSpotPositionOpen(userKeys.api_key, userKeys.api_secret, symbol),
+    ]);
+
+    if (hasOrders || hasBalance) {
+      return { keepActive: true, reason: `spot_exposure_detected(orders=${hasOrders},balance=${hasBalance})` };
+    }
+
+    return { keepActive: false, reason: "spot_no_exposure_detected" };
+  } catch (e) {
+    return {
+      keepActive: true,
+      reason: `verification_error:${e instanceof Error ? e.message : String(e)}`,
+    };
   }
 }
 
@@ -4015,6 +4062,7 @@ async function checkAndTriggerUserAlarms(
           orderId?: string;
           blockedByOpenPosition?: boolean;
           retryable?: boolean;
+          openedPositionUnprotected?: boolean;
           executedEntryPrice?: number;
           executedTakeProfit?: number;
           executedStopLoss?: number;
@@ -4080,15 +4128,27 @@ async function checkAndTriggerUserAlarms(
               skipOpenTelegramReason = "transient_open_position_check_failure_retry_later";
               tradeNotificationText = "";
             } else {
+              if (tradeResult.openedPositionUnprotected && tradeResult.orderId) {
+                try {
+                  await supabase
+                    .from("alarms")
+                    .update({ binance_order_id: tradeResult.orderId })
+                    .eq("id", alarm.id);
+                } catch (e) {
+                  console.warn(`⚠️ Failed to persist binance_order_id after unprotected open for ${symbol}:`, e);
+                }
+              }
               tradeNotificationText = `\n\n⚠️ <b>Otomatik işlem başarısız:</b>\n${escapeHtml(tradeResult.message)}`;
             }
-            try {
-              await supabase
-                .from("alarms")
-                .update({ binance_order_id: null })
-                .eq("id", alarm.id);
-            } catch (e) {
-              console.warn(`⚠️ Failed to clear stale binance_order_id after auto-trade failure for ${symbol}:`, e);
+            if (!tradeResult.openedPositionUnprotected) {
+              try {
+                await supabase
+                  .from("alarms")
+                  .update({ binance_order_id: null })
+                  .eq("id", alarm.id);
+              } catch (e) {
+                console.warn(`⚠️ Failed to clear stale binance_order_id after auto-trade failure for ${symbol}:`, e);
+              }
             }
           }
         }
@@ -4101,9 +4161,24 @@ async function checkAndTriggerUserAlarms(
           }
         }
 
-        const autoTradeOpenFailed = autoTradeAttempted && !tradeResult.success && !tradeResult.retryable;
+        const autoTradeOpenFailed = autoTradeAttempted
+          && !tradeResult.success
+          && !tradeResult.retryable
+          && !tradeResult.openedPositionUnprotected;
         if (autoTradeOpenFailed && insertedSignalId) {
           try {
+            const keepActiveCheck = await shouldKeepSignalActiveAfterOpenFailure(
+              alarm.user_id,
+              symbol,
+              alarmMarketType
+            );
+
+            if (keepActiveCheck.keepActive) {
+              console.warn(`⚠️ Keeping signal ACTIVE after open failure for ${symbol}: ${keepActiveCheck.reason}`);
+              if (!tradeNotificationText) {
+                tradeNotificationText = `\n\n⚠️ <b>Pozisyon doğrulaması tamamlanamadı:</b>\nSinyal aktif bırakıldı. Binance işlemlerini manuel kontrol edin.`;
+              }
+            } else {
             const closeResult = await supabase
               .from("active_signals")
               .update({
@@ -4118,6 +4193,7 @@ async function checkAndTriggerUserAlarms(
 
             if (closeResult.error) {
               console.warn(`⚠️ Failed to close signal after auto-trade open failure for ${symbol}:`, closeResult.error);
+            }
             }
           } catch (e) {
             console.warn(`⚠️ Failed to close signal after auto-trade open failure for ${symbol}:`, e);
