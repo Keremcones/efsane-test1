@@ -2922,6 +2922,34 @@ function generateSignalScore(indicators: TechnicalIndicators, userConfidenceThre
 // =====================
 type TelegramSendResult = { ok: boolean; status: "SENT" | "FAILED" | "SKIPPED"; error?: string };
 
+const TELEGRAM_BLOCK_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+function isTelegramBlockedByUser(status: number, bodyText: string): boolean {
+  if (status !== 403) return false;
+  const normalized = String(bodyText || "").toLowerCase();
+  return normalized.includes("bot was blocked by the user")
+    || normalized.includes("forbidden: bot was blocked by the user");
+}
+
+async function setTelegramBlockedCooldown(userId: string, reason: string): Promise<void> {
+  try {
+    const blockedUntil = new Date(Date.now() + TELEGRAM_BLOCK_COOLDOWN_MS).toISOString();
+    const { error } = await supabase
+      .from("user_settings")
+      .update({
+        telegram_blocked_until: blockedUntil,
+        telegram_blocked_reason: reason,
+      })
+      .eq("user_id", userId);
+
+    if (error) {
+      console.warn(`⚠️ Failed to set Telegram blocked cooldown for user ${userId}:`, error);
+    }
+  } catch (e) {
+    console.warn(`⚠️ Telegram blocked cooldown update error for user ${userId}:`, e);
+  }
+}
+
 async function sendTelegramNotification(userId: string, message: string): Promise<TelegramSendResult> {
   try {
     const { data: userProfile, error: profileError } = await supabase
@@ -2951,7 +2979,7 @@ async function sendTelegramNotification(userId: string, message: string): Promis
 
     const { data: userSettings, error } = await supabase
       .from("user_settings")
-      .select("telegram_chat_id, telegram_username, notifications_enabled")
+      .select("telegram_chat_id, telegram_username, notifications_enabled, telegram_blocked_until")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -2962,6 +2990,12 @@ async function sendTelegramNotification(userId: string, message: string): Promis
     if (userSettings?.notifications_enabled === false) {
       console.log(`⚠️ Notifications disabled for user ${userId}`);
       return { ok: false, status: "SKIPPED", error: "notifications_disabled" };
+    }
+
+    const blockedUntilMs = Date.parse(String(userSettings?.telegram_blocked_until || ""));
+    if (Number.isFinite(blockedUntilMs) && blockedUntilMs > Date.now()) {
+      console.log(`⏭️ Telegram skipped: blocked-by-user cooldown active for user ${userId}`);
+      return { ok: false, status: "SKIPPED", error: "blocked_by_user_cooldown" };
     }
 
     const chatId = userSettings?.telegram_chat_id || userSettings?.telegram_username;
@@ -2987,6 +3021,12 @@ async function sendTelegramNotification(userId: string, message: string): Promis
     if (!resp.ok) {
       const errorText = await resp.text();
       console.error("❌ Telegram send failed:", resp.status, errorText);
+
+      if (isTelegramBlockedByUser(resp.status, errorText)) {
+        await setTelegramBlockedCooldown(userId, "bot_blocked_by_user");
+        return { ok: false, status: "SKIPPED", error: "blocked_by_user" };
+      }
+
       const retryResp = await fetch(botUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2995,6 +3035,10 @@ async function sendTelegramNotification(userId: string, message: string): Promis
       if (!retryResp.ok) {
         const retryText = await retryResp.text();
         console.error("❌ Telegram retry failed:", retryResp.status, retryText);
+        if (isTelegramBlockedByUser(retryResp.status, retryText)) {
+          await setTelegramBlockedCooldown(userId, "bot_blocked_by_user");
+          return { ok: false, status: "SKIPPED", error: "blocked_by_user" };
+        }
         return { ok: false, status: "FAILED", error: `send_failed:${resp.status}` };
       }
     }
@@ -3141,7 +3185,12 @@ async function retryFailedOpenTelegrams(): Promise<void> {
       continue;
     }
     const errorText = String(signal?.telegram_error || "");
-    if (errorText.includes("missing_chat_id") || errorText.includes("notifications_disabled")) {
+    if (
+      errorText.includes("missing_chat_id")
+      || errorText.includes("notifications_disabled")
+      || errorText.includes("blocked_by_user")
+      || errorText.includes("blocked_by_user_cooldown")
+    ) {
       continue;
     }
     const message = await buildActiveSignalOpenMessage(signal);
@@ -3243,7 +3292,12 @@ async function retryFailedCloseTelegrams(): Promise<void> {
       continue;
     }
     const errorText = String(signal?.telegram_close_error || "");
-    if (errorText.includes("missing_chat_id") || errorText.includes("notifications_disabled")) {
+    if (
+      errorText.includes("missing_chat_id")
+      || errorText.includes("notifications_disabled")
+      || errorText.includes("blocked_by_user")
+      || errorText.includes("blocked_by_user_cooldown")
+    ) {
       continue;
     }
 
