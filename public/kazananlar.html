@@ -889,6 +889,10 @@
                     <i class="fa-brands fa-bitcoin"></i>
                     Binance Bağlantısı
                 </a>
+                <a href="signal-test.html" class="menu-item" id="signalTestMenuItem" style="display:none;" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-vial"></i>
+                    Signal Test
+                </a>
                 <button class="menu-item logout-item" onclick="window.logout()">
                     <i class="fa-solid fa-right-from-bracket"></i>
                     Çıkış Yap
@@ -1476,6 +1480,7 @@
 
                 if (!userProfile) {
                     updateUserRoleBadge('standard', false);
+                    toggleAdminSignalTestMenu(false);
                     return { isPremium: false };
                 } else {
                     const rawMembership = String(userProfile.membership_type || 'standard').trim().toLowerCase();
@@ -1508,6 +1513,7 @@
                     currentMembershipType = effectiveMembership;
                     currentIsAdmin = !!userProfile.is_admin;
                     updateUserRoleBadge(effectiveMembership, !!userProfile.is_admin);
+                    toggleAdminSignalTestMenu(currentIsAdmin);
                     const isPremium = ['premium', 'plus'].includes(effectiveMembership) || !!userProfile.is_admin;
                     return { isPremium };
                 }
@@ -1515,8 +1521,15 @@
                 currentMembershipType = 'standard';
                 currentIsAdmin = false;
                 updateUserRoleBadge('standard', false);
+                toggleAdminSignalTestMenu(false);
                 return { isPremium: false };
             }
+        }
+
+        function toggleAdminSignalTestMenu(isAdmin) {
+            const item = document.getElementById('signalTestMenuItem');
+            if (!item) return;
+            item.style.display = isAdmin ? 'flex' : 'none';
         }
 
         window.toggleHamburgerMenu = function() {

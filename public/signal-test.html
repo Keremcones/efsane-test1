@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-title" content="Rolin Signal">
+    <title>Rolin Signal • Signal Test</title>
+    <meta name="description" content="Admin Signal Test ekranı: iki panelde strateji parametrelerini değiştirerek backtest sonuçlarını karşılaştırın.">
+    <link rel="canonical" href="https://www.rolinsignal.com/signal-test.html" />
+    <script>
+        if (localStorage.getItem('DEBUG_CONSOLE') !== 'true') {
+            console.log = () => {};
+            console.info = () => {};
+            console.warn = () => {};
+            console.debug = () => {};
+        }
+    </script>
+    <link rel="icon" type="image/svg+xml" href="/logo.svg">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="/api/env.js"></script>
+    <script src="config.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg-primary: #0b0f14;
+            --bg-secondary: #0f1621;
+            --bg-card: #141c2a;
+            --accent: #38e8ff;
+            --accent-blue: #8b5cf6;
+            --accent-red: #ff4d6d;
+            --text-primary: #ffffff;
+            --text-secondary: #9aa4b2;
+            --border: #263044;
+            --border-color: rgba(56, 232, 255, 0.28);
+        }
+
+        body {
+            font-family: 'Sora', sans-serif;
+            background: radial-gradient(circle at 12% 18%, rgba(58, 123, 213, 0.16), transparent 46%),
+                        radial-gradient(circle at 88% 12%, rgba(79, 70, 229, 0.14), transparent 42%),
+                        linear-gradient(155deg, var(--bg-primary), var(--bg-secondary));
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        .navbar {
+            background: rgba(11, 15, 20, 0.78);
+            border-bottom: 1px solid rgba(56, 232, 255, 0.12);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(14px);
+            box-shadow: 0 8px 24px rgba(5, 12, 24, 0.45);
+            min-height: 72px;
+        }
+
+        .logo { display: flex; align-items: center; gap: 10px; }
+        .logo-img { width: 32px; height: 32px; flex: 0 0 32px; }
+        .logo-text {
+            font-size: 1.35rem;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .user-menu { display: flex; gap: 16px; align-items: center; }
+        .user-email { color: var(--text-secondary); font-size: 0.9rem; }
+        .user-role-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            background: linear-gradient(135deg, #f5d06f, #ffd86b);
+            color: #0a0a0a;
+            letter-spacing: 0.4px;
+            box-shadow: 0 0 18px rgba(245, 208, 111, 0.45);
+        }
+
+        .hamburger-menu {
+            display: flex;
+            flex-direction: column;
+            background: rgba(13, 168, 232, 0.1);
+            border: 1px solid rgba(13, 168, 232, 0.3);
+            cursor: pointer;
+            padding: 8px;
+            gap: 5px;
+            width: 44px;
+            height: 44px;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+        }
+
+        .hamburger-menu span {
+            width: 26px;
+            height: 3px;
+            background: #0da8e8;
+            border-radius: 2px;
+            display: block;
+        }
+
+        .menu-panel {
+            position: fixed;
+            right: -350px;
+            top: 0;
+            width: 350px;
+            height: 100vh;
+            background: rgba(15, 18, 28, 0.96);
+            border-left: 1px solid rgba(56, 232, 255, 0.18);
+            z-index: 998;
+            transition: right 0.3s ease;
+            overflow-y: auto;
+            backdrop-filter: blur(8px);
+        }
+
+        .menu-panel.active { right: 0; }
+        .menu-close {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: none;
+            border: none;
+            color: var(--accent);
+            font-size: 32px;
+            cursor: pointer;
+            width: 40px;
+            height: 40px;
+        }
+
+        .menu-content { padding: 80px 24px 24px; }
+        .menu-user-info { margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--border-color); }
+        .menu-user-email { color: var(--accent); font-size: 14px; font-weight: 600; word-break: break-all; }
+        .menu-nav { display: flex; flex-direction: column; gap: 8px; }
+
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 14px 16px;
+            background: rgba(13, 168, 232, 0.1);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: left;
+            text-decoration: none;
+        }
+
+        .menu-item.logout-item {
+            color: #f44336;
+            background: rgba(244, 67, 54, 0.1);
+            border-color: rgba(244, 67, 54, 0.3);
+        }
+
+        .container {
+            max-width: 1500px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .header {
+            margin-bottom: 18px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 8px;
+        }
+
+        .card {
+            background: linear-gradient(160deg, rgba(20, 28, 42, 0.92), rgba(12, 16, 24, 0.85));
+            border: 1px solid rgba(56, 232, 255, 0.12);
+            box-shadow: 0 18px 35px rgba(0, 0, 0, 0.25);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .global-grid {
+            display: grid;
+            grid-template-columns: 1.2fr 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .field-label {
+            display: block;
+            margin-bottom: 6px;
+            color: var(--text-secondary);
+            font-size: 0.84rem;
+            font-weight: 600;
+        }
+
+        input[type="text"], input[type="number"], select {
+            width: 100%;
+            padding: 10px 12px;
+            background: rgba(11, 15, 20, 0.9);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            border-radius: 8px;
+            font-weight: 600;
+        }
+
+        .btn {
+            border: 1px solid var(--border-color);
+            background: rgba(56, 232, 255, 0.12);
+            color: var(--text-primary);
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .btn.primary {
+            background: linear-gradient(135deg, rgba(56, 232, 255, 0.3), rgba(139, 92, 246, 0.3));
+        }
+
+        .market-toggle, .timeframe-group {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .toggle-btn {
+            padding: 10px 14px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: rgba(11, 15, 20, 0.9);
+            color: var(--text-primary);
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .toggle-btn.active {
+            border-color: var(--accent);
+            background: linear-gradient(135deg, rgba(56, 232, 255, 0.2), rgba(139, 92, 246, 0.2));
+        }
+
+        .panel-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-top: 14px;
+        }
+
+        .panel-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .param-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .result-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .strategy-config-box {
+            margin-top: 10px;
+        }
+
+        .strategy-config-box textarea {
+            width: 100%;
+            min-height: 220px;
+            resize: vertical;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: rgba(11, 15, 20, 0.88);
+            color: var(--text-primary);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .metric {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px;
+            background: rgba(11, 15, 20, 0.7);
+        }
+
+        .metric-label { color: var(--text-secondary); font-size: 0.78rem; }
+        .metric-value { font-size: 1rem; font-weight: 800; margin-top: 4px; }
+
+        .trade-list {
+            margin-top: 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+
+        .trade-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 8px;
+            padding: 8px 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            font-size: 0.82rem;
+        }
+
+        .positive { color: #00dd88; }
+        .negative { color: var(--accent-red); }
+
+        .compare-card {
+            margin-top: 14px;
+        }
+
+        .compare-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .hidden { display: none !important; }
+
+        @media (max-width: 1024px) {
+            .global-grid { grid-template-columns: 1fr; }
+            .panel-grid { grid-template-columns: 1fr; }
+            .param-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .compare-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="logo">
+            <img src="logo.svg" alt="Rolin Signal" class="logo-img" />
+            <span class="logo-text">Rolin Signal</span>
+        </div>
+        <div class="user-menu">
+            <span class="user-email" id="userEmail">Yükleniyor...</span>
+            <span class="user-role-badge" id="userRoleBadge" style="display:none;"></span>
+            <button class="hamburger-menu" id="hamburgerBtn" onclick="window.toggleHamburgerMenu()" title="Menü">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+        </div>
+    </nav>
+
+    <div class="menu-panel" id="menuPanel">
+        <button class="menu-close" onclick="closeHamburgerMenu()">×</button>
+        <div class="menu-content">
+            <div class="menu-user-info">
+                <div class="menu-user-email" id="menuUserEmail">Yükleniyor...</div>
+            </div>
+            <nav class="menu-nav">
+                <a href="nasil-kullanilir.html" class="menu-item" onclick="closeHamburgerMenu()"><i class="fa-solid fa-circle-question"></i>Nasıl Kullanılır?</a>
+                <a href="profile.html" class="menu-item" onclick="closeHamburgerMenu()"><i class="fa-solid fa-user"></i>Profil</a>
+                <a href="index.html" class="menu-item" onclick="closeHamburgerMenu()"><i class="fa-solid fa-chart-line"></i>Dashboard</a>
+                <a href="her-durumda.html" class="menu-item" onclick="closeHamburgerMenu()"><i class="fa-solid fa-layer-group"></i>Her Durumda</a>
+                <a href="kazananlar.html" class="menu-item" onclick="closeHamburgerMenu()"><i class="fa-solid fa-trophy"></i>Kazananlar</a>
+                <a href="binance.html" class="menu-item" onclick="closeHamburgerMenu()"><i class="fa-brands fa-bitcoin"></i>Binance Bağlantısı</a>
+                <a href="signal-test.html" class="menu-item" id="signalTestMenuItem" style="display:none;" onclick="closeHamburgerMenu()"><i class="fa-solid fa-vial"></i>Signal Test</a>
+                <button class="menu-item logout-item" onclick="window.logout()"><i class="fa-solid fa-right-from-bracket"></i>Çıkış Yap</button>
+            </nav>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="header">
+            <h1><i class="fa-solid fa-flask-vial"></i> Signal Test</h1>
+            <p style="color: var(--text-secondary);">Admin karşılaştırma laboratuvarı: mevcut strateji parametrelerini iki panelde yan yana test et.</p>
+        </div>
+
+        <div class="card">
+            <div class="global-grid">
+                <div>
+                    <label class="field-label">Coin (USDT paritesi)</label>
+                    <input type="text" id="coinInput" list="coinOptions" value="BTCUSDT" placeholder="BTCUSDT">
+                    <datalist id="coinOptions"></datalist>
+                </div>
+                <div>
+                    <label class="field-label">Piyasa</label>
+                    <div class="market-toggle">
+                        <button class="toggle-btn active" data-market="spot" type="button">SPOT</button>
+                        <button class="toggle-btn" data-market="futures" type="button">FUTURES</button>
+                    </div>
+                </div>
+                <div>
+                    <label class="field-label">Timeframe</label>
+                    <div class="timeframe-group">
+                        <button class="toggle-btn" data-timeframe="5m" type="button">5m</button>
+                        <button class="toggle-btn" data-timeframe="15m" type="button">15m</button>
+                        <button class="toggle-btn active" data-timeframe="1h" type="button">1h</button>
+                        <button class="toggle-btn" data-timeframe="4h" type="button">4h</button>
+                        <button class="toggle-btn" data-timeframe="1d" type="button">1d</button>
+                    </div>
+                </div>
+            </div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <button class="btn primary" id="runBothBtn" type="button"><i class="fa-solid fa-play"></i> İki Paneli Birden Çalıştır</button>
+                <span id="globalStatus" style="color: var(--text-secondary); font-size: 0.85rem; align-self: center;"></span>
+            </div>
+        </div>
+
+        <div class="panel-grid">
+            <section class="card" id="panelA">
+                <div class="panel-title">
+                    <h3><i class="fa-solid fa-a"></i> Panel A</h3>
+                    <button class="btn" data-run-panel="A" type="button">Çalıştır</button>
+                </div>
+                <div class="param-grid">
+                    <div><label class="field-label">Confidence</label><input type="number" id="A_conf" min="1" max="100" value="40"></div>
+                    <div><label class="field-label">TP %</label><input type="number" id="A_tp" min="0.1" max="99" step="0.1" value="5"></div>
+                    <div><label class="field-label">SL %</label><input type="number" id="A_sl" min="0.1" max="99" step="0.1" value="3"></div>
+                    <div><label class="field-label">Backtest Gün</label><input type="number" id="A_days" min="10" max="365" value="120"></div>
+                    <div><label class="field-label">Slippage (bps)</label><input type="number" id="A_slippage" min="0" max="100" value="3"></div>
+                    <div><label class="field-label">Fee (bps)</label><input type="number" id="A_fee" min="0" max="100" value="5"></div>
+                </div>
+                <div class="strategy-config-box">
+                    <label class="field-label">Strateji Detayları (JSON): RSI/ADX ve tüm eşikler</label>
+                    <textarea id="A_strategyConfig" spellcheck="false"></textarea>
+                </div>
+                <div id="A_status" style="color: var(--text-secondary); font-size: 0.85rem;">Hazır</div>
+                <div class="result-grid" id="A_metrics"></div>
+                <div class="trade-list" id="A_trades"></div>
+            </section>
+
+            <section class="card" id="panelB">
+                <div class="panel-title">
+                    <h3><i class="fa-solid fa-b"></i> Panel B</h3>
+                    <button class="btn" data-run-panel="B" type="button">Çalıştır</button>
+                </div>
+                <div class="param-grid">
+                    <div><label class="field-label">Confidence</label><input type="number" id="B_conf" min="1" max="100" value="48"></div>
+                    <div><label class="field-label">TP %</label><input type="number" id="B_tp" min="0.1" max="99" step="0.1" value="5.5"></div>
+                    <div><label class="field-label">SL %</label><input type="number" id="B_sl" min="0.1" max="99" step="0.1" value="3"></div>
+                    <div><label class="field-label">Backtest Gün</label><input type="number" id="B_days" min="10" max="365" value="120"></div>
+                    <div><label class="field-label">Slippage (bps)</label><input type="number" id="B_slippage" min="0" max="100" value="3"></div>
+                    <div><label class="field-label">Fee (bps)</label><input type="number" id="B_fee" min="0" max="100" value="5"></div>
+                </div>
+                <div class="strategy-config-box">
+                    <label class="field-label">Strateji Detayları (JSON): RSI/ADX ve tüm eşikler</label>
+                    <textarea id="B_strategyConfig" spellcheck="false"></textarea>
+                </div>
+                <div id="B_status" style="color: var(--text-secondary); font-size: 0.85rem;">Hazır</div>
+                <div class="result-grid" id="B_metrics"></div>
+                <div class="trade-list" id="B_trades"></div>
+            </section>
+        </div>
+
+        <div class="card compare-card">
+            <h3 style="margin-bottom: 10px;"><i class="fa-solid fa-scale-balanced"></i> Karşılaştırma Özeti (B - A)</h3>
+            <div class="compare-grid" id="compareGrid"></div>
+        </div>
+    </div>
+
+    <script src="rate-limiter.js"></script>
+    <script src="binance-connection.js?v=20260214c"></script>
+    <script src="indicators.js"></script>
+    <script src="advanced-indicators.js?v=20260218a"></script>
+    <script>
+        let supabaseClient = null;
+        let currentUser = null;
+        let currentMarket = localStorage.getItem('marketType') || 'spot';
+        let currentTimeframe = localStorage.getItem('signalTestTimeframe') || '1h';
+        let availableSymbols = [];
+        const panelResults = { A: null, B: null };
+
+        function setActiveButton(buttons, activeValue, dataAttr) {
+            buttons.forEach(btn => {
+                const value = btn.getAttribute(dataAttr);
+                btn.classList.toggle('active', value === activeValue);
+            });
+        }
+
+        function getSelectedSymbol() {
+            const input = document.getElementById('coinInput');
+            const raw = String(input?.value || '').trim().toUpperCase();
+            if (!raw) return null;
+            if (!raw.endsWith('USDT')) return raw + 'USDT';
+            return raw;
+        }
+
+        function updateUserRoleBadge() {
+            const badgeEl = document.getElementById('userRoleBadge');
+            if (!badgeEl) return;
+            badgeEl.innerHTML = '<i class="fa-solid fa-shield"></i> Admin';
+            badgeEl.style.display = 'inline-flex';
+        }
+
+        function toggleAdminSignalTestMenu(isAdmin) {
+            const item = document.getElementById('signalTestMenuItem');
+            if (!item) return;
+            item.style.display = isAdmin ? 'flex' : 'none';
+        }
+
+        function fmtPct(value) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return '0.00%';
+            return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+        }
+
+        function toNumber(value, fallback = 0) {
+            const n = Number(value);
+            return Number.isFinite(n) ? n : fallback;
+        }
+
+        function parsePercentLike(value) {
+            if (value === null || value === undefined) return 0;
+            if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+            const parsed = parseFloat(String(value).replace('%', ''));
+            return Number.isFinite(parsed) ? parsed : 0;
+        }
+
+        function getDefaultStrategyConfig() {
+            return {
+                trendAlignmentScore: 30,
+                adxBonusThreshold: 20,
+                adxBonusMultiplier: 0.6,
+                adxBonusCap: 12,
+                rsiLowStrong: 30,
+                rsiLowWeak: 40,
+                rsiHighWeak: 60,
+                rsiHighStrong: 70,
+                rsiLowStrongScore: 25,
+                rsiLowWeakScore: 15,
+                rsiHighWeakScore: -15,
+                rsiHighStrongScore: -25,
+                macdPositiveScore: 10,
+                macdNegativeScore: -10,
+                stochLowThreshold: 20,
+                stochHighThreshold: 80,
+                stochLowScore: 10,
+                stochHighScore: -10,
+                obvRisingScore: 10,
+                obvFallingScore: -10,
+                volumeAboveAvgScore: 15,
+                volumeBelowAvgScore: -10,
+                srThresholdAtrMultiplier: 1.5,
+                srThresholdMin: 0.01,
+                srThresholdMax: 0.04,
+                supportProximityScore: 15,
+                resistanceProximityScore: -15,
+                strongRegimeAdx: 18,
+                bullishMomentumRsi: 52,
+                bearishMomentumRsi: 48,
+                momentumConflictAdx: 16,
+                choppyAdx: 15,
+                choppyRsiDelta: 5,
+                choppyConfidenceBoost: 8,
+                hasTrendOrAdx: 22
+            };
+        }
+
+        function parseStrategyConfig(panelId) {
+            const raw = String(document.getElementById(`${panelId}_strategyConfig`)?.value || '').trim();
+            if (!raw) return { config: null, error: null };
+            try {
+                const parsed = JSON.parse(raw);
+                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                    return { config: null, error: 'Strateji JSON bir nesne olmalı.' };
+                }
+                return { config: parsed, error: null };
+            } catch {
+                return { config: null, error: 'Strateji JSON hatalı.' };
+            }
+        }
+
+        function renderMetrics(panelId, backtest) {
+            const root = document.getElementById(`${panelId}_metrics`);
+            if (!root) return;
+
+            const totalProfit = parsePercentLike(backtest?.totalProfit);
+            const winRate = parsePercentLike(backtest?.winRate);
+            const pf = parsePercentLike(backtest?.profitFactor);
+            const trades = toNumber(backtest?.totalTrades, 0);
+            const wins = toNumber(backtest?.wins, 0);
+            const losses = toNumber(backtest?.losses, 0);
+
+            root.innerHTML = `
+                <div class="metric"><div class="metric-label">Toplam Kâr</div><div class="metric-value ${totalProfit >= 0 ? 'positive' : 'negative'}">${fmtPct(totalProfit)}</div></div>
+                <div class="metric"><div class="metric-label">Win Rate</div><div class="metric-value">${winRate.toFixed(2)}%</div></div>
+                <div class="metric"><div class="metric-label">Profit Factor</div><div class="metric-value">${pf.toFixed(2)}</div></div>
+                <div class="metric"><div class="metric-label">Toplam İşlem</div><div class="metric-value">${trades}</div></div>
+                <div class="metric"><div class="metric-label">Kazanç</div><div class="metric-value positive">${wins}</div></div>
+                <div class="metric"><div class="metric-label">Kayıp</div><div class="metric-value negative">${losses}</div></div>
+            `;
+        }
+
+        function renderTrades(panelId, backtest) {
+            const root = document.getElementById(`${panelId}_trades`);
+            if (!root) return;
+
+            const trades = Array.isArray(backtest?.trades) ? backtest.trades.slice(-10).reverse() : [];
+            if (!trades.length) {
+                root.innerHTML = '<div class="trade-row"><span>İşlem yok</span><span>-</span><span>-</span></div>';
+                return;
+            }
+
+            const rows = trades.map(t => {
+                const direction = String(t.direction || '-');
+                const profit = parsePercentLike(t.profit);
+                const duration = String(t.duration || '-');
+                return `<div class="trade-row"><span>${direction}</span><span>${fmtPct(profit)}</span><span>${duration}</span></div>`;
+            }).join('');
+            root.innerHTML = rows;
+        }
+
+        function renderComparison() {
+            const root = document.getElementById('compareGrid');
+            if (!root) return;
+
+            const a = panelResults.A;
+            const b = panelResults.B;
+            if (!a || !b) {
+                root.innerHTML = '<div class="metric"><div class="metric-label">Durum</div><div class="metric-value">Her iki paneli çalıştır.</div></div>';
+                return;
+            }
+
+            const deltaProfit = parsePercentLike(b.totalProfit) - parsePercentLike(a.totalProfit);
+            const deltaWr = parsePercentLike(b.winRate) - parsePercentLike(a.winRate);
+            const deltaPf = parsePercentLike(b.profitFactor) - parsePercentLike(a.profitFactor);
+            const deltaTrades = toNumber(b.totalTrades, 0) - toNumber(a.totalTrades, 0);
+
+            root.innerHTML = `
+                <div class="metric"><div class="metric-label">Kâr Farkı</div><div class="metric-value ${deltaProfit >= 0 ? 'positive' : 'negative'}">${fmtPct(deltaProfit)}</div></div>
+                <div class="metric"><div class="metric-label">Win Rate Farkı</div><div class="metric-value ${deltaWr >= 0 ? 'positive' : 'negative'}">${deltaWr.toFixed(2)}%</div></div>
+                <div class="metric"><div class="metric-label">PF Farkı</div><div class="metric-value ${deltaPf >= 0 ? 'positive' : 'negative'}">${deltaPf.toFixed(2)}</div></div>
+                <div class="metric"><div class="metric-label">İşlem Farkı</div><div class="metric-value ${deltaTrades >= 0 ? 'positive' : 'negative'}">${deltaTrades}</div></div>
+            `;
+        }
+
+        function getPanelSettings(panelId) {
+            const parsedConfig = parseStrategyConfig(panelId);
+            return {
+                confidence: toNumber(document.getElementById(`${panelId}_conf`)?.value, 40),
+                tp: toNumber(document.getElementById(`${panelId}_tp`)?.value, 5),
+                sl: toNumber(document.getElementById(`${panelId}_sl`)?.value, 3),
+                days: toNumber(document.getElementById(`${panelId}_days`)?.value, 120),
+                slippageBps: toNumber(document.getElementById(`${panelId}_slippage`)?.value, 3),
+                feeBps: toNumber(document.getElementById(`${panelId}_fee`)?.value, 5),
+                strategyConfig: parsedConfig.config,
+                strategyConfigError: parsedConfig.error,
+            };
+        }
+
+        async function runPanel(panelId) {
+            const statusEl = document.getElementById(`${panelId}_status`);
+            const symbol = getSelectedSymbol();
+            if (!symbol) {
+                if (statusEl) statusEl.textContent = 'Geçerli bir coin gir.';
+                return;
+            }
+
+            if (availableSymbols.length && !availableSymbols.includes(symbol)) {
+                if (statusEl) statusEl.textContent = 'Coin listede bulunamadı.';
+                return;
+            }
+
+            const s = getPanelSettings(panelId);
+            if (s.strategyConfigError) {
+                if (statusEl) statusEl.textContent = s.strategyConfigError;
+                return;
+            }
+            const directionFilter = currentMarket === 'spot' ? 'LONG' : 'BOTH';
+
+            if (statusEl) statusEl.textContent = `${symbol} test ediliyor...`;
+
+            try {
+                const backtest = await AdvancedIndicators.runBacktest(
+                    symbol,
+                    currentTimeframe,
+                    s.days,
+                    s.confidence,
+                    s.tp,
+                    s.sl,
+                    currentMarket,
+                    directionFilter,
+                    s.slippageBps,
+                    s.feeBps,
+                    s.strategyConfig
+                );
+
+                panelResults[panelId] = backtest || null;
+                renderMetrics(panelId, backtest || {});
+                renderTrades(panelId, backtest || {});
+                renderComparison();
+                if (statusEl) statusEl.textContent = backtest ? 'Tamamlandı.' : 'Sonuç bulunamadı.';
+            } catch (error) {
+                if (statusEl) statusEl.textContent = `Hata: ${error.message || 'Bilinmeyen hata'}`;
+                panelResults[panelId] = null;
+                renderComparison();
+            }
+        }
+
+        async function runBothPanels() {
+            const status = document.getElementById('globalStatus');
+            if (status) status.textContent = 'Her iki panel çalışıyor...';
+            await Promise.all([runPanel('A'), runPanel('B')]);
+            if (status) status.textContent = 'Bitti.';
+        }
+
+        async function fetchMarketSymbols(marketType) {
+            const base = marketType === 'futures' ? BINANCE_FUTURES_API_BASE : BINANCE_SPOT_API_BASE;
+            const url = `${base}/exchangeInfo`;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('Piyasa listesi alınamadı');
+            const data = await response.json();
+            return (data.symbols || [])
+                .filter(item => item.status === 'TRADING')
+                .filter(item => item.quoteAsset === 'USDT')
+                .filter(item => marketType === 'futures' ? item.contractType === 'PERPETUAL' : true)
+                .map(item => item.symbol)
+                .sort();
+        }
+
+        async function refreshCoinList() {
+            const datalist = document.getElementById('coinOptions');
+            datalist.innerHTML = '';
+            try {
+                availableSymbols = await fetchMarketSymbols(currentMarket);
+                const top = availableSymbols.slice(0, 500);
+                datalist.innerHTML = top.map(symbol => `<option value="${symbol}"></option>`).join('');
+            } catch {
+                availableSymbols = [];
+            }
+        }
+
+        async function checkAuthAndAccess() {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) {
+                window.location.replace('login.html');
+                return false;
+            }
+
+            currentUser = session.user;
+            const email = currentUser.email || '-';
+            document.getElementById('userEmail').textContent = email;
+            document.getElementById('menuUserEmail').textContent = email;
+
+            try {
+                await supabaseClient
+                    .from('user_profiles')
+                    .upsert({
+                        id: currentUser.id,
+                        email,
+                        updated_at: new Date().toISOString()
+                    }, { onConflict: 'id' });
+
+                const { data: userProfile } = await supabaseClient
+                    .from('user_profiles')
+                    .select('is_admin')
+                    .eq('id', currentUser.id)
+                    .maybeSingle();
+
+                const isAdmin = !!userProfile?.is_admin;
+                toggleAdminSignalTestMenu(isAdmin);
+
+                if (!isAdmin) {
+                    alert('Bu sayfa sadece admin kullanıcılarına açıktır.');
+                    window.location.replace('index.html');
+                    return false;
+                }
+
+                updateUserRoleBadge();
+                return true;
+            } catch {
+                window.location.replace('index.html');
+                return false;
+            }
+        }
+
+        function setupControls() {
+            const marketButtons = Array.from(document.querySelectorAll('[data-market]'));
+            const timeframeButtons = Array.from(document.querySelectorAll('[data-timeframe]'));
+
+            setActiveButton(marketButtons, currentMarket, 'data-market');
+            setActiveButton(timeframeButtons, currentTimeframe, 'data-timeframe');
+
+            marketButtons.forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const next = btn.getAttribute('data-market');
+                    if (!next || next === currentMarket) return;
+                    currentMarket = next;
+                    localStorage.setItem('marketType', currentMarket);
+                    setActiveButton(marketButtons, currentMarket, 'data-market');
+                    await refreshCoinList();
+                    await runBothPanels();
+                });
+            });
+
+            timeframeButtons.forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const next = btn.getAttribute('data-timeframe');
+                    if (!next || next === currentTimeframe) return;
+                    currentTimeframe = next;
+                    localStorage.setItem('signalTestTimeframe', currentTimeframe);
+                    setActiveButton(timeframeButtons, currentTimeframe, 'data-timeframe');
+                    await runBothPanels();
+                });
+            });
+
+            document.getElementById('coinInput')?.addEventListener('change', runBothPanels);
+            document.getElementById('runBothBtn')?.addEventListener('click', runBothPanels);
+
+            document.querySelectorAll('[data-run-panel]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const panelId = btn.getAttribute('data-run-panel');
+                    if (!panelId) return;
+                    runPanel(panelId);
+                });
+            });
+
+            ['A', 'B'].forEach(panelId => {
+                ['conf', 'tp', 'sl', 'days', 'slippage', 'fee'].forEach(field => {
+                    const el = document.getElementById(`${panelId}_${field}`);
+                    if (!el) return;
+                    el.addEventListener('change', () => runPanel(panelId));
+                });
+                const cfgEl = document.getElementById(`${panelId}_strategyConfig`);
+                if (cfgEl) {
+                    cfgEl.addEventListener('change', () => runPanel(panelId));
+                }
+            });
+        }
+
+        function seedStrategyEditors() {
+            const defaultJson = JSON.stringify(getDefaultStrategyConfig(), null, 2);
+            const aEl = document.getElementById('A_strategyConfig');
+            const bEl = document.getElementById('B_strategyConfig');
+            if (aEl && !aEl.value.trim()) aEl.value = defaultJson;
+            if (bEl && !bEl.value.trim()) bEl.value = defaultJson;
+        }
+
+        window.toggleHamburgerMenu = function() {
+            const panel = document.getElementById('menuPanel');
+            if (!panel) return;
+            panel.classList.toggle('active');
+        };
+
+        window.closeHamburgerMenu = function() {
+            const panel = document.getElementById('menuPanel');
+            if (panel) panel.classList.remove('active');
+        };
+
+        window.logout = async function() {
+            try {
+                await supabaseClient.auth.signOut();
+            } catch {}
+            window.location.replace('login.html');
+        };
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            const { createClient } = window.supabase;
+            supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+            const access = await checkAuthAndAccess();
+            if (!access) return;
+
+            seedStrategyEditors();
+            setupControls();
+            await refreshCoinList();
+            await runBothPanels();
+        });
+    </script>
+    <script src="i18n.js"></script>
+    <script src="auto-translate.js"></script>
+</body>
+</html>

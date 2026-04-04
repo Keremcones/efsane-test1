@@ -501,6 +501,10 @@
                     <i class="fa-brands fa-bitcoin"></i>
                     Binance Bağlantısı
                 </a>
+                <a href="signal-test.html" class="menu-item" id="signalTestMenuItem" style="display:none;" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-vial"></i>
+                    Signal Test
+                </a>
                 <button class="menu-item logout-item" onclick="window.logout()">
                     <i class="fa-solid fa-right-from-bracket"></i>
                     Çıkış Yap
@@ -616,6 +620,7 @@
 
                 if (!userProfile) {
                     updateUserRoleBadge('standard', false);
+                    toggleAdminSignalTestMenu(false);
                 } else {
                     const rawMembership = String(userProfile.membership_type || 'standard').trim().toLowerCase();
                     const isPaid = rawMembership === 'plus' || rawMembership === 'premium';
@@ -644,10 +649,18 @@
                     }
 
                     updateUserRoleBadge(isExpired ? 'standard' : rawMembership, !!userProfile.is_admin);
+                    toggleAdminSignalTestMenu(!!userProfile.is_admin);
                 }
             } catch {
                 updateUserRoleBadge('standard', false);
+                toggleAdminSignalTestMenu(false);
             }
+        }
+
+        function toggleAdminSignalTestMenu(isAdmin) {
+            const item = document.getElementById('signalTestMenuItem');
+            if (!item) return;
+            item.style.display = isAdmin ? 'flex' : 'none';
         }
 
         window.toggleHamburgerMenu = function() {

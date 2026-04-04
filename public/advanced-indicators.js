@@ -894,7 +894,64 @@ function calculateAlarmIndicators(closes, highs, lows, volumes, lastClosedTimest
     };
 }
 
-function generateSignalScoreAligned(indicators, userConfidenceThreshold = 70) {
+function getDefaultSignalStrategyConfig() {
+    return {
+        trendAlignmentScore: 30,
+        adxBonusThreshold: 20,
+        adxBonusMultiplier: 0.6,
+        adxBonusCap: 12,
+        rsiLowStrong: 30,
+        rsiLowWeak: 40,
+        rsiHighWeak: 60,
+        rsiHighStrong: 70,
+        rsiLowStrongScore: 25,
+        rsiLowWeakScore: 15,
+        rsiHighWeakScore: -15,
+        rsiHighStrongScore: -25,
+        macdPositiveScore: 10,
+        macdNegativeScore: -10,
+        stochLowThreshold: 20,
+        stochHighThreshold: 80,
+        stochLowScore: 10,
+        stochHighScore: -10,
+        obvRisingScore: 10,
+        obvFallingScore: -10,
+        volumeAboveAvgScore: 15,
+        volumeBelowAvgScore: -10,
+        srThresholdAtrMultiplier: 1.5,
+        srThresholdMin: 0.01,
+        srThresholdMax: 0.04,
+        supportProximityScore: 15,
+        resistanceProximityScore: -15,
+        strongRegimeAdx: 18,
+        bullishMomentumRsi: 52,
+        bearishMomentumRsi: 48,
+        momentumConflictAdx: 16,
+        choppyAdx: 15,
+        choppyRsiDelta: 5,
+        choppyConfidenceBoost: 8,
+        hasTrendOrAdx: 22,
+    };
+}
+
+function normalizeSignalStrategyConfig(strategyConfig) {
+    const defaults = getDefaultSignalStrategyConfig();
+    if (!strategyConfig || typeof strategyConfig !== 'object') {
+        return defaults;
+    }
+
+    const cfg = { ...defaults };
+    for (const [key, value] of Object.entries(strategyConfig)) {
+        const numeric = Number(value);
+        if (Number.isFinite(numeric)) {
+            cfg[key] = numeric;
+        }
+    }
+    return cfg;
+}
+
+function generateSignalScoreAligned(indicators, userConfidenceThreshold = 70, strategyConfig = null) {
+    const cfg = normalizeSignalStrategyConfig(strategyConfig);
     const breakdown = {};
 
     let trendScore = 0;
@@ -904,16 +961,16 @@ function generateSignalScoreAligned(indicators, userConfidenceThreshold = 70) {
     };
 
     if (indicators.ema12 > indicators.ema26 && indicators.sma20 > indicators.sma50) {
-        trendScore += 30;
-        trendDetails.emaAlignment = 30;
+        trendScore += cfg.trendAlignmentScore;
+        trendDetails.emaAlignment = cfg.trendAlignmentScore;
     } else if (indicators.ema12 < indicators.ema26 && indicators.sma20 < indicators.sma50) {
-        trendScore -= 30;
-        trendDetails.emaAlignment = -30;
+        trendScore -= cfg.trendAlignmentScore;
+        trendDetails.emaAlignment = -cfg.trendAlignmentScore;
     }
 
     const isTrendAlignedForAdx = trendDetails.emaAlignment !== 0;
-    if (indicators.adx > 20 && isTrendAlignedForAdx) {
-        const adxBonus = Math.min((indicators.adx - 20) * 0.6, 12);
+    if (indicators.adx > cfg.adxBonusThreshold && isTrendAlignedForAdx) {
+        const adxBonus = Math.min((indicators.adx - cfg.adxBonusThreshold) * cfg.adxBonusMultiplier, cfg.adxBonusCap);
         trendScore += adxBonus;
         trendDetails.adxBonus = adxBonus;
     }
@@ -939,30 +996,30 @@ function generateSignalScoreAligned(indicators, userConfidenceThreshold = 70) {
         stochScore: 0
     };
 
-    if (indicators.rsi < 30) {
-        momentumScore += 25;
-        momentumDetails.rsiScore = 25;
-    } else if (indicators.rsi < 40) {
-        momentumScore += 15;
-        momentumDetails.rsiScore = 15;
-    } else if (indicators.rsi > 70) {
-        momentumScore -= 25;
-        momentumDetails.rsiScore = -25;
-    } else if (indicators.rsi > 60) {
-        momentumScore -= 15;
-        momentumDetails.rsiScore = -15;
+    if (indicators.rsi < cfg.rsiLowStrong) {
+        momentumScore += cfg.rsiLowStrongScore;
+        momentumDetails.rsiScore = cfg.rsiLowStrongScore;
+    } else if (indicators.rsi < cfg.rsiLowWeak) {
+        momentumScore += cfg.rsiLowWeakScore;
+        momentumDetails.rsiScore = cfg.rsiLowWeakScore;
+    } else if (indicators.rsi > cfg.rsiHighStrong) {
+        momentumScore += cfg.rsiHighStrongScore;
+        momentumDetails.rsiScore = cfg.rsiHighStrongScore;
+    } else if (indicators.rsi > cfg.rsiHighWeak) {
+        momentumScore += cfg.rsiHighWeakScore;
+        momentumDetails.rsiScore = cfg.rsiHighWeakScore;
     }
 
-    const macdScore = indicators.macd > 0 ? 10 : -10;
+    const macdScore = indicators.macd > 0 ? cfg.macdPositiveScore : cfg.macdNegativeScore;
     momentumScore += macdScore;
     momentumDetails.macdScore = macdScore;
 
-    if (indicators.stoch.K < 20) {
-        momentumScore += 10;
-        momentumDetails.stochScore = 10;
-    } else if (indicators.stoch.K > 80) {
-        momentumScore -= 10;
-        momentumDetails.stochScore = -10;
+    if (indicators.stoch.K < cfg.stochLowThreshold) {
+        momentumScore += cfg.stochLowScore;
+        momentumDetails.stochScore = cfg.stochLowScore;
+    } else if (indicators.stoch.K > cfg.stochHighThreshold) {
+        momentumScore += cfg.stochHighScore;
+        momentumDetails.stochScore = cfg.stochHighScore;
     }
 
     breakdown.MOMENTUM_ANALIZI = {
@@ -984,11 +1041,11 @@ function generateSignalScoreAligned(indicators, userConfidenceThreshold = 70) {
     };
 
     if (indicators.obvTrend === 'rising') {
-        volumeScore += 10;
-        volumeDetails.obvScore = 10;
+        volumeScore += cfg.obvRisingScore;
+        volumeDetails.obvScore = cfg.obvRisingScore;
     } else if (indicators.obvTrend === 'falling') {
-        volumeScore -= 10;
-        volumeDetails.obvScore = -10;
+        volumeScore += cfg.obvFallingScore;
+        volumeDetails.obvScore = cfg.obvFallingScore;
     }
 
     const volumes = indicators.volumes || [];
@@ -997,11 +1054,11 @@ function generateSignalScoreAligned(indicators, userConfidenceThreshold = 70) {
         const recent = volumes.slice(-10);
         const avgVolume = recent.reduce((a, b) => a + b, 0) / (recent.length || 1);
         if (lastVolume > avgVolume) {
-            volumeScore += 15;
-            volumeDetails.volumeMAScore = 15;
+            volumeScore += cfg.volumeAboveAvgScore;
+            volumeDetails.volumeMAScore = cfg.volumeAboveAvgScore;
         } else {
-            volumeScore -= 10;
-            volumeDetails.volumeMAScore = -10;
+            volumeScore += cfg.volumeBelowAvgScore;
+            volumeDetails.volumeMAScore = cfg.volumeBelowAvgScore;
         }
     }
 
@@ -1025,15 +1082,15 @@ function generateSignalScoreAligned(indicators, userConfidenceThreshold = 70) {
         const distanceToSupport = (indicators.price - indicators.support) / indicators.price;
         const distanceToResistance = (indicators.resistance - indicators.price) / indicators.price;
         const atrPct = indicators.atr > 0 ? indicators.atr / indicators.price : 0;
-        const srThreshold = Math.min(0.04, Math.max(0.01, atrPct * 1.5));
+        const srThreshold = Math.min(cfg.srThresholdMax, Math.max(cfg.srThresholdMin, atrPct * cfg.srThresholdAtrMultiplier));
 
         if (distanceToSupport < srThreshold) {
-            srScore += 15;
-            srDetails.supportProximity = 15;
+            srScore += cfg.supportProximityScore;
+            srDetails.supportProximity = cfg.supportProximityScore;
         }
         if (distanceToResistance < srThreshold) {
-            srScore -= 15;
-            srDetails.resistanceProximity = -15;
+            srScore += cfg.resistanceProximityScore;
+            srDetails.resistanceProximity = cfg.resistanceProximityScore;
         }
 
         breakdown.SUPPORT_RESISTANCE_ANALIZI = {
@@ -1065,25 +1122,25 @@ function generateSignalScoreAligned(indicators, userConfidenceThreshold = 70) {
     const trendBlocks = (direction === 'LONG' && isDowntrend) || (direction === 'SHORT' && isUptrend);
 
     const regimeBias = isUptrend ? 'LONG' : isDowntrend ? 'SHORT' : 'NEUTRAL';
-    const strongRegime = regimeBias !== 'NEUTRAL' && indicators.adx >= 18;
+    const strongRegime = regimeBias !== 'NEUTRAL' && indicators.adx >= cfg.strongRegimeAdx;
     const regimeBlocks = strongRegime && direction !== regimeBias;
 
-    const bullishMomentumStack = indicators.rsi >= 52
+    const bullishMomentumStack = indicators.rsi >= cfg.bullishMomentumRsi
         && indicators.macd >= 0
         && indicators.histogram >= 0
         && indicators.stoch.K >= indicators.stoch.D;
-    const bearishMomentumStack = indicators.rsi <= 48
+    const bearishMomentumStack = indicators.rsi <= cfg.bearishMomentumRsi
         && indicators.macd <= 0
         && indicators.histogram <= 0
         && indicators.stoch.K <= indicators.stoch.D;
 
-    const momentumConflictBlocks = (direction === 'LONG' && bearishMomentumStack && indicators.adx >= 16)
-        || (direction === 'SHORT' && bullishMomentumStack && indicators.adx >= 16);
+    const momentumConflictBlocks = (direction === 'LONG' && bearishMomentumStack && indicators.adx >= cfg.momentumConflictAdx)
+        || (direction === 'SHORT' && bullishMomentumStack && indicators.adx >= cfg.momentumConflictAdx);
 
-    const choppyMarket = indicators.adx < 15 && Math.abs((indicators.rsi || 50) - 50) < 5;
-    const requiredConfidence = choppyMarket ? Math.min(100, userConfidenceThreshold + 8) : userConfidenceThreshold;
+    const choppyMarket = indicators.adx < cfg.choppyAdx && Math.abs((indicators.rsi || 50) - 50) < cfg.choppyRsiDelta;
+    const requiredConfidence = choppyMarket ? Math.min(100, userConfidenceThreshold + cfg.choppyConfidenceBoost) : userConfidenceThreshold;
 
-    const hasTrendOk = isAlignedTrend || indicators.adx >= 22;
+    const hasTrendOk = isAlignedTrend || indicators.adx >= cfg.hasTrendOrAdx;
     const triggered = confidence >= requiredConfidence
         && hasTrendOk
         && !trendBlocks
@@ -1305,7 +1362,7 @@ function resolveMinBacktestWindow(timeframe) {
 }
 
 // 7. BACKTEST SİSTEMİ
-async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 70, takeProfitPercent = 5, stopLossPercent = 3, marketType = null, directionFilter = 'BOTH', slippageBps = null, feeBps = null) {
+async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 70, takeProfitPercent = 5, stopLossPercent = 3, marketType = null, directionFilter = 'BOTH', slippageBps = null, feeBps = null, strategyConfig = null) {
     const results = [];
     console.log(`🔍 BACKTEST BAŞLADI: ${symbol} ${timeframe} | TP:${takeProfitPercent}% SL:${stopLossPercent}%`);
     const MIN_BACKTEST_WINDOW = resolveMinBacktestWindow(timeframe);
@@ -1647,7 +1704,7 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 continue;
             }
 
-            const signal = generateSignalScoreAligned(indicators, confidenceThreshold);
+            const signal = generateSignalScoreAligned(indicators, confidenceThreshold, strategyConfig);
             if (normalizedDirectionFilter !== 'BOTH' && normalizedDirectionFilter !== signal.direction) {
                 continue;
             }

@@ -558,6 +558,10 @@
                     <i class="fa-brands fa-bitcoin"></i>
                     Binance Bağlantısı
                 </a>
+                <a href="signal-test.html" class="menu-item" id="signalTestMenuItem" style="display:none;" onclick="closeHamburgerMenu()">
+                    <i class="fa-solid fa-vial"></i>
+                    Signal Test
+                </a>
                 <button class="menu-item logout-item" onclick="window.logout()">
                     <i class="fa-solid fa-right-from-bracket"></i>
                     Çıkış Yap
@@ -1146,6 +1150,7 @@
             const isPremium = membershipType === 'premium' || isAdmin;
 
             updateUserRoleBadge(membershipType, isAdmin);
+            toggleAdminSignalTestMenu(isAdmin);
 
             if (membershipType === 'plus' && !isAdmin) {
                 window.location.href = 'premium.html';
@@ -1160,6 +1165,12 @@
             await loadBinanceSettings();
             window.updateAutoTradeUI();
             setupAutoSaveListeners();
+        }
+
+        function toggleAdminSignalTestMenu(isAdmin) {
+            const item = document.getElementById('signalTestMenuItem');
+            if (!item) return;
+            item.style.display = isAdmin ? 'flex' : 'none';
         }
 
         document.addEventListener('DOMContentLoaded', async () => {
