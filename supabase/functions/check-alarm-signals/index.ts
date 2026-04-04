@@ -5826,7 +5826,11 @@ serve(async (req: any) => {
       }
     }
 
-    const isHealthAction = body?.action === "health_check" || body?.action === "stale_breakdown" || body?.action === "system_check" || body?.action === "repair_not_filled_links";
+    const isHealthAction = body?.action === "health_check"
+      || body?.action === "stale_breakdown"
+      || body?.action === "system_check"
+      || body?.action === "repair_not_filled_links"
+      || body?.action === "repair_stale_unlinked_active_signals";
 
     async function isAdminUserToken(token: string): Promise<boolean> {
       if (!token) return false;
@@ -6030,6 +6034,159 @@ serve(async (req: any) => {
       });
     }
 
+    if (body?.action === "repair_stale_unlinked_active_signals") {
+      const requestedMinAgeMinutes = Number(body?.min_age_minutes);
+      const minAgeMinutes = Number.isFinite(requestedMinAgeMinutes)
+        ? Math.min(7 * 24 * 60, Math.max(60, Math.floor(requestedMinAgeMinutes)))
+        : 24 * 60;
+      const requestedLimit = Number(body?.limit);
+      const limit = Number.isFinite(requestedLimit)
+        ? Math.min(500, Math.max(1, Math.floor(requestedLimit)))
+        : 200;
+      const dryRun = body?.dry_run !== false;
+      const cutoffIso = new Date(Date.now() - (minAgeMinutes * 60 * 1000)).toISOString();
+
+      const { data: staleSignals, error: staleError } = await supabase
+        .from("active_signals")
+        .select("id, alarm_id, user_id, symbol, market_type, timeframe, created_at")
+        .in("status", ACTIVE_SIGNAL_STATUSES)
+        .lt("created_at", cutoffIso)
+        .order("created_at", { ascending: true })
+        .limit(limit);
+
+      if (staleError) {
+        return new Response(JSON.stringify({ success: false, error: staleError.message || "stale_active_query_failed" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      const staleRows = staleSignals || [];
+      if (!staleRows.length) {
+        return new Response(JSON.stringify({
+          success: true,
+          dry_run: dryRun,
+          min_age_minutes: minAgeMinutes,
+          scanned: 0,
+          candidates: 0,
+          closed: 0,
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      const alarmIds = Array.from(new Set(staleRows
+        .map((row: any) => row?.alarm_id ? String(row.alarm_id) : "")
+        .filter((id: string) => !!id)));
+      const alarmMap = new Map<string, any>();
+
+      if (alarmIds.length > 0) {
+        const { data: alarmsData } = await supabase
+          .from("alarms")
+          .select("id, user_id, symbol, binance_order_id")
+          .in("id", alarmIds)
+          .limit(1000);
+        (alarmsData || []).forEach((row: any) => {
+          if (row?.id) alarmMap.set(String(row.id), row);
+        });
+      }
+
+      const { data: activeTradeRows } = await supabase
+        .from("alarms")
+        .select("user_id, symbol")
+        .eq("type", "ACTIVE_TRADE")
+        .in("status", ACTIVE_ALARM_STATUSES)
+        .limit(1000);
+
+      const activeTradeSet = new Set((activeTradeRows || [])
+        .map((row: any) => `${String(row?.user_id || "")}:${String(row?.symbol || "").toUpperCase()}`)
+        .filter((key: string) => key !== ":"));
+
+      const candidates = staleRows.filter((row: any) => {
+        const alarm = row?.alarm_id ? alarmMap.get(String(row.alarm_id)) : null;
+        const hasLinkedOrder = Boolean(String(alarm?.binance_order_id || "").trim());
+        if (hasLinkedOrder) return false;
+        const key = `${String(row?.user_id || "")}:${String(row?.symbol || "").toUpperCase()}`;
+        return !activeTradeSet.has(key);
+      });
+
+      const sample = candidates.slice(0, 20).map((row: any) => ({
+        id: row.id,
+        alarm_id: row.alarm_id,
+        user_id: row.user_id,
+        symbol: row.symbol,
+        market_type: row.market_type,
+        timeframe: row.timeframe,
+        created_at: row.created_at,
+      }));
+
+      if (!candidates.length) {
+        return new Response(JSON.stringify({
+          success: true,
+          dry_run: dryRun,
+          min_age_minutes: minAgeMinutes,
+          scanned: staleRows.length,
+          candidates: 0,
+          closed: 0,
+          sample,
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      if (dryRun) {
+        return new Response(JSON.stringify({
+          success: true,
+          dry_run: true,
+          min_age_minutes: minAgeMinutes,
+          scanned: staleRows.length,
+          candidates: candidates.length,
+          closed: 0,
+          sample,
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      const candidateIds = candidates.map((row: any) => row.id);
+      const nowIso = new Date().toISOString();
+      const { data: updatedRows, error: updateError } = await supabase
+        .from("active_signals")
+        .update({
+          status: "CLOSED",
+          close_reason: "EXTERNAL_CLOSE",
+          closed_at: nowIso,
+          telegram_close_status: null,
+          telegram_close_error: null,
+        })
+        .in("id", candidateIds)
+        .in("status", ACTIVE_SIGNAL_STATUSES)
+        .select("id");
+
+      if (updateError) {
+        return new Response(JSON.stringify({ success: false, error: updateError.message || "stale_active_close_failed" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        dry_run: false,
+        min_age_minutes: minAgeMinutes,
+        scanned: staleRows.length,
+        candidates: candidates.length,
+        closed: Array.isArray(updatedRows) ? updatedRows.length : 0,
+        sample,
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
     if (body?.action === "system_check") {
       const nowIso = new Date().toISOString();
       const staleCutoffIso = new Date(Date.now() - 30 * 60 * 1000).toISOString();
@@ -6053,6 +6210,7 @@ serve(async (req: any) => {
         suspiciousClosedSignalsRes,
         activeTradeRes,
         lastAlarmSignalRes,
+        lastActiveSignalRes,
       ] = await Promise.all([
         supabase
           .from("active_signals")
@@ -6124,6 +6282,14 @@ serve(async (req: any) => {
           .select("signal_timestamp")
           .not("signal_timestamp", "is", null)
           .order("signal_timestamp", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("active_signals")
+          .select("signal_timestamp, created_at")
+          .in("status", ACTIVE_SIGNAL_STATUSES)
+          .order("signal_timestamp", { ascending: false, nullsFirst: false })
+          .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle(),
       ]);
@@ -6306,8 +6472,17 @@ serve(async (req: any) => {
         }
       }
 
-      const latestSignalAt = String(lastAlarmSignalRes.data?.signal_timestamp || "");
-      const latestSignalMs = Date.parse(latestSignalAt);
+      const latestAlarmSignalMs = Date.parse(String(lastAlarmSignalRes.data?.signal_timestamp || ""));
+      const latestActiveSignalMs = Date.parse(String(
+        lastActiveSignalRes.data?.signal_timestamp
+        || lastActiveSignalRes.data?.created_at
+        || ""
+      ));
+      const latestSignalMs = Math.max(
+        Number.isFinite(latestAlarmSignalMs) ? latestAlarmSignalMs : 0,
+        Number.isFinite(latestActiveSignalMs) ? latestActiveSignalMs : 0,
+      );
+      const latestSignalAt = latestSignalMs > 0 ? new Date(latestSignalMs).toISOString() : "";
       const cronFreshnessMinutes = Number.isFinite(latestSignalMs)
         ? Math.max(0, Math.floor((Date.now() - latestSignalMs) / 60000))
         : null;
