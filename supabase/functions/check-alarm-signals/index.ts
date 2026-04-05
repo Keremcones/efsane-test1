@@ -381,6 +381,7 @@ const MAX_BAR_CLOSE_TRIGGER_GRACE_BY_TIMEFRAME_MS = Math.max(
   BAR_CLOSE_TRIGGER_GRACE_MS,
   Number(Deno.env.get("MAX_BAR_CLOSE_TRIGGER_GRACE_BY_TIMEFRAME_MS") || (5 * 60 * 1000))
 ); // dynamic upper grace by timeframe
+const ALLOW_ONE_BAR_LATE_TRIGGER = String(Deno.env.get("ALLOW_ONE_BAR_LATE_TRIGGER") || "false").toLowerCase() === "true";
 const OPEN_TELEGRAM_RETRY_MAX_AGE_MS = 3 * 60 * 1000; // do not deliver open-signal messages too late
 const CLOSE_TELEGRAM_RETRY_MAX_AGE_MS = 24 * 60 * 60 * 1000; // retry failed close notifications within 24h
 const ACTIVE_SIGNAL_STATUSES = ["ACTIVE", "active"];
@@ -389,10 +390,15 @@ const SIGNAL_REENTRY_COOLDOWN_BARS = Math.min(
   12,
   Math.max(0, Number(Deno.env.get("SIGNAL_REENTRY_COOLDOWN_BARS") || "2"))
 );
+const SIGNAL_REENTRY_COOLDOWN_SL_BARS = Math.min(
+  24,
+  Math.max(0, Number(Deno.env.get("SIGNAL_REENTRY_COOLDOWN_SL_BARS") || "6"))
+);
 const SIGNAL_REENTRY_LOOKBACK_HOURS = Math.min(
   72,
   Math.max(1, Number(Deno.env.get("SIGNAL_REENTRY_LOOKBACK_HOURS") || "24"))
 );
+const ENABLE_COUNTER_CANDLE_ENTRY_FILTER = String(Deno.env.get("ENABLE_COUNTER_CANDLE_ENTRY_FILTER") || "true").toLowerCase() === "true";
 const ENABLE_FUTURES_ALGO_OPEN_ORDERS_CHECK = String(Deno.env.get("ENABLE_FUTURES_ALGO_OPEN_ORDERS_CHECK") || "false").toLowerCase() === "true";
 
 function isActiveLikeStatus(status: any): boolean {
@@ -480,7 +486,13 @@ function isWithinBarCloseTriggerWindow(nowMs: number, evaluatedBarOpenMs: number
     MAX_BAR_CLOSE_TRIGGER_GRACE_BY_TIMEFRAME_MS,
     Math.max(30 * 1000, Math.min(BAR_CLOSE_TRIGGER_GRACE_MS, scaledByTimeframeMs))
   );
-  return nowMs >= evaluatedBarCloseMs && nowMs <= (evaluatedBarCloseMs + dynamicGraceMs);
+  const inPrimaryWindow = nowMs >= evaluatedBarCloseMs && nowMs <= (evaluatedBarCloseMs + dynamicGraceMs);
+  if (inPrimaryWindow) return true;
+
+  if (!ALLOW_ONE_BAR_LATE_TRIGGER) return false;
+
+  const oneBarLateCloseMs = evaluatedBarCloseMs + timeframeMs;
+  return nowMs >= oneBarLateCloseMs && nowMs <= (oneBarLateCloseMs + dynamicGraceMs);
 }
 
 function resolveBarCloseDisplayTimeMs(barOpenOrIso: number | string | undefined, timeframe: string): number {
@@ -2412,6 +2424,20 @@ function generateSignalScoreAligned(indicators: TechnicalIndicators, userConfide
     && indicators.histogram <= 0
     && indicators.stoch.K <= indicators.stoch.D;
 
+  const lastClosedOpen = Number(indicators.lastClosedOpen);
+  const lastClosedClose = Number(indicators.price);
+  const hasLastClosedCandle = Number.isFinite(lastClosedOpen) && Number.isFinite(lastClosedClose);
+  const counterCandleBlocks = ENABLE_COUNTER_CANDLE_ENTRY_FILTER
+    && hasLastClosedCandle
+    && (
+      (direction === "LONG"
+        && lastClosedClose < lastClosedOpen
+        && !(bullishMomentumStack && indicators.rsi >= 55 && indicators.macd >= 0 && indicators.adx >= 18))
+      || (direction === "SHORT"
+        && lastClosedClose > lastClosedOpen
+        && !(bearishMomentumStack && indicators.rsi <= 45 && indicators.macd <= 0 && indicators.adx >= 18))
+    );
+
   const momentumConflictBlocks = (direction === "LONG" && bearishMomentumStack && indicators.adx >= 16)
     || (direction === "SHORT" && bullishMomentumStack && indicators.adx >= 16);
 
@@ -2423,6 +2449,7 @@ function generateSignalScoreAligned(indicators: TechnicalIndicators, userConfide
     && hasTrendOk
     && !trendBlocks
     && !regimeBlocks
+    && !counterCandleBlocks
     && !momentumConflictBlocks;
 
   breakdown.normalizedScore = {
@@ -2438,8 +2465,12 @@ function generateSignalScoreAligned(indicators: TechnicalIndicators, userConfide
     strongRegime,
     trendBlocks,
     regimeBlocks,
+    counterCandleBlocks,
     momentumConflictBlocks,
     choppyMarket,
+    hasLastClosedCandle,
+    lastClosedOpen: Number.isFinite(lastClosedOpen) ? lastClosedOpen : null,
+    lastClosedClose: Number.isFinite(lastClosedClose) ? lastClosedClose : null,
     requiredConfidence,
     threshold: userConfidenceThreshold,
   };
@@ -2689,6 +2720,7 @@ interface TechnicalIndicators {
   atr: number;
   volumeMA: number;
   lastOpenTimestamp?: number;
+  lastClosedOpen?: number;
   openPrice?: number;
 }
 
@@ -2709,6 +2741,7 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
   let lows = window.map((k: any) => parseFloat(k[3]));
   let lastClosedKline = window[window.length - 1];
   let lastClosedTimestamp = Number(lastClosedKline?.[6] ?? lastClosedKline?.[0] ?? Date.now());
+  let lastClosedOpen = Number(lastClosedKline?.[1] ?? closes[Math.max(0, closes.length - 2)] ?? closes[closes.length - 1]);
 
   let lastOpenTimestamp = Number(klines[klines.length - 1]?.[0] ?? Date.now());
   let openPrice = Number(klines[klines.length - 1]?.[1] ?? closes[closes.length - 1]);
@@ -2734,6 +2767,7 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
       lows = window.map((k: any) => parseFloat(k[3]));
       lastClosedKline = window[window.length - 1];
       lastClosedTimestamp = Number(lastClosedKline?.[6] ?? lastClosedKline?.[0] ?? Date.now());
+      lastClosedOpen = Number(lastClosedKline?.[1] ?? closes[Math.max(0, closes.length - 2)] ?? closes[closes.length - 1]);
       lastOpenTimestamp = Number(klines[klines.length - 1]?.[0] ?? Date.now());
       openPrice = Number(klines[klines.length - 1]?.[1] ?? closes[closes.length - 1]);
     }
@@ -2745,6 +2779,7 @@ async function calculateIndicators(symbol: string, marketType: "spot" | "futures
   return {
     ...indicators,
     lastOpenTimestamp: Number.isFinite(lastOpenTimestamp) ? lastOpenTimestamp : Date.now(),
+    lastClosedOpen: Number.isFinite(lastClosedOpen) ? lastClosedOpen : indicators.price,
     openPrice: Number.isFinite(openPrice) ? openPrice : indicators.price
   };
 }
@@ -3517,15 +3552,15 @@ async function checkAndTriggerUserAlarms(
   }
   console.log(`📌 Open auto_signal count: ${openSignalKeys.size}`);
 
-  const recentClosedDirectionMap = new Map<string, number>();
-  if (SIGNAL_REENTRY_COOLDOWN_BARS > 0) {
+  const recentClosedDirectionMap = new Map<string, { closedMs: number; reason: string }>();
+  if (SIGNAL_REENTRY_COOLDOWN_BARS > 0 || SIGNAL_REENTRY_COOLDOWN_SL_BARS > 0) {
     try {
       const sinceIso = new Date(Date.now() - SIGNAL_REENTRY_LOOKBACK_HOURS * 60 * 60 * 1000).toISOString();
       const { data: recentClosedSignals, error: recentClosedError } = await supabase
         .from("active_signals")
         .select("user_id, symbol, direction, close_reason, closed_at")
         .eq("status", "CLOSED")
-        .in("close_reason", ["EXTERNAL_CLOSE", "NOT_FILLED"])
+        .in("close_reason", ["EXTERNAL_CLOSE", "NOT_FILLED", "SL_HIT"])
         .gte("closed_at", sinceIso)
         .order("closed_at", { ascending: false })
         .limit(3000);
@@ -3535,10 +3570,11 @@ async function checkAndTriggerUserAlarms(
       } else {
         for (const row of recentClosedSignals || []) {
           const key = `${String(row?.user_id || "")}:${String(row?.symbol || "").toUpperCase()}:${String(row?.direction || "").toUpperCase()}`;
+          const reason = String(row?.close_reason || "").toUpperCase();
           const closedMs = Date.parse(String(row?.closed_at || ""));
           if (!key || key.includes("::") || !Number.isFinite(closedMs)) continue;
           if (!recentClosedDirectionMap.has(key)) {
-            recentClosedDirectionMap.set(key, closedMs);
+            recentClosedDirectionMap.set(key, { closedMs, reason });
           }
         }
       }
@@ -3547,16 +3583,43 @@ async function checkAndTriggerUserAlarms(
     }
   }
 
-  const isInReentryCooldown = (userIdRaw: any, symbolRaw: any, directionRaw: any, timeframeRaw: any): boolean => {
-    if (SIGNAL_REENTRY_COOLDOWN_BARS <= 0) return false;
+  const getReentryCooldownBars = (reasonRaw: any): number => {
+    const reason = String(reasonRaw || "").toUpperCase();
+    if (reason === "SL_HIT") {
+      return Math.max(SIGNAL_REENTRY_COOLDOWN_BARS, SIGNAL_REENTRY_COOLDOWN_SL_BARS);
+    }
+    return SIGNAL_REENTRY_COOLDOWN_BARS;
+  };
+
+  const getReentryCooldownState = (
+    userIdRaw: any,
+    symbolRaw: any,
+    directionRaw: any,
+    timeframeRaw: any
+  ): { active: boolean; bars: number; reason: string; remainingMs: number } => {
+    if (SIGNAL_REENTRY_COOLDOWN_BARS <= 0 && SIGNAL_REENTRY_COOLDOWN_SL_BARS <= 0) {
+      return { active: false, bars: 0, reason: "", remainingMs: 0 };
+    }
     const key = `${String(userIdRaw || "")}:${String(symbolRaw || "").toUpperCase()}:${String(directionRaw || "").toUpperCase()}`;
-    const lastClosedMs = recentClosedDirectionMap.get(key);
-    if (!Number.isFinite(lastClosedMs)) return false;
+    const recent = recentClosedDirectionMap.get(key);
+    if (!recent || !Number.isFinite(recent.closedMs)) {
+      return { active: false, bars: 0, reason: "", remainingMs: 0 };
+    }
+
+    const bars = getReentryCooldownBars(recent.reason);
+    if (bars <= 0) return { active: false, bars: 0, reason: recent.reason, remainingMs: 0 };
 
     const tfMinutes = timeframeToMinutes(String(timeframeRaw || "1h"));
     const timeframeMs = Math.max(60 * 1000, tfMinutes * 60 * 1000);
-    const cooldownMs = SIGNAL_REENTRY_COOLDOWN_BARS * timeframeMs;
-    return (Date.now() - Number(lastClosedMs)) < cooldownMs;
+    const cooldownMs = bars * timeframeMs;
+    const elapsedMs = Date.now() - Number(recent.closedMs);
+    const remainingMs = Math.max(0, cooldownMs - elapsedMs);
+    return {
+      active: elapsedMs < cooldownMs,
+      bars,
+      reason: recent.reason,
+      remainingMs,
+    };
   };
 
   const openPositionCheckCache = new Map<string, boolean>();
@@ -4065,10 +4128,11 @@ async function checkAndTriggerUserAlarms(
 
         const alarmTypeUpper = String(alarm?.type || "").toUpperCase();
         const intendedDirection = String(detectedSignal?.direction || "").toUpperCase();
+        const reentryCooldown = getReentryCooldownState(alarm.user_id, alarm.symbol, intendedDirection, alarm.timeframe);
         if (
           alarmTypeUpper !== "ACTIVE_TRADE"
           && (intendedDirection === "LONG" || intendedDirection === "SHORT")
-          && isInReentryCooldown(alarm.user_id, alarm.symbol, intendedDirection, alarm.timeframe)
+          && reentryCooldown.active
         ) {
           try {
             await supabase
@@ -4078,7 +4142,7 @@ async function checkAndTriggerUserAlarms(
           } catch (e) {
             console.warn(`⚠️ Failed to update signal_timestamp during re-entry cooldown skip for ${alarm.symbol}:`, e);
           }
-          console.log(`⏳ Re-entry cooldown skip for ${String(alarm.symbol || "").toUpperCase()} ${intendedDirection} (bars=${SIGNAL_REENTRY_COOLDOWN_BARS})`);
+          console.log(`⏳ Re-entry cooldown skip for ${String(alarm.symbol || "").toUpperCase()} ${intendedDirection} (reason=${reentryCooldown.reason}, bars=${reentryCooldown.bars}, remaining_sec=${Math.ceil(reentryCooldown.remainingMs / 1000)})`);
           stats.skippedActive += 1;
           return;
         }
@@ -4250,14 +4314,47 @@ async function checkAndTriggerUserAlarms(
         let skipOpenTelegram = false;
         let skipOpenTelegramReason: string | null = null;
         const autoTradeEnabled = await resolveAutoTradeEnabled(alarm, alarmMarketType);
+        const autoTradeTickSuitable = (() => {
+          const tickSize = Number(alarmTickSize);
+          if (!Number.isFinite(tickSize) || tickSize <= 0) return true;
+          if (!Number.isFinite(entryPrice) || entryPrice <= 0) return true;
+
+          const targetTpPct = Math.max(0.01, Math.abs(tpPercent));
+          const targetSlPct = Math.max(0.01, Math.abs(slPercent));
+          const effTpPct = Math.abs(((tpPrice - entryPrice) / entryPrice) * 100);
+          const effSlPct = Math.abs(((entryPrice - slPrice) / entryPrice) * 100);
+
+          if (!Number.isFinite(effTpPct) || !Number.isFinite(effSlPct) || effTpPct <= 0 || effSlPct <= 0) {
+            return false;
+          }
+
+          const ticksToTp = Math.abs((tpPrice - entryPrice) / tickSize);
+          const ticksToSl = Math.abs((entryPrice - slPrice) / tickSize);
+          if (!Number.isFinite(ticksToTp) || !Number.isFinite(ticksToSl)) return true;
+
+          const minTicksRequired = 12;
+          if (ticksToTp < minTicksRequired || ticksToSl < minTicksRequired) return false;
+
+          const tpRelativeError = Math.abs(effTpPct - targetTpPct) / targetTpPct;
+          const slRelativeError = Math.abs(effSlPct - targetSlPct) / targetSlPct;
+          return tpRelativeError <= 0.20 && slRelativeError <= 0.20;
+        })();
         let autoTradeAttempted = false;
 
-        if (autoTradeEnabled) {
+        if (autoTradeEnabled && !autoTradeTickSuitable) {
+          tradeResult = {
+            success: false,
+            message: "Tick size unsuitable for configured TP/SL"
+          };
+          tradeNotificationText = `\n\n⚠️ <b>Otomatik işlem atlandı:</b>\nTick adımı seçilen TP/SL için uygun değil.`;
+        }
+
+        if (autoTradeEnabled && autoTradeTickSuitable) {
           autoTradeAttempted = true;
           tradeResult = await executeAutoTrade(
             alarm.user_id,
             symbol,
-            direction,
+            direction as "LONG" | "SHORT",
             entryPrice,
             tpPrice,
             slPrice,

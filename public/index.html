@@ -5738,6 +5738,11 @@
                 console.warn('Auto trade ayarı okunamadı:', e);
             }
 
+            if (!Number.isFinite(takeProfitPercent) || takeProfitPercent <= 0 || takeProfitPercent > 50) {
+                showUpdateToast('Take Profit 0.1 - 50 araliginda olmali', 'warning');
+                return;
+            }
+
             if (!Number.isFinite(stopLossPercent) || stopLossPercent <= 0 || stopLossPercent > 99) {
                 showUpdateToast('Stop Loss 0.1 - 99 araliginda olmali', 'warning');
                 return;

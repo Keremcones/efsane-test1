@@ -931,6 +931,8 @@ function getDefaultSignalStrategyConfig() {
         choppyRsiDelta: 5,
         choppyConfidenceBoost: 8,
         hasTrendOrAdx: 22,
+        reentryCooldownBars: 2,
+        reentryCooldownSlBars: 6,
     };
 }
 
@@ -1195,6 +1197,13 @@ function resolveKlineOpenTimeMs(kline) {
 }
 
 function resolveSameCandleHit(openPrice, takeProfit, stopLoss) {
+    if (!Number.isFinite(openPrice)) return 'SL';
+
+    const tpDistance = Math.abs(takeProfit - openPrice);
+    const slDistance = Math.abs(openPrice - stopLoss);
+
+    if (!Number.isFinite(tpDistance) || !Number.isFinite(slDistance)) return 'SL';
+    if (tpDistance < slDistance) return 'TP';
     return 'SL';
 }
 
@@ -1374,6 +1383,18 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
     const resolvedFeeBps = Number.isFinite(Number(feeBps)) ? Number(feeBps) : 0;
     const slippageBpsValue = Number.isFinite(resolvedSlippageBps) ? resolvedSlippageBps : 0;
     const feeBpsValue = Number.isFinite(resolvedFeeBps) ? resolvedFeeBps : 0;
+    const strategyCfg = normalizeSignalStrategyConfig(strategyConfig);
+    const reentryCooldownBars = Math.max(0, Math.floor(Number(strategyCfg.reentryCooldownBars)));
+    const reentryCooldownSlBars = Math.max(
+        reentryCooldownBars,
+        Math.floor(Number(strategyCfg.reentryCooldownSlBars))
+    );
+    const getReentryCooldownBarsForReason = (reason) => {
+        if (String(reason || '').toUpperCase() === 'SL_HIT') {
+            return Math.max(reentryCooldownBars, reentryCooldownSlBars);
+        }
+        return reentryCooldownBars;
+    };
     const neededKlines = 4000;
     
     try {
@@ -1493,6 +1514,27 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         let openTrade = null;  // Şu anda açık olan işlem
         let openTradeEntryBar = -1;  // Açık işlemin giriş bar'ı
         const activeSignalDirections = new Set();
+        const recentClosedDirectionMap = new Map();
+        const getReentryCooldownState = (directionKey, currentBarIndex) => {
+            const recent = recentClosedDirectionMap.get(directionKey);
+            if (!recent) {
+                return { active: false, bars: 0, reason: '', remainingBars: 0 };
+            }
+
+            const cooldownBars = getReentryCooldownBarsForReason(recent.reason);
+            if (cooldownBars <= 0) {
+                return { active: false, bars: 0, reason: recent.reason, remainingBars: 0 };
+            }
+
+            const barsSinceClose = Math.max(0, Number(currentBarIndex) - Number(recent.barIndex));
+            const remainingBars = Math.max(0, cooldownBars - barsSinceClose);
+            return {
+                active: barsSinceClose < cooldownBars,
+                bars: cooldownBars,
+                reason: recent.reason,
+                remainingBars
+            };
+        };
         
         // Her bar kontrol edilsin (SON AÇIK BAR HARIÇ - incomplete data)
         for (let i = MIN_BACKTEST_WINDOW; i <= closes.length - 1; i++) {
@@ -1674,7 +1716,13 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                     // Results'a ekle (kapalı işlem)
                     results.push(closedTrade);
                     if (openTrade && openTrade.signal) {
-                        activeSignalDirections.delete(`${symbol.toUpperCase()}:${openTrade.signal}`);
+                        const closedDirectionKey = `${symbol.toUpperCase()}:${openTrade.signal}`;
+                        const normalizedCloseReason = String(closeReason || '').toUpperCase() === 'SL' ? 'SL_HIT' : 'TP_HIT';
+                        recentClosedDirectionMap.set(closedDirectionKey, {
+                            barIndex: i,
+                            reason: normalizedCloseReason
+                        });
+                        activeSignalDirections.delete(closedDirectionKey);
                     }
                     openTrade = null;
                     openTradeEntryBar = -1;
@@ -1738,6 +1786,12 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             }
             
             if (!shouldOpenTrade) {
+                continue;
+            }
+
+            const reentryCooldown = getReentryCooldownState(directionKey, i);
+            if (reentryCooldown.active) {
+                console.log(`⏳ RE-ENTRY COOLDOWN [${timeframe}] bar=${i} ${signal.direction} reason=${reentryCooldown.reason} remainingBars=${reentryCooldown.remainingBars}`);
                 continue;
             }
             
@@ -1924,6 +1978,11 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                 totalProfit += profit;
 
                 results.push(closedTrade);
+                const normalizedEntryCloseReason = String(entryCloseReason || '').toUpperCase() === 'SL' ? 'SL_HIT' : 'TP_HIT';
+                recentClosedDirectionMap.set(directionKey, {
+                    barIndex: i,
+                    reason: normalizedEntryCloseReason
+                });
                 activeSignalDirections.delete(directionKey);
                 console.log(`❌ ENTRY BAR KAPANIŞ [${timeframe}] bar=${i} ${openTrade.signal} profit=${profit.toFixed(2)}% reason=${entryCloseReason}`);
                 openTrade = null;
@@ -2040,9 +2099,18 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                     const lastBarStartMs = Number.isFinite(lastOpenMs) ? lastOpenMs : 0;
                     const lastBarEndMs = lastBarStartMs + (Number.isFinite(lastTimeframeMs) && lastTimeframeMs > 0 ? lastTimeframeMs : 60 * 60 * 1000);
                     const lastWithinOpenWindow = lastNowMs >= lastBarStartMs && lastNowMs < lastBarEndMs;
+                    const canOpenLastSignal = Boolean(lastSignal && lastSignal.triggered && lastDirectionOk && lastWithinOpenWindow);
+                    let lastReentryCooldown = { active: false, bars: 0, reason: '', remainingBars: 0 };
+                    if (canOpenLastSignal) {
+                        const lastDirectionKey = `${symbol.toUpperCase()}:${lastSignal.direction}`;
+                        lastReentryCooldown = getReentryCooldownState(lastDirectionKey, closedBarIndex);
+                        if (lastReentryCooldown.active) {
+                            console.log(`⏳ LAST SIGNAL RE-ENTRY COOLDOWN [${timeframe}] direction=${lastSignal.direction} reason=${lastReentryCooldown.reason} remainingBars=${lastReentryCooldown.remainingBars}`);
+                        }
+                    }
 
                     // SADECE triggered true olan sinyalleri göster (confidence threshold gecenler)
-                    if (lastSignal && lastSignal.triggered && lastDirectionOk && lastWithinOpenWindow) {
+                    if (canOpenLastSignal && !lastReentryCooldown.active) {
                 // ÖNEMLİ: Son kapalı işlem ile lastTrade arasında çakışma var mı kontrol et
                 // Eğer son işlem belirsiz durumdaysa (0% profit, actualTP=false, actualSL=false), 
                 // yeni sinyal gösterme
@@ -2844,6 +2912,10 @@ class AlarmSystem {
                 let hadError = false;
                 for (const alarm of this.alarms) {
                     const autoTradeEnabled = alarm.autoTradeEnabled || alarm.auto_trade_enabled || false;
+                    const parsedTpPercent = Number(alarm.takeProfitPercent ?? alarm.tp_percent);
+                    const parsedSlPercent = Number(alarm.stopLossPercent ?? alarm.sl_percent);
+                    const safeTpPercent = Number.isFinite(parsedTpPercent) && parsedTpPercent > 0 ? parsedTpPercent : 5;
+                    const safeSlPercent = Number.isFinite(parsedSlPercent) && parsedSlPercent > 0 ? parsedSlPercent : 3;
                     const baseData = {
                         user_id: this.userId,
                         symbol: alarm.symbol || 'BTCUSDT',
@@ -2854,8 +2926,8 @@ class AlarmSystem {
                         telegram_enabled: true,
                         telegram_chat_id: this.telegramChatId || null,
                         confidence_score: String(alarm.confidenceScore || alarm.confidence_score || '60'),
-                        tp_percent: String(alarm.takeProfitPercent || alarm.tp_percent || '5'),
-                        sl_percent: String(alarm.stopLossPercent || alarm.sl_percent || '3'),
+                        tp_percent: String(safeTpPercent),
+                        sl_percent: String(safeSlPercent),
                         auto_trade_enabled: autoTradeEnabled
                     };
 
