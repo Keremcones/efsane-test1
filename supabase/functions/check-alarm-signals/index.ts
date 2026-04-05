@@ -385,6 +385,14 @@ const OPEN_TELEGRAM_RETRY_MAX_AGE_MS = 3 * 60 * 1000; // do not deliver open-sig
 const CLOSE_TELEGRAM_RETRY_MAX_AGE_MS = 24 * 60 * 60 * 1000; // retry failed close notifications within 24h
 const ACTIVE_SIGNAL_STATUSES = ["ACTIVE", "active"];
 const ACTIVE_ALARM_STATUSES = ["ACTIVE", "active"];
+const SIGNAL_REENTRY_COOLDOWN_BARS = Math.min(
+  12,
+  Math.max(0, Number(Deno.env.get("SIGNAL_REENTRY_COOLDOWN_BARS") || "2"))
+);
+const SIGNAL_REENTRY_LOOKBACK_HOURS = Math.min(
+  72,
+  Math.max(1, Number(Deno.env.get("SIGNAL_REENTRY_LOOKBACK_HOURS") || "24"))
+);
 const ENABLE_FUTURES_ALGO_OPEN_ORDERS_CHECK = String(Deno.env.get("ENABLE_FUTURES_ALGO_OPEN_ORDERS_CHECK") || "false").toLowerCase() === "true";
 
 function isActiveLikeStatus(status: any): boolean {
@@ -3509,6 +3517,48 @@ async function checkAndTriggerUserAlarms(
   }
   console.log(`📌 Open auto_signal count: ${openSignalKeys.size}`);
 
+  const recentClosedDirectionMap = new Map<string, number>();
+  if (SIGNAL_REENTRY_COOLDOWN_BARS > 0) {
+    try {
+      const sinceIso = new Date(Date.now() - SIGNAL_REENTRY_LOOKBACK_HOURS * 60 * 60 * 1000).toISOString();
+      const { data: recentClosedSignals, error: recentClosedError } = await supabase
+        .from("active_signals")
+        .select("user_id, symbol, direction, close_reason, closed_at")
+        .eq("status", "CLOSED")
+        .in("close_reason", ["EXTERNAL_CLOSE", "NOT_FILLED"])
+        .gte("closed_at", sinceIso)
+        .order("closed_at", { ascending: false })
+        .limit(3000);
+
+      if (recentClosedError) {
+        console.warn("⚠️ Failed to fetch recent closed signals for re-entry cooldown:", recentClosedError);
+      } else {
+        for (const row of recentClosedSignals || []) {
+          const key = `${String(row?.user_id || "")}:${String(row?.symbol || "").toUpperCase()}:${String(row?.direction || "").toUpperCase()}`;
+          const closedMs = Date.parse(String(row?.closed_at || ""));
+          if (!key || key.includes("::") || !Number.isFinite(closedMs)) continue;
+          if (!recentClosedDirectionMap.has(key)) {
+            recentClosedDirectionMap.set(key, closedMs);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("⚠️ Re-entry cooldown preload failed:", e);
+    }
+  }
+
+  const isInReentryCooldown = (userIdRaw: any, symbolRaw: any, directionRaw: any, timeframeRaw: any): boolean => {
+    if (SIGNAL_REENTRY_COOLDOWN_BARS <= 0) return false;
+    const key = `${String(userIdRaw || "")}:${String(symbolRaw || "").toUpperCase()}:${String(directionRaw || "").toUpperCase()}`;
+    const lastClosedMs = recentClosedDirectionMap.get(key);
+    if (!Number.isFinite(lastClosedMs)) return false;
+
+    const tfMinutes = timeframeToMinutes(String(timeframeRaw || "1h"));
+    const timeframeMs = Math.max(60 * 1000, tfMinutes * 60 * 1000);
+    const cooldownMs = SIGNAL_REENTRY_COOLDOWN_BARS * timeframeMs;
+    return (Date.now() - Number(lastClosedMs)) < cooldownMs;
+  };
+
   const openPositionCheckCache = new Map<string, boolean>();
   const hasBlockingOpenPosition = async (
     userIdRaw: any,
@@ -4012,6 +4062,26 @@ async function checkAndTriggerUserAlarms(
         const signalBarIso = Number.isFinite(signalBarMs)
           ? new Date(signalBarMs).toISOString()
           : evaluatedBarIso;
+
+        const alarmTypeUpper = String(alarm?.type || "").toUpperCase();
+        const intendedDirection = String(detectedSignal?.direction || "").toUpperCase();
+        if (
+          alarmTypeUpper !== "ACTIVE_TRADE"
+          && (intendedDirection === "LONG" || intendedDirection === "SHORT")
+          && isInReentryCooldown(alarm.user_id, alarm.symbol, intendedDirection, alarm.timeframe)
+        ) {
+          try {
+            await supabase
+              .from("alarms")
+              .update({ signal_timestamp: signalBarIso })
+              .eq("id", alarm.id);
+          } catch (e) {
+            console.warn(`⚠️ Failed to update signal_timestamp during re-entry cooldown skip for ${alarm.symbol}:`, e);
+          }
+          console.log(`⏳ Re-entry cooldown skip for ${String(alarm.symbol || "").toUpperCase()} ${intendedDirection} (bars=${SIGNAL_REENTRY_COOLDOWN_BARS})`);
+          stats.skippedActive += 1;
+          return;
+        }
 
         try {
           const { data: lastSignal } = await supabase
