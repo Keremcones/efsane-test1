@@ -1904,11 +1904,13 @@ async function executeAutoTrade(
         if (missingSl) protectionErrors.push(`SL oluşturulamadı: ${escapeTelegram(tpSlResult.slError || "unknown")}`);
 
         let emergencyCloseNote = "";
+        let emergencyCloseSucceeded = false;
         try {
           const closeSide = direction === "LONG" ? "SELL" : "BUY";
           const closeQty = formatOrderQuantity(quantity, symbolInfo.quantityPrecision, symbolInfo.stepSize);
           if (Number.isFinite(Number(closeQty)) && Number(closeQty) > 0) {
             const emergencyClose = await placeFuturesMarketOrder(api_key, api_secret, symbol, closeSide, closeQty);
+            emergencyCloseSucceeded = !!emergencyClose.success;
             emergencyCloseNote = emergencyClose.success
               ? " Güvenlik için pozisyon acil market emri ile kapatıldı."
               : ` Acil kapatma denemesi başarısız: ${escapeTelegram(emergencyClose.error || "unknown")}.`;
@@ -1919,7 +1921,7 @@ async function executeAutoTrade(
 
         return {
           success: false,
-          openedPositionUnprotected: true,
+          openedPositionUnprotected: !emergencyCloseSucceeded,
           orderId: orderResult.orderId,
           executedEntryPrice: effectiveEntryPrice,
           executedTakeProfit: adjustedTakeProfit,
@@ -1941,9 +1943,34 @@ async function executeAutoTrade(
         symbolInfo.tickSize
       );
       if (!ocoResult.success) {
+        let emergencyCloseNote = "";
+        let emergencyCloseSucceeded = false;
+        try {
+          const closeResult = await openBinanceTrade(
+            api_key,
+            api_secret,
+            symbol,
+            "SHORT",
+            quantity,
+            "spot",
+            {
+              quantityPrecision: symbolInfo.quantityPrecision,
+              minQty: symbolInfo.minQty,
+              stepSize: symbolInfo.stepSize,
+            }
+          );
+          emergencyCloseSucceeded = !!closeResult.success;
+          emergencyCloseNote = closeResult.success
+            ? " Güvenlik için spot pozisyonu acil market emri ile kapatıldı."
+            : ` Spot acil kapatma denemesi başarısız: ${escapeTelegram(closeResult.error || "unknown")}.`;
+        } catch (e) {
+          emergencyCloseNote = ` Spot acil kapatma denemesi hata verdi: ${escapeTelegram(e instanceof Error ? e.message : String(e))}.`;
+        }
+
         return {
-          success: true,
-          message: `✅ ${direction} ${quantity} ${symbol} @ $${effectiveEntryPrice.toFixed(symbolInfo.pricePrecision)}\n⚠️ Spot TP/SL OCO oluşturulamadı: ${escapeTelegram(ocoResult.error || "unknown")}`,
+          success: false,
+          openedPositionUnprotected: !emergencyCloseSucceeded,
+          message: `Spot TP/SL OCO oluşturulamadı: ${escapeTelegram(ocoResult.error || "unknown")}.${emergencyCloseNote}`,
           orderId: orderResult.orderId,
           executedEntryPrice: effectiveEntryPrice,
           executedTakeProfit: adjustedTakeProfit,
@@ -5095,7 +5122,7 @@ async function checkAndCloseSignals(deadlineMs?: number): Promise<{ closedSignal
           || (Math.min(Math.abs(Number(priceForClose) - takeProfit), Math.abs(Number(priceForClose) - stopLoss))
             / Math.max(1e-8, Math.abs(Number(priceForClose)))) * 100 <= CLOSE_NEAR_TARGET_PCT;
 
-        if (ENABLE_EXTERNAL_CLOSE_SYNC && !shouldClose && !shouldRunHeavyChecks && ageSeconds >= EXTERNAL_CLOSE_GRACE_SECONDS) {
+        if (ENABLE_EXTERNAL_CLOSE_SYNC && !shouldClose && ageSeconds >= EXTERNAL_CLOSE_GRACE_SECONDS) {
           if (effectiveMarketType === "futures") {
             if (!isCanonicalBinanceSymbol(symbol)) {
               console.warn(`⏸️ External close skipped for non-canonical symbol: ${symbol}`);
