@@ -842,7 +842,7 @@ type OpenTradeOptions = {
   stepSize?: number;
 };
 
-const LIMIT_ORDER_POLL_INTERVAL_MS = 2000;
+const LIMIT_ORDER_POLL_INTERVAL_MS = 1000;  // ✅ 2s → 1s (daha hızlı kontrol)
 
 function normalizeFuturesEntryType(value: any): FuturesOrderType {
   return String(value || "MARKET").toUpperCase() === "LIMIT" ? "LIMIT" : "MARKET";
@@ -850,8 +850,8 @@ function normalizeFuturesEntryType(value: any): FuturesOrderType {
 
 function normalizeLimitTimeoutSeconds(value: any): number {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return 60;
-  return Math.max(5, Math.floor(parsed));
+  if (!Number.isFinite(parsed) || parsed <= 0) return 300;  // ✅ 60s → 300s (5 dakika default)
+  return Math.max(30, Math.floor(parsed));  // ✅ min 5s → min 30s
 }
 
 function roundQuantity(value: number, precision: number): number {

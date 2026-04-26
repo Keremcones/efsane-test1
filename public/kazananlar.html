@@ -1138,7 +1138,14 @@
                 container.innerHTML = `<div class="empty-state" id="winnersEmpty">${message}</div>`;
                 return;
             }
-
+            
+            // ✅ FIX #4: Backtest sonuçlarının fake olduğunu uyar
+            const warningHtml = `
+                <div style="background: rgba(255, 193, 7, 0.1); border: 1px solid rgba(255, 193, 7, 0.3); border-radius: 8px; padding: 12px; margin-bottom: 16px; color: #ffc107; font-size: 13px;">
+                  <strong>⚠️ Backtest Sonuçları:</strong> Aşağıdaki kar oranları simülasyon verisidir. Live işlemleriniz farklı olabilir. Gerçek kar/zararınızı kontrol etmek için aktif alarmlarınızı inceleyin.
+                </div>
+            `;
+            
             const rows = list.slice(0, maxDisplay).map(item => {
                 const isNegative = item.totalProfit < 0;
                 const gainClass = isNegative ? 'gain-pill negative' : 'gain-pill';
@@ -1152,7 +1159,7 @@
                             <div>
                                 <span class="result-coin">${formatSymbol(item.symbol)}</span>
                                 ${item.autoTradeTickSuitable === false ? '<span class="result-trades">Tick değeri oto al-sat için uygun değil</span>' : ''}
-                                <span class="result-trades">${item.totalTrades} işlem</span>
+                                <span class="result-trades">${item.totalTrades} işlem (simülasyon)</span>
                             </div>
                             <div class="gain-list">
                                 <span class="${gainClass}">${gainText}</span>
@@ -1164,7 +1171,7 @@
                 `;
             }).join('');
 
-            container.innerHTML = rows;
+            container.innerHTML = warningHtml + rows;
         }
 
         function getSortableValue(item, sortValue, sortOrder) {

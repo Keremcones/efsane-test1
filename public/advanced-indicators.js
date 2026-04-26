@@ -1415,9 +1415,18 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         }
         const hasLiveOpenBar = lastBarIndex > closedEndIndex;
         const liveOpenBar = hasLiveOpenBar ? trimmedKlines[lastBarIndex] : null;
-        const backtestKlines = closedEndIndex >= 0
+        
+        // ✅ FIX #2: Açık bar'ı backtestklerine ekle (live bar'ı include et)
+        let backtestKlines = closedEndIndex >= 0
             ? trimmedKlines.slice(0, closedEndIndex + 1)
             : [];
+        
+        // Eğer açık bar varsa ve destekliyse, backtestKlines'e ekle
+        if (hasLiveOpenBar && liveOpenBar) {
+            console.log(`✅ [${timeframe}] Açık bar dahil edildi - LIVE bar'ı signal hesaplamasında kullan`);
+            backtestKlines = backtestKlines.concat([liveOpenBar]);
+        }
+        
         if (backtestKlines.length < MIN_BACKTEST_WINDOW + 1) {
             console.warn(`⚠️ Backtest için yetersiz kline: ${backtestKlines.length}`);
             return {
@@ -1443,53 +1452,6 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
 
         const tickSize = await getSymbolTickSize(String(symbol || '').toUpperCase(), marketType);
         const safeTick = Number.isFinite(tickSize) && Number(tickSize) > 0 ? Number(tickSize) : 0.01;
-        
-        // Şu anki açık bar'ı ekle (manuel olarak) - TÜRKİYE SAATİNE GÖRE
-        // ⚠️ AÇIK BAR'NIN HIGH/LOW VERİSİ EKSIK OLDUĞU İÇİN BACKTESTE KATMIYORUZ
-        // Sadece grafikte gösterim amacıyla klines'e eklenir
-        // const nowMs = Date.now();
-        // const turkeyOffsetMs = 3 * 60 * 60 * 1000; // UTC+3
-        // const nowTurkeyMs = nowMs + turkeyOffsetMs;
-        
-        // AÇIK BAR EKLEME DEVRE DIŞI - HIGH/LOW verisi hatalı
-        /*
-        const timeframeMinutes = {
-            '5m': 5, '15m': 15, '30m': 30, '1h': 60, '4h': 240, '1d': 1440
-        };
-        const minutes = timeframeMinutes[timeframe] || 60;
-        
-        // Bar açılma zamanını Türkiye saatine göre hesapla
-        const msPerBar = minutes * 60 * 1000;
-        const barOpenTime = Math.floor(nowTurkeyMs / msPerBar) * msPerBar - turkeyOffsetMs; // UTC'ye geri çevir
-        
-        // Son kapanmış bar'ı al
-        const lastClosedBar = klines[klines.length - 1];
-        const openPrice = lastClosedBar[1];
-        
-        // Şu anki fiyat (ayrıca çekmeliyiz)
-        const tickerUrl = `${window.getBinanceApiBase ? window.getBinanceApiBase() : "https://api.binance.com/api/v3"}/ticker/price?symbol=${symbol}`;
-        const tickerRes = await fetch(tickerUrl);
-        const tickerData = await tickerRes.json();
-        const currentPrice = parseFloat(tickerData.price);
-        
-        // Açık bar verisi
-        const openBar = [
-            barOpenTime,              // [0] timestamp (UTC)
-            openPrice,                // [1] open
-            currentPrice,             // [2] high
-            currentPrice,             // [3] low
-            currentPrice,             // [4] close
-            '0',                      // [5] volume
-            barOpenTime + msPerBar,   // [6] close time
-            '0',                      // [7] quote volume
-            0,                        // [8] taker buy base
-            0,                        // [9] taker buy quote
-            '0'                       // [10] ignore
-        ];
-        
-        // Açık bar'ı ekle
-        klines.push(openBar);
-        */
         
         const opens = backtestKlines.map(k => parseFloat(k[1]));
         const closes = backtestKlines.map(k => parseFloat(k[4]));
@@ -2252,6 +2214,30 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
                     duration: openTrade.duration
                 });
             }
+        }
+        
+        // ✅ FIX #3: Backtest state'i localStorage'ye persist et (sayfa refresh'te kaybolmasın)
+        try {
+            const backtestState = {
+                symbol,
+                timeframe,
+                days,
+                confidenceThreshold,
+                takeProfitPercent,
+                stopLossPercent,
+                timestamp: Date.now(),
+                totalTrades,
+                wins,
+                losses,
+                totalProfit,
+                lastTradeSignal: lastTrade?.signal,
+                lastTradeEntry: lastTrade?.entry,
+                activeTradeCount: (allTrades || []).filter(t => t.duration === 'AÇIK' || t.isOpen).length
+            };
+            localStorage.setItem(`backtest_state_${symbol.toUpperCase()}_${timeframe}`, JSON.stringify(backtestState));
+            console.log(`💾 Backtest state kaydedildi: ${symbol} ${timeframe}`);
+        } catch (e) {
+            console.warn('localStorage save failed:', e);
         }
         
         return {
