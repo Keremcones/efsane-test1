@@ -3539,6 +3539,8 @@ async function checkAndTriggerUserAlarms(
   const openSignalKeys = new Set();
   const openSignalSymbols = new Set();
   const openSignalDirections = new Set();
+  const signalsToClose: any[] = []; // ✅ FIX: Manual close'ları detect etmek için
+  
   if (openAutoSignals && !openAutoSignalsError) {
     openAutoSignals.forEach((sig: any) => {
       // user_id + symbol kombinasyonu key oluştur
@@ -3549,6 +3551,46 @@ async function checkAndTriggerUserAlarms(
       const directionKey = `${sig.user_id}:${String(sig.symbol || "").toUpperCase()}:${String(sig.direction || "").toUpperCase()}`;
       openSignalDirections.add(directionKey);
     });
+    
+    // ✅ FIX: Database'deki açık işlemleri Binance'ta kontrol et - manual close detect et
+    console.log(`🔍 Kontrol ediliyor: ${openAutoSignals.length} açık işlem, Binance'ta açık mı?`);
+    for (const sig of openAutoSignals) {
+      const symbol = String(sig.symbol || "").toUpperCase();
+      const marketType = "futures"; // signals genelde futures
+      const hasOpenPosition = await hasBlockingOpenPosition(sig.user_id, symbol, marketType);
+      
+      if (!hasOpenPosition && sig.status === "ACTIVE") {
+        // Binance'ta position yok ama database'de ACTIVE → Manual close olmuş!
+        console.log(`🚨 MANUAL CLOSE DETECTED: ${symbol} (user: ${sig.user_id}) - Binance'ta açık yok ama DB'de ACTIVE`);
+        signalsToClose.push({
+          id: sig.id,
+          symbol,
+          user_id: sig.user_id,
+          direction: sig.direction,
+          close_reason: "EXTERNAL_CLOSE"
+        });
+        
+        // Set'ten de çıkar - yeni sinyal trigger olabilsin
+        const directionKey = `${sig.user_id}:${symbol}:${String(sig.direction || "").toUpperCase()}`;
+        openSignalDirections.delete(directionKey);
+        console.log(`✅ openSignalDirections'tan kaldırıldı: ${directionKey}`);
+      }
+    }
+    
+    // Database'i update et
+    if (signalsToClose.length > 0) {
+      console.log(`📝 ${signalsToClose.length} işlem EXTERNAL_CLOSE olarak mark ediliyor...`);
+      const { error: closeError } = await supabase
+        .from("active_signals")
+        .update({ status: "CLOSED", close_reason: "EXTERNAL_CLOSE", closed_at: new Date().toISOString() })
+        .in("id", signalsToClose.map(s => s.id));
+      
+      if (closeError) {
+        console.warn("⚠️ Failed to update manually closed signals:", closeError);
+      } else {
+        console.log(`✅ ${signalsToClose.length} işlem CLOSED olarak güncellendi`);
+      }
+    }
   }
   console.log(`📌 Open auto_signal count: ${openSignalKeys.size}`);
 
