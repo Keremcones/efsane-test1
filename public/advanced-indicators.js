@@ -1416,16 +1416,20 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
         const hasLiveOpenBar = lastBarIndex > closedEndIndex;
         const liveOpenBar = hasLiveOpenBar ? trimmedKlines[lastBarIndex] : null;
         
-        // ✅ FIX #2: Açık bar'ı backtestklerine ekle (live bar'ı include et)
+        // ⚠️ TEMPORARY DISABLED: Live bar'ı backtest'e eklediğimizde, live signal generation'ı da update etmemiz gerekiyor
+        // Şimdilik disable ediyoruz - parity sorunuparty sorunu (backtest'te var, live'de yok)
+        // TODO: Live edge function'ı da update et, sonra bu enable et
         let backtestKlines = closedEndIndex >= 0
             ? trimmedKlines.slice(0, closedEndIndex + 1)
             : [];
         
-        // Eğer açık bar varsa ve destekliyse, backtestKlines'e ekle
+        /*
+        // ✅ FIX #2: Açık bar'ı backtestklerine ekle (live bar'ı include et)
         if (hasLiveOpenBar && liveOpenBar) {
             console.log(`✅ [${timeframe}] Açık bar dahil edildi - LIVE bar'ı signal hesaplamasında kullan`);
             backtestKlines = backtestKlines.concat([liveOpenBar]);
         }
+        */
         
         if (backtestKlines.length < MIN_BACKTEST_WINDOW + 1) {
             console.warn(`⚠️ Backtest için yetersiz kline: ${backtestKlines.length}`);
