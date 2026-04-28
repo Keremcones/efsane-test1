@@ -381,7 +381,7 @@ const MAX_BAR_CLOSE_TRIGGER_GRACE_BY_TIMEFRAME_MS = Math.max(
   BAR_CLOSE_TRIGGER_GRACE_MS,
   Number(Deno.env.get("MAX_BAR_CLOSE_TRIGGER_GRACE_BY_TIMEFRAME_MS") || (5 * 60 * 1000))
 ); // dynamic upper grace by timeframe
-const ALLOW_ONE_BAR_LATE_TRIGGER = String(Deno.env.get("ALLOW_ONE_BAR_LATE_TRIGGER") || "false").toLowerCase() === "true";
+const ALLOW_ONE_BAR_LATE_TRIGGER = String(Deno.env.get("ALLOW_ONE_BAR_LATE_TRIGGER") || "true").toLowerCase() === "true"; // ✅ Allow signal on 2nd bar close to handle cron timing
 const OPEN_TELEGRAM_RETRY_MAX_AGE_MS = 3 * 60 * 1000; // do not deliver open-signal messages too late
 const CLOSE_TELEGRAM_RETRY_MAX_AGE_MS = 24 * 60 * 60 * 1000; // retry failed close notifications within 24h
 const ACTIVE_SIGNAL_STATUSES = ["ACTIVE", "active"];
