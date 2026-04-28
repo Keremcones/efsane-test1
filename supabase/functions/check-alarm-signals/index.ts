@@ -3552,7 +3552,11 @@ async function checkAndTriggerUserAlarms(
       openSignalDirections.add(directionKey);
     });
     
-    // ✅ FIX: Database'deki açık işlemleri Binance'ta kontrol et - manual close detect et
+    // ⚠️ TEMPORARY DISABLED: Manual close detection çok fazla API call yapıyor (rate limit issue)
+    // Her signal için hasBlockingOpenPosition() → Binance API call
+    // 3 signal = 3x API call = timeout!
+    // TODO: Batch'te Binance position check yapmak gerek, veya database'de last_check timestamp tutmak
+    /*
     console.log(`🔍 Kontrol ediliyor: ${openAutoSignals.length} açık işlem, Binance'ta açık mı?`);
     for (const sig of openAutoSignals) {
       const symbol = String(sig.symbol || "").toUpperCase();
@@ -3560,7 +3564,6 @@ async function checkAndTriggerUserAlarms(
       const hasOpenPosition = await hasBlockingOpenPosition(sig.user_id, symbol, marketType);
       
       if (!hasOpenPosition && sig.status === "ACTIVE") {
-        // Binance'ta position yok ama database'de ACTIVE → Manual close olmuş!
         console.log(`🚨 MANUAL CLOSE DETECTED: ${symbol} (user: ${sig.user_id}) - Binance'ta açık yok ama DB'de ACTIVE`);
         signalsToClose.push({
           id: sig.id,
@@ -3570,14 +3573,12 @@ async function checkAndTriggerUserAlarms(
           close_reason: "EXTERNAL_CLOSE"
         });
         
-        // Set'ten de çıkar - yeni sinyal trigger olabilsin
         const directionKey = `${sig.user_id}:${symbol}:${String(sig.direction || "").toUpperCase()}`;
         openSignalDirections.delete(directionKey);
         console.log(`✅ openSignalDirections'tan kaldırıldı: ${directionKey}`);
       }
     }
     
-    // Database'i update et
     if (signalsToClose.length > 0) {
       console.log(`📝 ${signalsToClose.length} işlem EXTERNAL_CLOSE olarak mark ediliyor...`);
       const { error: closeError } = await supabase
@@ -3591,6 +3592,7 @@ async function checkAndTriggerUserAlarms(
         console.log(`✅ ${signalsToClose.length} işlem CLOSED olarak güncellendi`);
       }
     }
+    */
   }
   console.log(`📌 Open auto_signal count: ${openSignalKeys.size}`);
 
