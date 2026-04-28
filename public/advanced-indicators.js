@@ -1498,8 +1498,14 @@ async function runBacktest(symbol, timeframe, days = 30, confidenceThreshold = 7
             };
         };
         
+        // ✅ FIX: Açık bar'ı SKIP et - live engine'de bar-close window kuralı var
+        // Backtest'te de sadece kapalı barları process et
+        const isLastBarOpen = backtestKlines.length > 0 && resolveKlineCloseTimeMs(backtestKlines[backtestKlines.length - 1]) > serverNowMs;
+        const lastProcessableBarIndex = isLastBarOpen ? closes.length - 2 : closes.length - 1;
+        console.log(`📊 Backtest: ${closes.length} total bars, lastProcessable=${lastProcessableBarIndex}, isOpen=${isLastBarOpen}`);
+        
         // Her bar kontrol edilsin (SON AÇIK BAR HARIÇ - incomplete data)
-        for (let i = MIN_BACKTEST_WINDOW; i <= closes.length - 1; i++) {
+        for (let i = MIN_BACKTEST_WINDOW; i <= lastProcessableBarIndex; i++) {
             
             // ============================================
             // ADIM 1: AÇIK İŞLEM KONTROLÜ VE KAPATMA
